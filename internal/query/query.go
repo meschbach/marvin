@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -70,73 +69,13 @@ func performWithConfig(cfg *Config, cmd *cobra.Command, args []string) {
 	//}
 
 	// ctx already defined above
-
-	for {
-		req := &api.ChatRequest{
-			Model:    "ministral-3:3b",
-			Messages: messages,
-			Tools:    availableTools,
-			//Think:    &api.ThinkValue{Value: truePtr},
-		}
-
-		// Accumulate the assistant response and capture any tool calls
-		var assistantOut strings.Builder
-		var pendingCalls []api.ToolCall
-
-		err = client.Chat(ctx, req, func(resp api.ChatResponse) error {
-			if s := resp.Message.Content; s != "" {
-				fmt.Print(s)
-				assistantOut.WriteString(s)
-			}
-			if len(resp.Message.Thinking) > 0 {
-				fmt.Printf("Thinking: %s\n", resp.Message.Thinking)
-			}
-			if len(resp.Message.ToolCalls) > 0 {
-				fmt.Printf("Tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
-				// Capture tool calls signaled by the model
-				pendingCalls = resp.Message.ToolCalls
-			}
-			return nil
-		})
-
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "\nError querying Ollama: %v\nAssitant buffer:%s\nPending calls: %#v\nTools:\n", err, assistantOut.String(), pendingCalls)
-			for _, tool := range availableTools {
-				fmt.Fprintf(os.Stderr, "\t%s: %s\n", tool.Function.Name, tool.Function.Description)
-			}
-			return
-		}
-
-		// Record the assistant turn (including tool calls, if any)
-		assistantMsg := api.Message{
-			Role:      "assistant",
-			Content:   assistantOut.String(),
-			ToolCalls: pendingCalls,
-		}
-		messages = append(messages, assistantMsg)
-
-		// If there are no tool calls, we are done for this turn
-		if len(pendingCalls) == 0 {
-			fmt.Println()
-			return
-		}
-
-		var pendingCallsErrors error
-		// For each tool call, invoke via the toolset and append tool results
-		for _, call := range pendingCalls {
-			reply, err := toolset.HandleCall(ctx, call)
-			pendingCallsErrors = errors.Join(err, pendingCallsErrors)
-			for _, reply := range reply {
-				fmt.Printf(">\t%s\t%s: %s\n", reply.Role, reply.Content, reply.ToolCallID)
-			}
-			messages = append(messages, reply...)
-		}
-		if pendingCallsErrors != nil {
-			fmt.Printf("\nError invoking tools: %v\n", pendingCallsErrors)
-			return
-		}
-
-		// Loop continues: the next iteration sends messages including tool outputs
+	conversation := &ollamaConversation{
+		client:   client,
+		messages: messages,
+		tools:    toolset,
+	}
+	if err := conversation.runAIToConclusion(ctx, availableTools); err != nil {
+		return
 	}
 }
 

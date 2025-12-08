@@ -19,6 +19,7 @@ func main() {
 	mcp.AddCommand(mcpList)
 
 	queryCmd := query.New()
+	goalCmd := query.NewGoalCommand()
 
 	root := &cobra.Command{
 		Use:   "marvin",
@@ -26,6 +27,7 @@ func main() {
 	}
 	root.AddCommand(mcp)
 	root.AddCommand(queryCmd)
+	root.AddCommand(goalCmd)
 
 	if err := root.Execute(); err != nil {
 		panic(err)

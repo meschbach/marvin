@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -25,16 +26,16 @@ func (o *operationalError) Error() string {
 
 func (o *operationalError) Unwrap() error { return o.underlying }
 
-// Tool manages the lifecycle and invocation of a single configured local program.
-type Tool struct {
+// MCPLocalProgramTool manages the lifecycle and invocation of a single configured local program.
+type MCPLocalProgramTool struct {
 	Name    string
 	Program string
 	Args    []string
 }
 
-// FromLocalProgram constructs a Tool from a LocalProgram configuration block.
-func FromLocalProgram(lp LocalProgram) Tool {
-	return Tool{
+// FromLocalProgram constructs a MCPLocalProgramTool from a LocalProgram configuration block.
+func FromLocalProgram(lp LocalProgram) MCPLocalProgramTool {
+	return MCPLocalProgramTool{
 		Name:    lp.Name,
 		Program: lp.Program,
 		Args:    lp.Args,
@@ -43,7 +44,7 @@ func FromLocalProgram(lp LocalProgram) Tool {
 
 // APIDefs queries the MCP server for available operations and returns Ollama tool
 // definitions using namespaced names: "<toolName>.<operationName>".
-func (t Tool) APIDefs(ctx context.Context) (tool api.Tools, problem error) {
+func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
 	c := client.NewClient(transport.NewStdio(t.Program, []string{}, t.Args...))
 
 	//fmt.Printf("Discovering tools for %q %#v...", t.Program, t.Args)
@@ -92,12 +93,12 @@ func (t Tool) APIDefs(ctx context.Context) (tool api.Tools, problem error) {
 	return tools, nil
 }
 
-func (t Tool) namespaced(op string) string { return t.Name + "." + op }
+func (t MCPLocalProgramTool) namespaced(op string) string { return t.Name + "." + op }
 
 // Invoke executes the MCP tool operation based on a ToolCall and returns the
 // corresponding tool message. The call.Function.Name is expected to be
 // "<toolName>.<operationName>".
-func (t Tool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (t MCPLocalProgramTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	// Extract the operation name from the namespaced function name
 	opName := call.Function.Name
 	if idx := strings.IndexByte(opName, '.'); idx >= 0 {
@@ -109,6 +110,15 @@ func (t Tool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message,
 
 	fmt.Printf("Invoking %q with arguments %#v\n", t.Program, t.Args)
 	c := client.NewClient(transport.NewStdio(t.Program, []string{}, t.Args...))
+	defer func() {
+		closeErr := c.Close()
+		var execErr *exec.ExitError
+		if errors.As(closeErr, &execErr) {
+			//ignore as the service is already dead
+		} else {
+			problem = errors.Join(problem, closeErr)
+		}
+	}()
 
 	//fmt.Printf("invoking %q %#v...", t.Program, t.Args)
 	invocationContext, done := context.WithTimeout(ctx, 15*time.Second)
@@ -116,9 +126,6 @@ func (t Tool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message,
 	if err := c.Start(invocationContext); err != nil {
 		return nil, &operationalError{"failed to start client", err}
 	}
-	defer func() {
-		problem = errors.Join(problem, c.Close())
-	}()
 
 	_, err := c.Initialize(invocationContext, mcp.InitializeRequest{})
 	if err != nil {
@@ -156,6 +163,11 @@ func (t Tool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message,
 	return out, nil
 }
 
+type Tool interface {
+	defineAPI(ctx context.Context) (tool api.Tools, problem error)
+	invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error)
+}
+
 // ToolSet manages a collection of tools and provides helpers for chat integration.
 type ToolSet struct {
 	byName map[string]Tool // maps namespaced op name -> base Tool
@@ -184,7 +196,7 @@ func NewToolSet(ctx context.Context, cfg *Config) (*ToolSet, error) {
 	}
 	for _, lp := range cfg.LocalPrograms {
 		t := FromLocalProgram(lp)
-		defs, err := t.APIDefs(ctx)
+		defs, err := t.defineAPI(ctx)
 		if err != nil {
 			return nil, &localProgramDiscoveryError{
 				name:       t.Name,
@@ -197,6 +209,18 @@ func NewToolSet(ctx context.Context, cfg *Config) (*ToolSet, error) {
 		ts.defs = append(ts.defs, defs...)
 	}
 	return ts, nil
+}
+
+func (ts *ToolSet) registerTool(ctx context.Context, t Tool) error {
+	defs, err := t.defineAPI(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range defs {
+		ts.byName[d.Function.Name] = t
+	}
+	ts.defs = append(ts.defs, defs...)
+	return nil
 }
 
 // APITools returns the list of api.Tool definitions to send with chat requests.
@@ -217,5 +241,9 @@ func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Mes
 			},
 		}, nil
 	}
-	return t.Invoke(ctx, call)
+	msgs, err := t.invoke(ctx, call)
+	if err != nil {
+		err = &operationalError{fmt.Sprintf("tool invocation %q (id: %s)", call.Function.Name, call.ID), err}
+	}
+	return msgs, err
 }
