@@ -6,12 +6,7 @@ import (
 )
 
 func main() {
-	mcpList := &cobra.Command{
-		Use: "list",
-		Run: func(cmd *cobra.Command, args []string) {
-
-		},
-	}
+	mcpList := query.NewListMCPTools()
 
 	mcp := &cobra.Command{
 		Use: "mcp",
