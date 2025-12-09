@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -13,6 +14,10 @@ import (
 const roleSystem = "system"
 const roleUser = "user"
 const roleAssistant = "assistant"
+const roleToolResult = "tool_result"
+
+const mcpParameterTypeObject = "object"
+const mcpParameterTypeString = "string"
 
 // NewGoalCommand creates the `goal` command. This command records or echoes a
 // high-level goal provided by the user. For now, it simply prints the goal to
@@ -27,22 +32,35 @@ func NewGoalCommand() *cobra.Command {
 			ctx, done := context.WithCancel(cmd.Context())
 			defer done()
 
-			//var cfg *Config
-			//configPath, _ := cmd.Flags().GetString("config")
-			//if configPath != "" {
-			//	parsed, err := LoadConfig(configPath)
-			//	if err != nil {
-			//		fmt.Fprintf(os.Stderr, "Error loading config %q: %v\n", configPath, err)
-			//		return nil
-			//	}
-			//	cfg = parsed
-			//}
+			var cfg *Config
+			configPath, _ := cmd.Flags().GetString("config")
+			if configPath != "" {
+				parsed, err := LoadConfig(configPath)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error loading config %q: %v\n", configPath, err)
+					return nil
+				}
+				cfg = parsed
+			}
+			realToolSet, err := NewToolSet(ctx, cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
+				return nil
+			}
+
 			reasoningToolset, err := NewToolSet(cmd.Context(), nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 				return nil
 			}
-			reasoningToolset.registerTool(ctx, &reasoningStep{})
+			//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
+			//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
+			//	return err
+			//}
+			if err := reasoningToolset.registerTool(ctx, &questionForUser{}); err != nil {
+				fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
+				return err
+			}
 
 			goal := strings.Join(args, " ")
 			fmt.Printf("Goal: %s\n", goal)
@@ -54,11 +72,21 @@ func NewGoalCommand() *cobra.Command {
 				return nil
 			}
 
+			//generate a message of available MCP tools
+			availableTools := "These are tools available for the instructed AI:\n"
+			for _, tool := range realToolSet.defs {
+				availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
+			}
+
 			// Query the AI model for the steps required to complete the goal
 			stepsConversation := ollamaConversation{
 				client: client,
 				messages: []api.Message{
-					{Role: roleSystem, Content: "You are an expert system describing how to achieve a user goal.  Enumerate each step to be achieved via the reasoning_step tool"},
+					{
+						Role:    roleSystem,
+						Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via the reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
+					},
+					{Role: roleSystem, Content: availableTools},
 					{Role: roleUser, Content: goal},
 				},
 				tools: reasoningToolset,
@@ -110,4 +138,58 @@ func (r reasoningStep) defineAPI(ctx context.Context) (tool api.Tools, problem e
 			},
 		},
 	}, nil
+}
+
+type questionForUser struct {
+}
+
+func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+	args := call.Function.Arguments
+	prompt, hasPrompt := args["prompt"]
+	if !hasPrompt {
+		return nil, fmt.Errorf("missing required argument 'prompt'")
+	}
+
+	fmt.Printf("ai> %s\n", prompt)
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	trimmedInput := strings.TrimSpace(input)
+	return []api.Message{
+		{
+			Role:       roleToolResult,
+			Content:    "",
+			ToolName:   call.Function.Name,
+			ToolCallID: call.ID,
+		},
+		{
+			Role:    roleUser,
+			Content: trimmedInput,
+		},
+	}, nil
+}
+
+func (q questionForUser) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
+	output := api.Tools{
+		{
+			Type: "function",
+			Function: api.ToolFunction{
+				Name:        "reasoning_clairifying_question",
+				Description: "Request clarification from the user or to better understand what the instructions are",
+				Parameters: api.ToolFunctionParameters{
+					Type:     mcpParameterTypeObject,
+					Required: []string{"prompt"},
+					Properties: map[string]api.ToolProperty{
+						"prompt": {
+							Type:        []string{mcpParameterTypeString},
+							Description: "The prompt to ask the user",
+						},
+					},
+				},
+			},
+		},
+	}
+	return output, nil
 }
