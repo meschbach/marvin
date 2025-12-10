@@ -1,6 +1,7 @@
 package query
 
 type Config struct {
+	Model         string         `hcl:"model"`
 	LocalPrograms []LocalProgram `hcl:"local_program,block"`
 	SystemPrompt  *SystemPrompt  `hcl:"system_prompt,block"`
 }

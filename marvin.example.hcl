@@ -1,3 +1,5 @@
+model = "llama3.2:latest"
+
 system_prompt {
   from_string = <<EOS
 You are an example AI tool demonstrating Marvin, an AI tooling assistant allowing for plugging in various assistants

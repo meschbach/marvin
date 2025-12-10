@@ -91,7 +91,13 @@ func NewGoalCommand() *cobra.Command {
 				},
 				tools: reasoningToolset,
 			}
-			if err := stepsConversation.runAIToConclusion(ctx, reasoningToolset.defs); err != nil {
+
+			model := "ministral-3:3b"
+			if cfg != nil && cfg.Model != "" {
+				model = cfg.Model
+			}
+
+			if err := stepsConversation.runAIToConclusion(ctx, model, reasoningToolset.defs); err != nil {
 				fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
 				return nil
 			}

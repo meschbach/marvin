@@ -18,10 +18,10 @@ type ollamaConversation struct {
 
 // runAIToConclusion executes the AI chat loop with tool-call handling until
 // the assistant produces a final answer (no further tool calls) or an error occurs.
-func (o *ollamaConversation) runAIToConclusion(ctx context.Context, availableTools api.Tools) error {
+func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string, availableTools api.Tools) error {
 	for {
 		req := &api.ChatRequest{
-			Model:    "ministral-3:3b",
+			Model:    model,
 			Messages: o.messages,
 			Tools:    availableTools,
 		}

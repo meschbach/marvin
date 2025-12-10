@@ -74,7 +74,12 @@ func performWithConfig(cfg *Config, cmd *cobra.Command, args []string) {
 		messages: messages,
 		tools:    toolset,
 	}
-	if err := conversation.runAIToConclusion(ctx, availableTools); err != nil {
+	model := "ministral-3:3b"
+	if cfg != nil && cfg.Model != "" {
+		model = cfg.Model
+	}
+
+	if err := conversation.runAIToConclusion(ctx, model, availableTools); err != nil {
 		return
 	}
 }
