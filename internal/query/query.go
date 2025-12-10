@@ -39,7 +39,7 @@ func performWithConfig(cfg *Config, cmd *cobra.Command, args []string) {
 	}
 
 	systemMessageContent := "You are a helpful assistant."
-	if cfg.SystemPrompt != nil {
+	if cfg != nil && cfg.SystemPrompt != nil {
 		if len(cfg.SystemPrompt.FromString) > 0 {
 			systemMessageContent = cfg.SystemPrompt.FromString
 		}
