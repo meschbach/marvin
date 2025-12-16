@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/ollama/ollama/api"
 	"github.com/philippgille/chromem-go"
@@ -22,16 +21,21 @@ type DocumentsBlock struct {
 	Model string `hcl:"model,optional"`
 }
 
-func (d *DocumentsBlock) Query(ctx context.Context, query string) (string, error) {
+type QueryResult struct {
+	Path       string  `json:"path"`
+	Similarity float32 `json:"similarity"`
+}
+
+func (d *DocumentsBlock) Query(ctx context.Context, query string) ([]QueryResult, error) {
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
-		return "", fmt.Errorf("creating Ollama client for embeddings: %w", err)
+		return nil, fmt.Errorf("creating Ollama client for embeddings: %w", err)
 	}
 	embedder := &ollamaEncoder{client, d.EmbeddingModel()}
 
 	db, err := chromem.NewPersistentDB(d.StoragePath, false)
 	if err != nil {
-		return "", fmt.Errorf("opening persistent DB: %w", err)
+		return nil, fmt.Errorf("opening persistent DB: %w", err)
 	}
 	col := db.GetCollection(d.Name, embedder.Encode)
 	documentCount := col.Count()
@@ -40,13 +44,16 @@ func (d *DocumentsBlock) Query(ctx context.Context, query string) (string, error
 	}
 	result, err := col.Query(ctx, query, documentCount, nil, nil)
 	if err != nil {
-		return "", fmt.Errorf("querying collection: %w", err)
+		return nil, fmt.Errorf("querying collection: %w", err)
 	}
-	files := make([]string, len(result))
+	files := make([]QueryResult, len(result))
 	for i, result := range result {
-		files[i] = fmt.Sprintf("%s (%f)", result.Metadata["path"], result.Similarity)
+		files[i] = QueryResult{
+			Path:       result.Metadata["path"],
+			Similarity: result.Similarity,
+		}
 	}
-	return strings.Join(files, "\n"), nil
+	return files, nil
 }
 
 func (d *DocumentsBlock) EmbeddingModel() string {

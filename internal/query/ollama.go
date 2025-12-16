@@ -45,7 +45,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 				fmt.Printf("Thinking: %s\n", resp.Message.Thinking)
 			}
 			if len(resp.Message.ToolCalls) > 0 {
-				fmt.Printf("MCPLocalProgramTool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
+				fmt.Printf("tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
 				// Capture tool calls signaled by the model
 				pendingCalls = resp.Message.ToolCalls
 			}

@@ -16,6 +16,10 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+const ToolTypeFunction = "function"
+
+var ToolPropTypeString = []string{"string"}
+
 type operationalError struct {
 	description string
 	underlying  error
@@ -233,18 +237,20 @@ func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Mes
 	if !ok {
 		// Return an error message so the model can recover gracefully
 		errMsg := fmt.Sprintf("tool not found {name: %q}", call.Function.Name)
-		return []api.Message{
-			{
-				Role:       "tool",
-				ToolName:   call.Function.Name,
-				ToolCallID: call.ID,
-				Content:    fmt.Sprintf("{\"error\":%q}", errMsg),
-			},
-		}, nil
+		return []api.Message{toolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", errMsg))}, nil
 	}
 	msgs, err := t.invoke(ctx, call)
 	if err != nil {
 		err = &operationalError{fmt.Sprintf("tool invocation %q (id: %s)", call.Function.Name, call.ID), err}
 	}
 	return msgs, err
+}
+
+func toolResponseMessage(call api.ToolCall, content string) api.Message {
+	return api.Message{
+		Role:       "tool",
+		ToolName:   call.Function.Name,
+		ToolCallID: call.ID,
+		Content:    content,
+	}
 }

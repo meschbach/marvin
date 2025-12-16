@@ -12,11 +12,11 @@ import (
 var truthful = true
 var truePtr = &truthful
 
-// PerformWithConfig executes the query using the optional parsed configuration.
+// PerformWithConfig executes the search using the optional parsed configuration.
 func PerformWithConfig(cfg *config.File, actualQuery string) {
-	fmt.Printf("user query:\t%s\n", actualQuery)
+	fmt.Printf("user search:\t%s\n", actualQuery)
 
-	// query Ollama for a response
+	// search Ollama for a response
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
@@ -29,6 +29,13 @@ func PerformWithConfig(cfg *config.File, actualQuery string) {
 	if tsErr != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing tools: %v\n", tsErr)
 		return
+	}
+	for _, rag := range cfg.Documents {
+		tool := &chromemTool{rag}
+		if err := toolset.registerTool(ctx, tool); err != nil {
+			fmt.Fprintf(os.Stderr, "Error registering RAG tool: %v\n", err)
+			return
+		}
 	}
 
 	systemMessageContent := "You are a helpful assistant."
@@ -67,10 +74,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string) {
 		messages: messages,
 		tools:    toolset,
 	}
-	model := "ministral-3:3b"
-	if cfg != nil && cfg.Model != "" {
-		model = cfg.Model
-	}
+	model := cfg.LanguageModel()
 
 	if err := conversation.runAIToConclusion(ctx, model, availableTools); err != nil {
 		return

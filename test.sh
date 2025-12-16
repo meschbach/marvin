@@ -7,12 +7,12 @@ go build -o marvin ./cmd
 echo "===="
 echo "RAG index"
 echo "===="
-./marvin -c .marvin.hcl rag index
+./marvin -c marvin.test.hcl rag index
 echo "===="
 echo "RAG query"
 echo "===="
-./marvin -c .marvin.hcl rag query docs marvin
+./marvin -c marvin.test.hcl rag query docs marvin
 echo "===="
 echo "LLM Query"
 echo "===="
-./marvin -c .marvin.hcl query tell me about Marvin
+./marvin -c marvin.test.hcl query does Marvin support resource augment 'generation?'

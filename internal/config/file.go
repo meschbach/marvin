@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+const DefaultLanguageModel = "ministral-3:3b"
 const DefaultEmbeddingModel = "mxbai-embed-large:latest"
 
 // File represents a parsed configuration file
@@ -17,7 +18,15 @@ type File struct {
 	Documents []*DocumentsBlock `hcl:"documents,block"`
 }
 
-func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) (string, error) {
+func (f *File) LanguageModel() string {
+	model := f.Model
+	if model != "" {
+		return model
+	}
+	return DefaultLanguageModel
+}
+
+func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) ([]QueryResult, error) {
 	var documentBlock *DocumentsBlock
 	for _, doc := range f.Documents {
 		if doc.Name == storeName {
@@ -25,7 +34,7 @@ func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) (
 		}
 	}
 	if documentBlock == nil {
-		return "", fmt.Errorf("no documents block with name %q", storeName)
+		return nil, fmt.Errorf("no documents block with name %q", storeName)
 	}
 	result, err := documentBlock.Query(ctx, query)
 	return result, err
