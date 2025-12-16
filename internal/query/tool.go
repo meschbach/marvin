@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
 )
 
@@ -33,8 +34,8 @@ type MCPLocalProgramTool struct {
 	Args    []string
 }
 
-// FromLocalProgram constructs a MCPLocalProgramTool from a LocalProgram configuration block.
-func FromLocalProgram(lp LocalProgram) MCPLocalProgramTool {
+// FromLocalProgram constructs a MCPLocalProgramTool from a LocalProgramBlock configuration block.
+func FromLocalProgram(lp config.LocalProgramBlock) MCPLocalProgramTool {
 	return MCPLocalProgramTool{
 		Name:    lp.Name,
 		Program: lp.Program,
@@ -189,7 +190,7 @@ func (l *localProgramDiscoveryError) Error() string {
 
 // NewToolSet builds a ToolSet from the parsed configuration. Nil cfg or empty
 // content yields an empty ToolSet.
-func NewToolSet(ctx context.Context, cfg *Config) (*ToolSet, error) {
+func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	ts := &ToolSet{byName: map[string]Tool{}}
 	if cfg == nil {
 		return ts, nil

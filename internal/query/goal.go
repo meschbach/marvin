@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
-	"github.com/spf13/cobra"
 )
 
 const roleSystem = "system"
@@ -19,93 +19,68 @@ const roleToolResult = "tool_result"
 const mcpParameterTypeObject = "object"
 const mcpParameterTypeString = "string"
 
-// NewGoalCommand creates the `goal` command. This command records or echoes a
-// high-level goal provided by the user. For now, it simply prints the goal to
-// stdout so it can be piped or observed by other tooling.
-func NewGoalCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "goal <goal...>",
-		Short: "Declare a high-level goal for the current session",
-		Long:  "Declare a high-level goal for the current session. This command currently echoes the goal text.",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, done := context.WithCancel(cmd.Context())
-			defer done()
+func PerformGoalWithConfig(cfg *config.File, goal string) {
+	ctx, done := context.WithCancel(context.Background())
+	defer done()
 
-			var cfg *Config
-			configPath, _ := cmd.Flags().GetString("config")
-			if configPath != "" {
-				parsed, err := LoadConfig(configPath)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error loading config %q: %v\n", configPath, err)
-					return nil
-				}
-				cfg = parsed
-			}
-			realToolSet, err := NewToolSet(ctx, cfg)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
-				return nil
-			}
-
-			reasoningToolset, err := NewToolSet(cmd.Context(), nil)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
-				return nil
-			}
-			//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
-			//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
-			//	return err
-			//}
-			if err := reasoningToolset.registerTool(ctx, &questionForUser{}); err != nil {
-				fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
-				return err
-			}
-
-			goal := strings.Join(args, " ")
-			fmt.Printf("Goal: %s\n", goal)
-
-			// Query Ollama for a response
-			client, err := api.ClientFromEnvironment()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
-				return nil
-			}
-
-			//generate a message of available MCP tools
-			availableTools := "These are tools available for the instructed AI:\n"
-			for _, tool := range realToolSet.defs {
-				availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
-			}
-
-			// Query the AI model for the steps required to complete the goal
-			stepsConversation := ollamaConversation{
-				client: client,
-				messages: []api.Message{
-					{
-						Role:    roleSystem,
-						Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via the reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
-					},
-					{Role: roleSystem, Content: availableTools},
-					{Role: roleUser, Content: goal},
-				},
-				tools: reasoningToolset,
-			}
-
-			model := "ministral-3:3b"
-			if cfg != nil && cfg.Model != "" {
-				model = cfg.Model
-			}
-
-			if err := stepsConversation.runAIToConclusion(ctx, model, reasoningToolset.defs); err != nil {
-				fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
-				return nil
-			}
-			return nil
-		},
+	realToolSet, err := NewToolSet(ctx, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
+		return
 	}
-	cmd.Flags().StringP("config", "c", "", "Path to configuration file (HCL)")
-	return cmd
+
+	reasoningToolset, err := NewToolSet(ctx, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
+		return
+	}
+	//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
+	//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
+	//	return err
+	//}
+	if err := reasoningToolset.registerTool(ctx, &questionForUser{}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Goal: %s\n", goal)
+
+	// QueryRAGDocuments Ollama for a response
+	client, err := api.ClientFromEnvironment()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
+		return
+	}
+
+	//generate a message of available MCP tools
+	availableTools := "These are tools available for the instructed AI:\n"
+	for _, tool := range realToolSet.defs {
+		availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
+	}
+
+	// QueryRAGDocuments the AI model for the steps required to complete the goal
+	stepsConversation := ollamaConversation{
+		client: client,
+		messages: []api.Message{
+			{
+				Role:    roleSystem,
+				Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via the reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
+			},
+			{Role: roleSystem, Content: availableTools},
+			{Role: roleUser, Content: goal},
+		},
+		tools: reasoningToolset,
+	}
+
+	model := "ministral-3:3b"
+	if cfg != nil && cfg.Model != "" {
+		model = cfg.Model
+	}
+
+	if err := stepsConversation.runAIToConclusion(ctx, model, reasoningToolset.defs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
+		return
+	}
 }
 
 type reasoningStep struct {
