@@ -39,5 +39,5 @@ jobs:
       - name: Run integration tests
         run: |
           ollama pull mxbai-embed-large:latest
-          ollama pull qwen3:8b
+          ollama pull ministral-3:3b
           ./test.sh
