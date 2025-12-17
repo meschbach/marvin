@@ -38,6 +38,9 @@ func (d *DocumentsBlock) Query(ctx context.Context, query string) ([]QueryResult
 		return nil, fmt.Errorf("opening persistent DB: %w", err)
 	}
 	col := db.GetCollection(d.Name, embedder.Encode)
+	if col == nil {
+		return nil, nil
+	}
 	documentCount := col.Count()
 	if documentCount > 10 {
 		documentCount = 10
