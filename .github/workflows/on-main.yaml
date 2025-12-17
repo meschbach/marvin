@@ -40,4 +40,4 @@ jobs:
         run: |
           ollama pull mxbai-embed-large:latest
           ollama pull qwen3:8b
-#          ./test.sh
+          ./test.sh
