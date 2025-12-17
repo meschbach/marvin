@@ -27,4 +27,5 @@ jobs:
         uses: ai-action/setup-ollama@v1
       - name: Run integration tests
         run: |
+          ollama pull qwen3:8b
           ./test.sh
