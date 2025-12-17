@@ -9,8 +9,19 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+type ChatOptions struct {
+	//ShowTools will print out tool utilization and integration
+	ShowTools bool
+	//DumpTooling will print out the tooling available
+	DumpTooling bool
+	//ShowThinking will print out the thinking process
+	ShowThinking bool
+	//ShowDone will print out when the LLM issues a "Done" command
+	ShowDone bool
+}
+
 // PerformWithConfig executes the search using the optional parsed configuration.
-func PerformWithConfig(cfg *config.File, actualQuery string, showThinking bool) {
+func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) {
 	fmt.Printf("user search:\t%s\n", actualQuery)
 
 	// search Ollama for a response
@@ -60,13 +71,21 @@ func PerformWithConfig(cfg *config.File, actualQuery string, showThinking bool) 
 		{Role: "user", Content: actualQuery},
 	}
 	availableTools := toolset.APITools()
+	if opts.DumpTooling {
+		fmt.Println("Available tools:")
+		for _, tool := range availableTools {
+			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
+		}
+	}
 
 	// ctx already defined above
 	conversation := &ollamaConversation{
 		client:       client,
 		messages:     messages,
 		tools:        toolset,
-		showThinking: showThinking,
+		showThinking: opts.ShowThinking,
+		showTools:    opts.ShowTools,
+		showDone:     opts.ShowDone,
 	}
 	model := cfg.LanguageModel()
 

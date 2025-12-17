@@ -30,7 +30,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		}
 
 		// Accumulate the assistant response and capture any tool calls
-		var assistantOut strings.Builder
+		var assistantOut, thinkingBuffer strings.Builder
 		var thisLine strings.Builder
 		var thisThinking strings.Builder
 		var pendingCalls []api.ToolCall
@@ -48,15 +48,17 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 
 				assistantOut.WriteString(s)
 			}
-			if o.showThinking {
-				if len(resp.Message.Thinking) > 0 {
+			if len(resp.Message.Thinking) > 0 {
+				if o.showThinking {
 					thisThinking.WriteString(resp.Message.Thinking)
 					if strings.Contains(thisThinking.String(), "\n") {
 						fmt.Printf("Thinking: %s", thisThinking.String())
 						thisThinking.Reset()
 					}
 				}
+				thinkingBuffer.WriteString(resp.Message.Thinking)
 			}
+
 			if len(resp.Message.ToolCalls) > 0 {
 				if o.showTools {
 					fmt.Printf("tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
@@ -80,6 +82,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 			Role:      roleAssistant,
 			Content:   assistantOut.String(),
 			ToolCalls: pendingCalls,
+			Thinking:  thinkingBuffer.String(),
 		}
 		o.messages = append(o.messages, assistantMsg)
 

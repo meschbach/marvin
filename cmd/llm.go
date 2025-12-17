@@ -10,10 +10,7 @@ import (
 )
 
 func queryCommand(global *globalOptions) *cobra.Command {
-	type queryOptions struct {
-		showThinking bool
-	}
-	queryOpts := &queryOptions{}
+	queryOpts := &query.ChatOptions{}
 
 	cmd := &cobra.Command{
 		Use:   "query <query...>",
@@ -32,11 +29,14 @@ func queryCommand(global *globalOptions) *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				return
 			}
-			query.PerformWithConfig(config, actualQuery, queryOpts.showThinking)
+			query.PerformWithConfig(config, actualQuery, queryOpts)
 		},
 	}
 	pflags := cmd.PersistentFlags()
-	pflags.BoolVarP(&queryOpts.showThinking, "show-thinking", "t", false, "Show the models thinking")
+	pflags.BoolVarP(&queryOpts.ShowThinking, "show-thinking", "t", false, "Show the models thinking")
+	pflags.BoolVarP(&queryOpts.ShowTools, "show-tools", "s", false, "Show tools available and usage")
+	pflags.BoolVarP(&queryOpts.DumpTooling, "dump-tools", "d", false, "Dumps the available tools to the LLM")
+	pflags.BoolVarP(&queryOpts.ShowDone, "show-done", "e", false, "Show the Done command issued by the LLM")
 	return cmd
 }
 
