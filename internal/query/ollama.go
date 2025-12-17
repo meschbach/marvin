@@ -11,12 +11,14 @@ import (
 )
 
 type ollamaConversation struct {
-	client       *api.Client
-	messages     []api.Message
-	tools        *ToolSet
-	showThinking bool
-	showDone     bool
-	showTools    bool
+	client         *api.Client
+	messages       []api.Message
+	tools          *ToolSet
+	showThinking   bool
+	showDone       bool
+	showTools      bool
+	responseTokens int
+	promptTokens   int
 }
 
 // runAIToConclusion executes the AI chat loop with tool-call handling until
@@ -36,8 +38,12 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		var pendingCalls []api.ToolCall
 
 		err := o.client.Chat(ctx, req, func(resp api.ChatResponse) error {
-			if o.showDone && resp.Done {
-				fmt.Printf("<Done> (%d) %s\n", resp.EvalCount, resp.DoneReason)
+			if resp.Done {
+				if o.showDone {
+					fmt.Printf("<Done> (%d) %s\n", resp.EvalCount, resp.DoneReason)
+				}
+				o.responseTokens = o.responseTokens + resp.EvalCount
+				o.promptTokens = o.promptTokens + resp.PromptEvalCount
 			}
 			if s := resp.Message.Content; s != "" {
 				thisLine.WriteString(s)
@@ -89,6 +95,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		// If there are no tool calls, we are done for this turn
 		if len(pendingCalls) == 0 {
 			fmt.Println()
+			fmt.Printf("Total tokens: %d = (prompt tokens: %d) + (response tokens: %d)\n", o.responseTokens+o.promptTokens, o.promptTokens, o.responseTokens)
 			return nil
 		}
 

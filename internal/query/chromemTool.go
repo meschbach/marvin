@@ -79,21 +79,13 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 	query, has := call.Function.Arguments[ChromemSearchQueryParameter]
 	if !has {
 		return []api.Message{
-			{
-				Role:       roleToolResult,
-				Content:    "required parameter query is missing",
-				ToolCallID: call.ID,
-			},
+			toolResponseMessage(call, "required parameter query is missing"),
 		}, nil
 	}
 	unwrappedQuery, ok := query.(string)
 	if !ok {
 		return []api.Message{
-			{
-				Role:       roleToolResult,
-				Content:    "required parameter query must be a string",
-				ToolCallID: call.ID,
-			},
+			toolResponseMessage(call, "required parameter query must be a string"),
 		}, nil
 	}
 
@@ -133,15 +125,16 @@ func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out 
 	unwrappedPath = filepath.Join(documentBase, unwrappedPath)
 	wholeFile, err := os.ReadFile(unwrappedPath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return []api.Message{
+				toolResponseMessage(call, fmt.Sprintf("file %q does not exist", unwrappedPath)),
+			}, nil
+		}
 		return nil, err
 	}
 	fileContents := string(wholeFile)
 
 	return []api.Message{
-		{
-			Role:       roleToolResult,
-			ToolCallID: call.ID,
-			Content:    fileContents,
-		},
+		toolResponseMessage(call, fileContents),
 	}, nil
 }
