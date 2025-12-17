@@ -9,11 +9,8 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-var truthful = true
-var truePtr = &truthful
-
 // PerformWithConfig executes the search using the optional parsed configuration.
-func PerformWithConfig(cfg *config.File, actualQuery string) {
+func PerformWithConfig(cfg *config.File, actualQuery string, showThinking bool) {
 	fmt.Printf("user search:\t%s\n", actualQuery)
 
 	// search Ollama for a response
@@ -31,7 +28,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string) {
 		return
 	}
 	for _, rag := range cfg.Documents {
-		tool := &chromemTool{rag}
+		tool := &chromemTool{config: rag, showInvocations: false}
 		if err := toolset.registerTool(ctx, tool); err != nil {
 			fmt.Fprintf(os.Stderr, "Error registering RAG tool: %v\n", err)
 			return
@@ -63,16 +60,13 @@ func PerformWithConfig(cfg *config.File, actualQuery string) {
 		{Role: "user", Content: actualQuery},
 	}
 	availableTools := toolset.APITools()
-	//fmt.Println("Available tools:")
-	//for _, tool := range availableTools {
-	//	fmt.Printf("%s: %s\n", tool.Function.Name, tool.Function.Description)
-	//}
 
 	// ctx already defined above
 	conversation := &ollamaConversation{
-		client:   client,
-		messages: messages,
-		tools:    toolset,
+		client:       client,
+		messages:     messages,
+		tools:        toolset,
+		showThinking: showThinking,
 	}
 	model := cfg.LanguageModel()
 

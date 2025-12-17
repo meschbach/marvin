@@ -10,6 +10,11 @@ import (
 )
 
 func queryCommand(global *globalOptions) *cobra.Command {
+	type queryOptions struct {
+		showThinking bool
+	}
+	queryOpts := &queryOptions{}
+
 	cmd := &cobra.Command{
 		Use:   "query <query...>",
 		Short: "Send a free-form query to Ollama and print the response",
@@ -27,9 +32,11 @@ func queryCommand(global *globalOptions) *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				return
 			}
-			query.PerformWithConfig(config, actualQuery)
+			query.PerformWithConfig(config, actualQuery, queryOpts.showThinking)
 		},
 	}
+	pflags := cmd.PersistentFlags()
+	pflags.BoolVarP(&queryOpts.showThinking, "show-thinking", "t", false, "Show the models thinking")
 	return cmd
 }
 

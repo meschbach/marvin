@@ -11,9 +11,12 @@ import (
 )
 
 type ollamaConversation struct {
-	client   *api.Client
-	messages []api.Message
-	tools    *ToolSet
+	client       *api.Client
+	messages     []api.Message
+	tools        *ToolSet
+	showThinking bool
+	showDone     bool
+	showTools    bool
 }
 
 // runAIToConclusion executes the AI chat loop with tool-call handling until
@@ -29,9 +32,13 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		// Accumulate the assistant response and capture any tool calls
 		var assistantOut strings.Builder
 		var thisLine strings.Builder
+		var thisThinking strings.Builder
 		var pendingCalls []api.ToolCall
 
 		err := o.client.Chat(ctx, req, func(resp api.ChatResponse) error {
+			if o.showDone && resp.Done {
+				fmt.Printf("<Done> (%d) %s\n", resp.EvalCount, resp.DoneReason)
+			}
 			if s := resp.Message.Content; s != "" {
 				thisLine.WriteString(s)
 				if strings.Contains(s, "\n") {
@@ -41,11 +48,19 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 
 				assistantOut.WriteString(s)
 			}
-			if len(resp.Message.Thinking) > 0 {
-				fmt.Printf("Thinking: %s\n", resp.Message.Thinking)
+			if o.showThinking {
+				if len(resp.Message.Thinking) > 0 {
+					thisThinking.WriteString(resp.Message.Thinking)
+					if strings.Contains(thisThinking.String(), "\n") {
+						fmt.Printf("Thinking: %s", thisThinking.String())
+						thisThinking.Reset()
+					}
+				}
 			}
 			if len(resp.Message.ToolCalls) > 0 {
-				fmt.Printf("tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
+				if o.showTools {
+					fmt.Printf("tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
+				}
 				// Capture tool calls signaled by the model
 				pendingCalls = resp.Message.ToolCalls
 			}
@@ -53,7 +68,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		})
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "\nError querying Ollama: %v\nAssitant buffer:%s\nPending calls: %#v\nTools:\n", err, assistantOut.String(), pendingCalls)
+			fmt.Fprintf(os.Stderr, "\nError querying Ollama: %v\nAssitant buffer:%q\nPending calls: %#v\nTools:\n", err, assistantOut.String(), pendingCalls)
 			for _, tool := range availableTools {
 				fmt.Fprintf(os.Stderr, "\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 			}
@@ -62,7 +77,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 
 		// Record the assistant turn (including tool calls, if any)
 		assistantMsg := api.Message{
-			Role:      "assistant",
+			Role:      roleAssistant,
 			Content:   assistantOut.String(),
 			ToolCalls: pendingCalls,
 		}
@@ -79,8 +94,10 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		for _, call := range pendingCalls {
 			reply, herr := o.tools.HandleCall(ctx, call)
 			pendingCallsErrors = errors.Join(herr, pendingCallsErrors)
-			for _, reply := range reply {
-				fmt.Printf(">\t%s\t%s: %s\n", reply.Role, reply.Content, reply.ToolCallID)
+			if o.showTools {
+				for _, reply := range reply {
+					fmt.Printf(">\t%s\t%s: %s\n", reply.Role, reply.Content, reply.ToolCallID)
+				}
 			}
 			o.messages = append(o.messages, reply...)
 		}

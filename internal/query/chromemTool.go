@@ -2,19 +2,21 @@ package query
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
 )
 
 type chromemTool struct {
-	config *config.DocumentsBlock
+	config          *config.DocumentsBlock
+	showInvocations bool
 }
 
 const ChromemSearchQueryParameter = "query"
-const ChromemDocumentPathParameter = "path"
+const ChromemDocumentPathParameter = "filename"
 
 func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
 	tools := make(api.Tools, 0)
@@ -22,7 +24,7 @@ func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem er
 		Type: ToolTypeFunction,
 		Function: api.ToolFunction{
 			Name:        "search",
-			Description: fmt.Sprintf("searches the document repository containing %s for a similarities to the given description.  returns the path name and similar to the query.  use read_document tool to retrieve the contents of the document.", c.config.Description),
+			Description: fmt.Sprintf("Searches the document repository %q for a document matching the given query", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
 				Type:     ToolTypeFunction,
 				Required: []string{"query"},
@@ -39,10 +41,10 @@ func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem er
 		Type: ToolTypeFunction,
 		Function: api.ToolFunction{
 			Name:        "read_document",
-			Description: "Reads a document from the repository",
+			Description: fmt.Sprintf("Retrieves a specific document from the repository %q", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
 				Type:     ToolTypeFunction,
-				Required: []string{"path"},
+				Required: []string{ChromemDocumentPathParameter},
 				Properties: map[string]api.ToolProperty{
 					ChromemDocumentPathParameter: {
 						Type:        ToolPropTypeString,
@@ -56,7 +58,9 @@ func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem er
 }
 
 func (c *chromemTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	fmt.Printf("rag> invoked chromem tool %s\n", call.Function.Name)
+	if c.showInvocations {
+		fmt.Printf("rag> invoked chromem tool %s\n", call.Function.Name)
+	}
 	functionName := call.Function.Name
 
 	switch functionName {
@@ -98,13 +102,16 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 		return nil, err
 	}
 
-	output, err := json.Marshal(matches)
-	if err != nil {
-		return nil, err
+	if len(matches) == 0 {
+		return []api.Message{
+			toolResponseMessage(call, fmt.Sprintf("no matches for %q found", unwrappedQuery)),
+		}, nil
 	}
-	return []api.Message{
-		toolResponseMessage(call, string(output)),
-	}, nil
+	var output []api.Message
+	for _, match := range matches {
+		output = append(output, toolResponseMessage(call, fmt.Sprintf("the file %q matched the query %q", match.Path, unwrappedQuery)))
+	}
+	return output, nil
 }
 
 func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
@@ -116,11 +123,25 @@ func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out 
 	if !ok {
 		return nil, fmt.Errorf("required parameter path must be a string")
 	}
+
+	//resolve relative
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	documentBase := filepath.Join(wd, c.config.DocumentPath)
+	unwrappedPath = filepath.Join(documentBase, unwrappedPath)
+	wholeFile, err := os.ReadFile(unwrappedPath)
+	if err != nil {
+		return nil, err
+	}
+	fileContents := string(wholeFile)
+
 	return []api.Message{
 		{
 			Role:       roleToolResult,
 			ToolCallID: call.ID,
-			Content:    unwrappedPath,
+			Content:    fileContents,
 		},
 	}, nil
 }

@@ -15,4 +15,4 @@ echo "===="
 echo "===="
 echo "LLM Query"
 echo "===="
-./marvin -c marvin.test.hcl query does Marvin support resource augment 'generation?'
+./marvin -c marvin.test.hcl query "does Marvin support retrieval augmented generation?"
