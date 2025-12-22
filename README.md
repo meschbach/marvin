@@ -4,17 +4,13 @@ Marvin is an agentic workflow CLI that connects an AI reasoning loop to Model Co
 experimental workbench intended to:
 
 - Let you ask natural language queries and stream answers from a local LLM (via Ollama)
-- Use MCP-compatible tools to augment reasoning
+- [Use MCP-compatible tools to augment reasoning](docs/mcp.md)
 - Explore the capabilities of MCP-compatible tools
 
 ## What Marvin is not:
 - A replacement for LLMs
 - A replacement for MCP tools
 - A chat system like Open WebUI or AnythingLLM
-
-## Future
-These features are nice to have in the future:
-- Orchestrate tool-augmented reasoning using MCP-compatible tools (planned)
 
 ---
 
