@@ -32,7 +32,7 @@ func FromLocalProgram(lp config.LocalProgramBlock) MCPLocalProgramTool {
 	}
 }
 
-// APIDefs queries the MCP server for available operations and returns Ollama tool
+// defineAPI queries the MCP server for available operations and returns Ollama tool
 // definitions using namespaced names: "<toolName>.<operationName>".
 func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
 	c := client.NewClient(transport.NewStdio(t.Program, []string{}, t.Args...))
@@ -85,7 +85,7 @@ func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, pro
 
 func (t MCPLocalProgramTool) namespaced(op string) string { return t.Name + "." + op }
 
-// Invoke executes the MCP tool operation based on a ToolCall and returns the
+// invoke executes the MCP tool operation based on a ToolCall and returns the
 // corresponding tool message. The call.Function.Name is expected to be
 // "<toolName>.<operationName>".
 func (t MCPLocalProgramTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
