@@ -40,12 +40,6 @@ func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) (
 	return result, err
 }
 
-type LocalProgramBlock struct {
-	Name    string   `hcl:"name,label"`
-	Program string   `hcl:"program"`
-	Args    []string `hcl:"args,optional"`
-}
-
 type SystemPromptBlock struct {
 	FromString string `hcl:"from_string,optional"`
 	FromFile   string `hcl:"from_file,optional"`
