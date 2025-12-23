@@ -131,23 +131,13 @@ func (t MCPLocalProgramTool) invoke(ctx context.Context, call api.ToolCall) (out
 	})
 	if err != nil {
 		return []api.Message{
-			{
-				Role:       "tool",
-				ToolName:   call.Function.Name,
-				ToolCallID: call.ID,
-				Content:    fmt.Sprintf("{\"error\":%q}", err.Error()),
-			},
+			toolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", err.Error())),
 		}, nil
 	}
 	//fmt.Printf("Invocation result: %#v\n", resp)
 	for _, c := range resp.Content {
 		if text, isText := c.(mcp.TextContent); isText {
-			out = append(out, api.Message{
-				Role:       "tool",
-				Content:    text.Text,
-				ToolName:   call.Function.Name,
-				ToolCallID: call.ID,
-			})
+			out = append(out, toolResponseMessage(call, text.Text))
 		}
 	}
 	return out, nil
