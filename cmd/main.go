@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -36,6 +39,9 @@ func main() {
 	root.AddCommand(ragCommand(globalOpts))
 
 	if err := root.Execute(); err != nil {
-		panic(err)
+		if _, err := fmt.Fprintf(os.Stderr, "%s\n", err); err != nil {
+			panic(err)
+		}
+		os.Exit(-1)
 	}
 }
