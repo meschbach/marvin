@@ -15,9 +15,11 @@ type File struct {
 	LocalPrograms []LocalProgramBlock `hcl:"local_program,block"`
 	SystemPrompt  *SystemPromptBlock  `hcl:"system_prompt,block"`
 	// Documents represents blocks fo contextual documents to manage
-	Documents []*DocumentsBlock `hcl:"documents,block"`
+	Documents      []*DocumentsBlock `hcl:"documents,block"`
+	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
 }
 
+// LanguageModel returns the language model to use for this configuration or the default if one is not set
 func (f *File) LanguageModel() string {
 	model := f.Model
 	if model != "" {

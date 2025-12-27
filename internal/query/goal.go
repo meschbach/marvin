@@ -28,12 +28,14 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
 		return
 	}
+	defer realToolSet.Shutdown(ctx)
 
 	reasoningToolset, err := NewToolSet(ctx, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
 	}
+	defer reasoningToolset.Shutdown(ctx)
 	//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
 	//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
 	//	return err

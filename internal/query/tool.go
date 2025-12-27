@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
@@ -19,8 +20,9 @@ type Tool interface {
 
 // ToolSet manages a collection of tools and provides helpers for chat integration.
 type ToolSet struct {
-	byName map[string]Tool // maps namespaced op name -> base Tool
-	defs   api.Tools
+	byName    map[string]Tool // maps namespaced op name -> base Tool
+	defs      api.Tools
+	container *Container
 }
 
 type localProgramDiscoveryError struct {
@@ -39,7 +41,14 @@ func (l *localProgramDiscoveryError) Error() string {
 // NewToolSet builds a ToolSet from the parsed configuration. Nil cfg or empty
 // content yields an empty ToolSet.
 func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
-	ts := &ToolSet{byName: map[string]Tool{}}
+	ts := &ToolSet{
+		byName: map[string]Tool{},
+		container: &Container{
+			name:  "tool container",
+			state: sync.Mutex{},
+		},
+	}
+
 	if cfg == nil {
 		return ts, nil
 	}
@@ -56,6 +65,9 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 			ts.byName[d.Function.Name] = t
 		}
 		ts.defs = append(ts.defs, defs...)
+	}
+	if err := ts.loadToolsFromDocker(ctx, cfg); err != nil {
+		return nil, err
 	}
 	return ts, nil
 }
@@ -74,6 +86,10 @@ func (ts *ToolSet) registerTool(ctx context.Context, t Tool) error {
 
 // APITools returns the list of api.Tool definitions to send with chat requests.
 func (ts *ToolSet) APITools() api.Tools { return ts.defs }
+
+func (ts *ToolSet) Shutdown(ctx context.Context) error {
+	return ts.container.Shutdown(ctx)
+}
 
 // HandleCall invokes the named tool if available, otherwise returns an error tool message.
 func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Message, error) {

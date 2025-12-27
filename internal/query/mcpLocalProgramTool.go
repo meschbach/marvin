@@ -86,7 +86,7 @@ func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, pro
 func (t MCPLocalProgramTool) namespaced(op string) string { return t.Name + "." + op }
 
 // invoke executes the MCP tool operation based on a ToolCall and returns the
-// corresponding tool message. The call.Function.Name is expected to be
+// corresponding tool message. The call.Function.Describe is expected to be
 // "<toolName>.<operationName>".
 func (t MCPLocalProgramTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	// Extract the operation name from the namespaced function name

@@ -16,6 +16,7 @@ func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 		fmt.Fprintf(os.Stderr, "Error loading tools: %v\n", err)
 		return
 	}
+	defer tools.Shutdown(ctx)
 
 	for _, tool := range tools.defs {
 		fmt.Printf("%s: %s\n", tool.Function.Name, tool.Function.Description)

@@ -38,6 +38,12 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		fmt.Fprintf(os.Stderr, "Error initializing tools: %v\n", tsErr)
 		return
 	}
+	defer func() {
+		fmt.Println("Shutting down tools")
+		if err := toolset.Shutdown(ctx); err != nil {
+			fmt.Printf("Error shutting down tools: %v\n", err)
+		}
+	}()
 	for _, rag := range cfg.Documents {
 		tool := &chromemTool{config: rag, showInvocations: false}
 		if err := toolset.registerTool(ctx, tool); err != nil {
