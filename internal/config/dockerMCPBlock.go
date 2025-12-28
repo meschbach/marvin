@@ -8,9 +8,9 @@ import (
 type DockerMCPBlock struct {
 	Name    string              `hcl:"name,label"`
 	Image   string              `hcl:"image,label"`
-	Args    []DockerMCPBlockArg `hcl:"args_string,block"`
+	Args    []DockerMCPBlockArg `hcl:"args,block"`
 	Mount   []DockerMCPMount    `hcl:"mount,block"`
-	Value   []DockerMCPBlockEnv `hcl:"env,block"`
+	Env     []DockerMCPBlockEnv `hcl:"env,block"`
 	Verbose *bool               `hcl:"verbose,optional"`
 }
 

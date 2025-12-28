@@ -29,6 +29,7 @@ type dockerMCPTool struct {
 	containerID  string
 	transport    types.HijackedResponse
 	stdoutWriter io.WriteCloser
+	initResult   *mcp.InitializeResult
 }
 
 func (d *dockerMCPTool) Describe() string {
@@ -60,7 +61,7 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 
 	// 2. Prepare container config
 	var envs []string
-	for _, e := range d.cfg.Value {
+	for _, e := range d.cfg.Env {
 		key, value, err := e.ResolveValue()
 		if err != nil {
 			return err
@@ -133,7 +134,7 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 	if err := d.mcpClient.Start(startupTimer); err != nil {
 		return &operationalError{"failed to start docker mcp client", err}
 	}
-	_, err = d.mcpClient.Initialize(startupTimer, mcp.InitializeRequest{})
+	d.initResult, err = d.mcpClient.Initialize(startupTimer, mcp.InitializeRequest{})
 	return err
 }
 
@@ -173,10 +174,18 @@ func (d *dockerMCPTool) Shutdown(shutdownContext context.Context) (problem error
 	return problem
 }
 
-func (d *dockerMCPTool) defineAPI(ctx context.Context) (api.Tools, error) {
+func (d *dockerMCPTool) defineAPI(ctx context.Context) ([]api.Message, api.Tools, error) {
+	var out []api.Message
 	discovered, err := d.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, &operationalError{"list tools", err}
+		return nil, nil, &operationalError{"list tools", err}
+	}
+
+	if d.initResult.Instructions != "" {
+		out = append(out, api.Message{
+			Role:    roleSystem,
+			Content: d.initResult.Instructions,
+		})
 	}
 
 	var tools api.Tools
@@ -184,10 +193,10 @@ func (d *dockerMCPTool) defineAPI(ctx context.Context) (api.Tools, error) {
 		var params api.ToolFunctionParameters
 		bytes, err := json.Marshal(dtl.InputSchema)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err := json.Unmarshal(bytes, &params); err != nil {
-			return nil, &operationalError{"translating tooling", err}
+			return nil, nil, &operationalError{"translating tooling", err}
 		}
 
 		output := api.Tool{
@@ -200,7 +209,7 @@ func (d *dockerMCPTool) defineAPI(ctx context.Context) (api.Tools, error) {
 		}
 		tools = append(tools, output)
 	}
-	return tools, nil
+	return out, tools, nil
 }
 
 func (d *dockerMCPTool) namespaced(op string) string {

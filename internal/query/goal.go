@@ -154,7 +154,7 @@ func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []a
 	}, nil
 }
 
-func (q questionForUser) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
+func (q questionForUser) defineAPI(ctx context.Context) (instructions []api.Message, tool api.Tools, problem error) {
 	output := api.Tools{
 		{
 			Type: "function",
@@ -174,5 +174,9 @@ func (q questionForUser) defineAPI(ctx context.Context) (tool api.Tools, problem
 			},
 		},
 	}
-	return output, nil
+	instructions = append(instructions, api.Message{
+		Role:    roleSystem,
+		Content: "Use the tool reasoning_clairifying_question to ask the user for additional details when you are unsure, need more information, or are otherwise not certain.",
+	})
+	return instructions, output, nil
 }

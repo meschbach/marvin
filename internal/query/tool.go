@@ -14,15 +14,16 @@ const ToolTypeFunction = "function"
 var ToolPropTypeString = []string{"string"}
 
 type Tool interface {
-	defineAPI(ctx context.Context) (tool api.Tools, problem error)
+	defineAPI(ctx context.Context) (instructions []api.Message, tool api.Tools, problem error)
 	invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error)
 }
 
 // ToolSet manages a collection of tools and provides helpers for chat integration.
 type ToolSet struct {
-	byName    map[string]Tool // maps namespaced op name -> base Tool
-	defs      api.Tools
-	container *Container
+	instructions []api.Message
+	byName       map[string]Tool // maps namespaced op name -> base Tool
+	defs         api.Tools
+	container    *Container
 }
 
 type localProgramDiscoveryError struct {
@@ -54,17 +55,12 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	}
 	for _, lp := range cfg.LocalPrograms {
 		t := FromLocalProgram(lp)
-		defs, err := t.defineAPI(ctx)
-		if err != nil {
+		if err := ts.registerTool(ctx, t); err != nil {
 			return nil, &localProgramDiscoveryError{
 				name:       t.Name,
 				underlying: err,
 			} // fail hard per requirements
 		}
-		for _, d := range defs {
-			ts.byName[d.Function.Name] = t
-		}
-		ts.defs = append(ts.defs, defs...)
 	}
 	if err := ts.loadToolsFromDocker(ctx, cfg); err != nil {
 		return nil, err
@@ -73,7 +69,7 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 }
 
 func (ts *ToolSet) registerTool(ctx context.Context, t Tool) error {
-	defs, err := t.defineAPI(ctx)
+	thisInstructions, defs, err := t.defineAPI(ctx)
 	if err != nil {
 		return err
 	}
@@ -81,6 +77,7 @@ func (ts *ToolSet) registerTool(ctx context.Context, t Tool) error {
 		ts.byName[d.Function.Name] = t
 	}
 	ts.defs = append(ts.defs, defs...)
+	ts.instructions = append(ts.instructions, thisInstructions...)
 	return nil
 }
 

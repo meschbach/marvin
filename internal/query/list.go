@@ -18,6 +18,14 @@ func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 	}
 	defer tools.Shutdown(ctx)
 
+	for _, instruction := range tools.instructions {
+		fmt.Printf("Instruction: %s\n=== End instruction ===\n", instruction.Content)
+	}
+	if len(tools.instructions) == 0 {
+		fmt.Println("No instructions found")
+	}
+	fmt.Println()
+
 	for _, tool := range tools.defs {
 		fmt.Printf("%s: %s\n", tool.Function.Name, tool.Function.Description)
 		dumpLayer := func(prefix string, p api.ToolFunctionParameters) {

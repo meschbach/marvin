@@ -34,27 +34,26 @@ func FromLocalProgram(lp config.LocalProgramBlock) MCPLocalProgramTool {
 
 // defineAPI queries the MCP server for available operations and returns Ollama tool
 // definitions using namespaced names: "<toolName>.<operationName>".
-func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
+func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (instructions []api.Message, tool api.Tools, problem error) {
 	c := client.NewClient(transport.NewStdio(t.Program, []string{}, t.Args...))
 
 	//fmt.Printf("Discovering tools for %q %#v...", t.Program, t.Args)
 	discoveryContext, done := context.WithTimeout(ctx, 15*time.Second)
 	defer done()
 	if err := c.Start(discoveryContext); err != nil {
-		return nil, &operationalError{"failed to start client", err}
+		return instructions, nil, &operationalError{"failed to start client", err}
 	}
 	defer func() {
 		problem = errors.Join(problem, c.Close())
 	}()
 
-	//fmt.Print("init...")
-	_, err := c.Initialize(discoveryContext, mcp.InitializeRequest{})
+	init, err := c.Initialize(discoveryContext, mcp.InitializeRequest{})
 	if err != nil {
-		return nil, &operationalError{"failed to initialize client", err}
+		return instructions, nil, &operationalError{"failed to initialize client", err}
 	}
 	discovered, err := c.ListTools(discoveryContext, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, &operationalError{"list tools", err}
+		return instructions, nil, &operationalError{"list tools", err}
 	}
 
 	var tools api.Tools
@@ -63,10 +62,10 @@ func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, pro
 		var params api.ToolFunctionParameters
 		bytes, err := json.Marshal(d.InputSchema)
 		if err != nil {
-			return nil, err
+			return instructions, nil, err
 		}
 		if err := json.Unmarshal(bytes, &params); err != nil {
-			return nil, &operationalError{"translating tooling", err}
+			return instructions, nil, &operationalError{"translating tooling", err}
 		}
 
 		output := api.Tool{
@@ -79,8 +78,13 @@ func (t MCPLocalProgramTool) defineAPI(ctx context.Context) (tool api.Tools, pro
 		}
 		tools = append(tools, output)
 	}
-	//fmt.Printf("Done.\n")
-	return tools, nil
+	if init.Instructions == "" {
+		instructions = append(instructions, api.Message{
+			Role:    roleSystem,
+			Content: init.Instructions,
+		})
+	}
+	return instructions, tools, nil
 }
 
 func (t MCPLocalProgramTool) namespaced(op string) string { return t.Name + "." + op }

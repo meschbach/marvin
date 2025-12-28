@@ -18,7 +18,7 @@ type chromemTool struct {
 const ChromemSearchQueryParameter = "query"
 const ChromemDocumentPathParameter = "filename"
 
-func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
+func (c *chromemTool) defineAPI(ctx context.Context) (instructions []api.Message, tool api.Tools, problem error) {
 	tools := make(api.Tools, 0)
 	tools = append(tools, api.Tool{
 		Type: ToolTypeFunction,
@@ -54,7 +54,11 @@ func (c *chromemTool) defineAPI(ctx context.Context) (tool api.Tools, problem er
 			},
 		},
 	})
-	return tools, nil
+	instructions = append(instructions, api.Message{
+		Role:    roleSystem,
+		Content: fmt.Sprintf("Use the tools `search` and `read_document` to search and read documents from the repository %q", c.config.Name),
+	})
+	return instructions, tools, nil
 }
 
 func (c *chromemTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
