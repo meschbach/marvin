@@ -1,6 +1,7 @@
 package query
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -29,6 +30,7 @@ type dockerMCPTool struct {
 	containerID  string
 	transport    types.HijackedResponse
 	stdoutWriter io.WriteCloser
+	stdoutReader *io.PipeReader
 	initResult   *mcp.InitializeResult
 }
 
@@ -83,6 +85,11 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 		containerArgs = append(containerArgs, a.Strings...)
 	}
 
+	if d.cfg.ResolveVerbose() {
+		dockerArgs := strings.Join(containerArgs, " ")
+		fmt.Printf("docker-%s > `docker run --rm -i %s %s`\n", d.cfg.Name, d.cfg.Image, dockerArgs)
+	}
+
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
 		Image:     d.cfg.Image,
 		Cmd:       containerArgs,
@@ -121,21 +128,50 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 	stderrReader, stderrWriter := io.Pipe()
 
 	go func() {
-		_, err := stdcopy.StdCopy(stdoutWriter, stderrWriter, attach.Reader)
-		stdoutWriter.CloseWithError(err)
-		stderrWriter.CloseWithError(err)
+		stdcopy.StdCopy(stdoutWriter, stderrWriter, attach.Reader)
+		stdoutWriter.CloseWithError(io.EOF)
+		stderrWriter.CloseWithError(io.EOF)
 	}()
 	d.transport = attach
 	d.stdoutWriter = stdoutWriter
+	d.stdoutReader = stdoutReader
 
 	startupTimer, startupDone := context.WithTimeout(ctx, 10*time.Second)
 	defer startupDone()
 	d.mcpClient = client.NewClient(transport.NewIO(stdoutReader, attach.Conn, stderrReader))
+	d.mcpClient.OnNotification(func(notification mcp.JSONRPCNotification) {
+		fmt.Printf("docker-%s >{notification} %s\n", d.cfg.Name, notification.JSONRPC)
+	})
+	startedStderrPump := make(chan struct{})
+	go func() {
+		close(startedStderrPump) //todo: very bad practice
+		if d.cfg.ResolveVerbose() {
+			scanner := bufio.NewScanner(stderrReader)
+			for scanner.Scan() {
+				fmt.Printf("docker-%s >{stderr} %s\n", d.cfg.Name, scanner.Text())
+			}
+			//todo: handle errors.
+		} else {
+			io.Copy(io.Discard, stderrReader)
+		}
+	}()
+	<-startedStderrPump
 	if err := d.mcpClient.Start(startupTimer); err != nil {
 		return &operationalError{"failed to start docker mcp client", err}
 	}
+	if d.cfg.ResolveVerbose() {
+		fmt.Printf("docker-%s > Container started, sending initialize message\n", d.cfg.Name)
+	}
+
 	d.initResult, err = d.mcpClient.Initialize(startupTimer, mcp.InitializeRequest{})
-	return err
+	if err != nil {
+		return &operationalError{"failed to invoke Initialize", err}
+	}
+	if d.cfg.ResolveVerbose() {
+		fmt.Printf("docker-%s > Initialize complete.\n", d.cfg.Name)
+	}
+
+	return nil
 }
 
 // Shutdown cleans up the docker container and MCP client.
@@ -148,11 +184,8 @@ func (d *dockerMCPTool) Shutdown(shutdownContext context.Context) (problem error
 			problem = errors.Join(problem, &operationalError{"failed to close MCP API client", err})
 		}
 	}
+	fmt.Printf("docker-%s > Shutting down container...\n", d.cfg.Name)
 	if d.docker != nil && d.containerID != "" {
-		d.transport.Close()
-		//todo: on Darwin M4 Pro device the stdcopy.StdCopy will result in a &net.OpError{Op:"close", Net:"unix...}
-		//figure out correct way to manage this
-		d.transport.CloseWrite()
 		// Use a separate context for shutdown to ensure it has enough time even if shutdownContext is short
 		stopCtx, cancel := context.WithTimeout(shutdownContext, 15*time.Second)
 		defer cancel()
@@ -162,9 +195,18 @@ func (d *dockerMCPTool) Shutdown(shutdownContext context.Context) (problem error
 		if err := d.docker.ContainerStop(stopCtx, d.containerID, container.StopOptions{Timeout: &stopTimeout}); err != nil {
 			problem = errors.Join(problem, &operationalError{"failed to stop container", err})
 		}
-		if err := d.docker.ContainerRemove(stopCtx, d.containerID, container.RemoveOptions{Force: true}); err != nil {
-			if d.cfg.ResolveVerbose() {
-				fmt.Printf("(normal) Docker reported container removal error which is normal after stop for a conflict.  Please confirm %s\n", err.Error())
+		containers, err := d.docker.ContainerList(stopCtx, container.ListOptions{})
+		if err != nil {
+			problem = errors.Join(problem, &operationalError{"failed to list containers", err})
+		} else {
+			for _, c := range containers {
+				if c.ID == d.containerID {
+					if err := d.docker.ContainerRemove(stopCtx, d.containerID, container.RemoveOptions{Force: true}); err != nil {
+						if d.cfg.ResolveVerbose() {
+							fmt.Printf("(normal) Docker reported container removal error which is normal after stop for a conflict.  Please confirm %s\n", err.Error())
+						}
+					}
+				}
 			}
 		}
 		if err := d.docker.Close(); err != nil {
@@ -249,7 +291,10 @@ func (ts *ToolSet) loadToolsFromDocker(ctx context.Context, cfg *config.File) (p
 		tool := &dockerMCPTool{cfg: mcpCfg}
 		ts.container.Register(tool)
 		if err := tool.launch(ctx); err != nil {
-			problem = errors.Join(problem, err)
+			problem = errors.Join(problem, &operationalError{
+				description: fmt.Sprintf("launching docker MCP server %q", tool.Describe()),
+				underlying:  err,
+			})
 			continue
 		}
 		if err := ts.registerTool(ctx, tool); err != nil {

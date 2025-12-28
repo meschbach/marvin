@@ -94,6 +94,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		showDone:     opts.ShowDone,
 	}
 	model := cfg.LanguageModel()
+	fmt.Printf("config\t> model: %s\n", model)
 
 	if err := conversation.runAIToConclusion(ctx, model, availableTools); err != nil {
 		return
