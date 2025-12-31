@@ -79,7 +79,11 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 
 	var binds []string
 	for _, m := range d.cfg.Mount {
-		mountStr := fmt.Sprintf("%s:%s", m.Source, m.Target)
+		source, err := m.ResolveSourcePath(d.cfg.WorkingDirectory)
+		if err != nil {
+			return &operationalError{fmt.Sprintf("failed to resolve mount target %s:%s", m.Source, m.Target), err}
+		}
+		mountStr := fmt.Sprintf("%s:%s", source, m.Target)
 		if m.Options != "" {
 			mountStr += ":" + m.Options
 		}

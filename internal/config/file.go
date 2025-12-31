@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 )
 
 const DefaultLanguageModel = "ministral-3:3b"
@@ -17,6 +18,18 @@ type File struct {
 	// Documents represents blocks fo contextual documents to manage
 	Documents      []*DocumentsBlock `hcl:"documents,block"`
 	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
+}
+
+func (f *File) resolveWorkingDirectory(marvinFilePath string) (string, error) {
+	relativeHoldingDirectory := filepath.Dir(marvinFilePath)
+	workingDirectory, err := filepath.Abs(relativeHoldingDirectory)
+	if err != nil {
+		return "", err
+	}
+	for _, block := range f.DockerMCPBlock {
+		block.EnsureWorkingDirectory(workingDirectory)
+	}
+	return workingDirectory, nil
 }
 
 // LanguageModel returns the language model to use for this configuration or the default if one is not set

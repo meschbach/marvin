@@ -43,14 +43,15 @@ func loadConfig(filePath string) (*File, error) {
 	if parsedContent == nil {
 		return nil, errors.New("parsed file is nil")
 	}
-	return interpretConfigFile(parsedContent)
+	return interpretConfigFile(parsedContent, filePath)
 }
 
-func interpretConfigFile(parsedContent *hcl.File) (*File, error) {
-	var cfg File
-	diags := gohcl.DecodeBody(parsedContent.Body, nil, &cfg)
+func interpretConfigFile(parsedContent *hcl.File, workingPath string) (*File, error) {
+	cfg := &File{}
+	diags := gohcl.DecodeBody(parsedContent.Body, nil, cfg)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("decode HCL: %w", diags)
 	}
-	return &cfg, nil
+	_, err := cfg.resolveWorkingDirectory(workingPath)
+	return cfg, err
 }
