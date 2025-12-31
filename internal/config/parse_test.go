@@ -21,7 +21,7 @@ func parseHCLString(t *testing.T, input, fileName string) *hcl.File {
 }
 
 func TestLoadConfig_EmptyFile(t *testing.T) {
-	cfg, err := interpretConfigFile(parseHCLString(t, "", "empty.hcl"))
+	cfg, err := interpretConfigFile(parseHCLString(t, "", "empty.hcl"), "/test/"+t.Name())
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Len(t, cfg.LocalPrograms, 0)
@@ -34,7 +34,7 @@ local_program "echo" {
 }
 `
 	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
-	cfg, err := interpretConfigFile(parsedContent)
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
@@ -64,7 +64,7 @@ local_program "three" {
 }
 `
 	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
-	cfg, err := interpretConfigFile(parsedContent)
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 
