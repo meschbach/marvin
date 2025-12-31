@@ -39,6 +39,7 @@ func (d *dockerMCPTool) Describe() string {
 }
 
 func (d *dockerMCPTool) launch(ctx context.Context) error {
+	verbose := d.cfg.ResolveVerbose()
 	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	if err != nil {
 		return &operationalError{"failed to create docker client", err}
@@ -68,7 +69,12 @@ func (d *dockerMCPTool) launch(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		envs = append(envs, fmt.Sprintf("%s=%s", key, value))
+
+		spec := fmt.Sprintf("%s=%s", key, value)
+		if verbose {
+			fmt.Printf("docker-%s >{env} %s\n", d.cfg.Name, spec)
+		}
+		envs = append(envs, spec)
 	}
 
 	var binds []string
@@ -259,6 +265,8 @@ func (d *dockerMCPTool) namespaced(op string) string {
 }
 
 func (d *dockerMCPTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+	verbose := d.cfg.ResolveVerbose()
+
 	opName := call.Function.Name
 	if idx := strings.IndexByte(opName, '.'); idx >= 0 {
 		opName = opName[idx+1:]
@@ -274,13 +282,23 @@ func (d *dockerMCPTool) invoke(ctx context.Context, call api.ToolCall) (out []ap
 		},
 	})
 	if err != nil {
+		if verbose {
+			fmt.Printf("docker-%s >{error} mapping to error result from %s\n", d.cfg.Name, err.Error())
+		}
 		return []api.Message{
 			toolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", err.Error())),
 		}, nil
 	}
+	if verbose {
+		fmt.Printf("docker-%s > received %d results.\n", d.cfg.Name, len(resp.Content))
+	}
 	for _, c := range resp.Content {
 		if text, isText := c.(mcp.TextContent); isText {
 			out = append(out, toolResponseMessage(call, text.Text))
+		} else {
+			if verbose {
+				fmt.Printf("docker-%s >{warning} not mapping content type %T\n", d.cfg.Name, c)
+			}
 		}
 	}
 	return out, nil

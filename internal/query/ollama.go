@@ -67,10 +67,10 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 
 			if len(resp.Message.ToolCalls) > 0 {
 				if o.showTools {
-					fmt.Printf("tool call: %s\n", resp.Message.ToolCalls[0].Function.Name)
+					fmt.Printf("tool call {%s} > %s\n\t%#v\n", resp.Message.ToolCalls[0].ID, resp.Message.ToolCalls[0].Function.Name, resp.Message.ToolCalls[0].Function.Arguments)
 				}
 				// Capture tool calls signaled by the model
-				pendingCalls = resp.Message.ToolCalls
+				pendingCalls = append(pendingCalls, resp.Message.ToolCalls...)
 			}
 			return nil
 		})
@@ -92,6 +92,10 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		}
 		o.messages = append(o.messages, assistantMsg)
 
+		if o.showTools {
+			fmt.Println()
+			fmt.Printf("tools > %d pending invocations\n", len(pendingCalls))
+		}
 		// If there are no tool calls, we are done for this turn
 		if len(pendingCalls) == 0 {
 			fmt.Println()
@@ -102,11 +106,17 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 		var pendingCallsErrors error
 		// For each tool call, invoke via the toolset and append tool results
 		for _, call := range pendingCalls {
+			if o.showTools {
+				fmt.Printf("call %s> Function %s with argument %#v\n", call.ID, call.Function.Name, call.Function.Arguments)
+			}
 			reply, herr := o.tools.HandleCall(ctx, call)
 			pendingCallsErrors = errors.Join(herr, pendingCallsErrors)
 			if o.showTools {
 				for _, reply := range reply {
-					fmt.Printf(">\t%s\t%s: %s\n", reply.Role, reply.Content, reply.ToolCallID)
+					fmt.Printf("call %s>\t%s\t%s: %s\n", reply.ToolCallID, reply.Role, reply.Content)
+				}
+				if len(reply) == 0 {
+					fmt.Printf("call %s> no response\n", call.ID)
 				}
 			}
 			o.messages = append(o.messages, reply...)
