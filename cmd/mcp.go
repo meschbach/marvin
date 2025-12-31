@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"os"
 	"os/signal"
 
 	"github.com/meschbach/marvin/internal/query"
@@ -22,7 +24,8 @@ func mcpListCommand(global *globalOptions) *cobra.Command {
 
 			cfg, err := global.config.Load()
 			if err != nil {
-				panic(err)
+				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+				return
 			}
 			query.ListMCPTools(ctx, cfg, opts.detailed)
 		},
