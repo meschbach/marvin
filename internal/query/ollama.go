@@ -113,7 +113,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 			pendingCallsErrors = errors.Join(herr, pendingCallsErrors)
 			if o.showTools {
 				for _, reply := range reply {
-					fmt.Printf("call %s>\t%s\t%s: %s\n", reply.ToolCallID, reply.Role, reply.Content)
+					fmt.Printf("call %s>\t%s\t%s: %s\n", reply.ToolCallID, reply.Role, reply.ToolName, reply.Content)
 				}
 				if len(reply) == 0 {
 					fmt.Printf("call %s> no response\n", call.ID)
