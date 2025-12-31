@@ -1,0 +1,24 @@
+# config.toml
+enable_attachment_download = false # Optional: allows the AI to download attachments
+
+[[emails]]
+imap_host = "imap.gmail.com"
+imap_port = 993
+imap_ssl = true
+imap_username = "something@gmail.com"
+imap_password = "app-password"
+smtp_host = "smtp.gmail.com"
+smtp_port = 465
+smtp_username = "something@gmail.com"
+smtp_password = "app-password"
+account_name = "personal"
+full_name = "john doe"
+incoming.user_name = "something@gmail.com"
+incoming.password = "app-password"
+incoming.host = "imap.gmail.com"
+incoming.port = 993
+outgoing.host = "smtp.gmail.com"
+outgoing.port = 465
+outgoing.user_name = "something@gmail.com"
+outgoing.password = "app-password"
+email_address = "something@gmail.com"
