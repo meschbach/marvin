@@ -66,6 +66,7 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	}
 	for _, lp := range cfg.LocalPrograms {
 		t := FromLocalProgram(lp)
+		ts.container.Register(t)
 		if err := ts.registerTool(ctx, t); err != nil {
 			return nil, &localProgramDiscoveryError{
 				name:       t.Name,
