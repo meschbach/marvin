@@ -13,8 +13,18 @@ const ToolTypeFunction = "function"
 
 var ToolPropTypeString = []string{"string"}
 
+type toolDefinition struct {
+	instructions []api.Message
+	tool         api.Tools
+	uriHandler   mcpResource
+}
+
+func (t *toolDefinition) appendInstruction(message string) {
+	t.instructions = append(t.instructions, api.Message{Role: "system", Content: message})
+}
+
 type Tool interface {
-	defineAPI(ctx context.Context) (instructions []api.Message, tool api.Tools, problem error)
+	defineAPI(ctx context.Context) (definition *toolDefinition, problem error)
 	invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error)
 }
 
@@ -24,6 +34,7 @@ type ToolSet struct {
 	byName       map[string]Tool // maps namespaced op name -> base Tool
 	defs         api.Tools
 	container    *Container
+	gateway      *mcpResourceGateway
 }
 
 type localProgramDiscoveryError struct {
@@ -43,13 +54,13 @@ func (l *localProgramDiscoveryError) Error() string {
 // content yields an empty ToolSet.
 func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	ts := &ToolSet{
-		byName: map[string]Tool{},
+		byName:  map[string]Tool{},
+		gateway: newMCPResourceGateway(),
 		container: &Container{
 			name:  "tool container",
 			state: sync.Mutex{},
 		},
 	}
-
 	if cfg == nil {
 		return ts, nil
 	}
@@ -65,19 +76,25 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	if err := ts.loadToolsFromDocker(ctx, cfg); err != nil {
 		return nil, err
 	}
+	if err := ts.registerTool(ctx, ts.gateway); err != nil {
+		return nil, err
+	}
 	return ts, nil
 }
 
 func (ts *ToolSet) registerTool(ctx context.Context, t Tool) error {
-	thisInstructions, defs, err := t.defineAPI(ctx)
+	definition, err := t.defineAPI(ctx)
 	if err != nil {
 		return err
 	}
-	for _, d := range defs {
+	for _, d := range definition.tool {
 		ts.byName[d.Function.Name] = t
 	}
-	ts.defs = append(ts.defs, defs...)
-	ts.instructions = append(ts.instructions, thisInstructions...)
+	if definition.uriHandler != nil {
+		ts.gateway.register(definition.uriHandler)
+	}
+	ts.defs = append(ts.defs, definition.tool...)
+	ts.instructions = append(ts.instructions, definition.instructions...)
 	return nil
 }
 

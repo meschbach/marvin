@@ -72,10 +72,9 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}
 
 	// Maintain the rolling chat messages to support tool-call loops
-	messages := []api.Message{
+	messages := append(toolset.instructions,
 		systemMessage,
-		{Role: "user", Content: actualQuery},
-	}
+		api.Message{Role: "user", Content: actualQuery})
 	availableTools := toolset.APITools()
 	if opts.DumpTooling {
 		fmt.Println("Available tools:")

@@ -226,29 +226,29 @@ func (d *dockerMCPTool) Shutdown(shutdownContext context.Context) (problem error
 	return problem
 }
 
-func (d *dockerMCPTool) defineAPI(ctx context.Context) ([]api.Message, api.Tools, error) {
-	var out []api.Message
+func (d *dockerMCPTool) defineAPI(ctx context.Context) (*toolDefinition, error) {
+	definition := &toolDefinition{}
+
 	discovered, err := d.mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, nil, &operationalError{"list tools", err}
+		return definition, &operationalError{"list tools", err}
 	}
 
 	if d.initResult.Instructions != "" {
-		out = append(out, api.Message{
+		definition.instructions = append(definition.instructions, api.Message{
 			Role:    roleSystem,
 			Content: d.initResult.Instructions,
 		})
 	}
 
-	var tools api.Tools
 	for _, dtl := range discovered.Tools {
 		var params api.ToolFunctionParameters
 		bytes, err := json.Marshal(dtl.InputSchema)
 		if err != nil {
-			return nil, nil, err
+			return definition, err
 		}
 		if err := json.Unmarshal(bytes, &params); err != nil {
-			return nil, nil, &operationalError{"translating tooling", err}
+			return definition, &operationalError{"translating tooling", err}
 		}
 
 		output := api.Tool{
@@ -259,9 +259,9 @@ func (d *dockerMCPTool) defineAPI(ctx context.Context) ([]api.Message, api.Tools
 				Parameters:  params,
 			},
 		}
-		tools = append(tools, output)
+		definition.tool = append(definition.tool, output)
 	}
-	return out, tools, nil
+	return definition, nil
 }
 
 func (d *dockerMCPTool) namespaced(op string) string {

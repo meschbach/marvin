@@ -24,6 +24,12 @@ type ollamaConversation struct {
 // runAIToConclusion executes the AI chat loop with tool-call handling until
 // the assistant produces a final answer (no further tool calls) or an error occurs.
 func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string, availableTools api.Tools) error {
+	//
+	//fmt.Printf("Tools (%d)\n", len(o.messages))
+	//for _, tool := range o.messages {
+	//	fmt.Printf("\t-%s %s\n", tool.Role, tool.Content)
+	//}
+	//
 	for {
 		req := &api.ChatRequest{
 			Model:    model,
@@ -81,6 +87,14 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 				fmt.Fprintf(os.Stderr, "\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 			}
 			return err
+		}
+		lastThought := thisThinking.String()
+		if lastThought != "" {
+			fmt.Printf("Thinking: %s\n\n", lastThought)
+		}
+		lastLine := thisLine.String()
+		if lastLine != "" {
+			fmt.Println(lastLine)
 		}
 
 		// Record the assistant turn (including tool calls, if any)
