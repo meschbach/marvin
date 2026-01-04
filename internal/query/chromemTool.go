@@ -18,8 +18,27 @@ type chromemTool struct {
 const ChromemSearchQueryParameter = "query"
 const ChromemDocumentPathParameter = "filename"
 
+const chromemToolDescriptionFormat = `The %s tool enhances your agent’s ability to retrieve accurate, contextually relevant information for decision-making. Here's a concise overview:
+
+** %s Tool Description**:  
+The tool combines facts, reasoning, and context to provide efficient, accurate information. It enables your agent to search for terms of interest (via the ` + "`search` function) and retrieve document content (via `read_document`) to support analysis or decision-making." + `
+
+**Usage**:
+1. **` + "`%s.search`" + `**: Input keywords or topics to find relevant information.
+2. **` + "`%s.read_document`" + `**: Access pre-prepared documents to generate insights.
+
+**Example**:
+- Use ` + "`%s.search`" + ` to find technical specifications for a project.
+- Use ` + "`%s.read_document`" + ` to access a research paper to support a hypothesis.
+
+This integration streamlines information retrieval for real-time decision-making. Let me know if further details are needed!`
+
 func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
 	definitions := &toolDefinition{}
+	definitions.instructions = append(definitions.instructions, api.Message{
+		Role:    roleSystem,
+		Content: fmt.Sprintf(chromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
+	})
 	definitions.tool = append(definitions.tool, api.Tool{
 		Type: ToolTypeFunction,
 		Function: api.ToolFunction{
