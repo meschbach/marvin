@@ -1,4 +1,4 @@
-model = "qwen3:8b"
+model = "ministral-3:3b"
 
 system_prompt {
   from_string = <<EOS

@@ -36,6 +36,8 @@ jobs:
           key: ${{ runner.os }}-ollama-${{ hashFiles('**/ollama_model.txt') }}
           restore-keys: |
             ${{ runner.os }}-ollama-
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v4
       - name: Run integration tests
         run: |
           ollama pull mxbai-embed-large:latest
