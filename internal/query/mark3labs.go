@@ -53,6 +53,7 @@ func (m *Mark3labsTool) Describe() string {
 }
 
 func (m *Mark3labsTool) Shutdown(shutdownContext context.Context) (problem error) {
+	problem = m.mcpClient.Close()
 	if m.active != nil {
 		if err := m.active.stop(shutdownContext); err != nil {
 			problem = errors.Join(problem, &operationalError{"failed to stop MCP client", err})
@@ -80,44 +81,46 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 		definitions.appendInstruction(init.Instructions)
 	}
 
-	resources, err := m.mcpClient.ListResources(discoveryContext, mcp.ListResourcesRequest{})
-	if err != nil {
-		return definitions, &operationalError{"list resources", err}
-	}
-	if len(resources.Resources) > 0 {
-		for _, r := range resources.Resources {
-			content := fmt.Sprintf("# %s\nUse URI %s to access this resources\n%s", r.Name, r.URI, r.Description)
+	if init.Capabilities.Resources != nil {
+		resources, err := m.mcpClient.ListResources(discoveryContext, mcp.ListResourcesRequest{})
+		if err != nil {
+			return definitions, &operationalError{"list resources", err}
+		}
+		if len(resources.Resources) > 0 {
+			for _, r := range resources.Resources {
+				content := fmt.Sprintf("# %s\nUse URI %s to access this resources\n%s", r.Name, r.URI, r.Description)
+				m.resourceInstructions = append(m.resourceInstructions, api.Message{
+					Role:    roleSystem,
+					Content: content,
+				})
+				template, err := uritemplate.New(r.URI)
+				if err != nil {
+					return definitions, &operationalError{"parsing resource URI", err}
+				}
+				m.resourceTemplates = append(m.resourceTemplates, template)
+			}
+			definitions.uriHandler = m
+		}
+		resourceTemplates, err := m.mcpClient.ListResourceTemplates(discoveryContext, mcp.ListResourceTemplatesRequest{})
+		if err != nil {
+			return definitions, &operationalError{"list resource templates", err}
+		}
+		for _, rt := range resourceTemplates.ResourceTemplates {
+			content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Template.Raw(), rt.Description)
 			m.resourceInstructions = append(m.resourceInstructions, api.Message{
 				Role:    roleSystem,
 				Content: content,
 			})
-			template, err := uritemplate.New(r.URI)
-			if err != nil {
-				return definitions, &operationalError{"parsing resource URI", err}
-			}
-			m.resourceTemplates = append(m.resourceTemplates, template)
+			m.resourceTemplates = append(m.resourceTemplates, rt.URITemplate.Template)
 		}
-		definitions.uriHandler = m
-	}
-	resourceTemplates, err := m.mcpClient.ListResourceTemplates(discoveryContext, mcp.ListResourceTemplatesRequest{})
-	if err != nil {
-		return definitions, &operationalError{"list resource templates", err}
-	}
-	for _, rt := range resourceTemplates.ResourceTemplates {
-		content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Template.Raw(), rt.Description)
-		m.resourceInstructions = append(m.resourceInstructions, api.Message{
-			Role:    roleSystem,
-			Content: content,
-		})
-		m.resourceTemplates = append(m.resourceTemplates, rt.URITemplate.Template)
 	}
 
 	discovered, err := m.mcpClient.ListTools(discoveryContext, mcp.ListToolsRequest{})
 	if err != nil {
 		return definitions, &operationalError{"list tools", err}
 	}
-	var tools api.Tools
 	for _, d := range discovered.Tools {
+		fmt.Printf("mcp-%s\t>\tDiscovered tool %s\n", m.Name, d.Name)
 		//todo: likely drift here -- will cause problems in the future
 		var params api.ToolFunctionParameters
 		bytes, err := json.Marshal(d.InputSchema)
@@ -136,7 +139,7 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 				Parameters:  params,
 			},
 		}
-		tools = append(tools, output)
+		definitions.tool = append(definitions.tool, output)
 	}
 	return definitions, nil
 }

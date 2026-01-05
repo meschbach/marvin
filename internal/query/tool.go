@@ -15,8 +15,9 @@ var ToolPropTypeString = []string{"string"}
 
 type toolDefinition struct {
 	instructions []api.Message
-	tool         api.Tools
-	uriHandler   mcpResource
+	//todo: rename to `tools`
+	tool       api.Tools
+	uriHandler mcpResource
 }
 
 func (t *toolDefinition) appendInstruction(message string) {
@@ -35,19 +36,6 @@ type ToolSet struct {
 	defs         api.Tools
 	container    *Container
 	gateway      *mcpResourceGateway
-}
-
-type localProgramDiscoveryError struct {
-	name       string
-	underlying error
-}
-
-func (l *localProgramDiscoveryError) Unwrap() error {
-	return l.underlying
-}
-
-func (l *localProgramDiscoveryError) Error() string {
-	return fmt.Sprintf("failed to discover local program %q: %s", l.name, l.underlying.Error())
 }
 
 // NewToolSet builds a ToolSet from the parsed configuration. Nil cfg or empty
@@ -77,8 +65,10 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	if err := ts.loadToolsFromDocker(ctx, cfg); err != nil {
 		return nil, err
 	}
-	if err := ts.registerTool(ctx, ts.gateway); err != nil {
-		return nil, err
+	if len(ts.gateway.resourceServices) > 0 {
+		if err := ts.registerTool(ctx, ts.gateway); err != nil {
+			return nil, err
+		}
 	}
 	return ts, nil
 }

@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/meschbach/marvin/internal/config"
@@ -40,4 +41,17 @@ func (l *localRunningProgram) transport() transport.Interface {
 }
 func (l *localRunningProgram) stop(ctx context.Context) error {
 	return nil
+}
+
+type localProgramDiscoveryError struct {
+	name       string
+	underlying error
+}
+
+func (l *localProgramDiscoveryError) Unwrap() error {
+	return l.underlying
+}
+
+func (l *localProgramDiscoveryError) Error() string {
+	return fmt.Sprintf("failed to discover local program %q: %s", l.name, l.underlying.Error())
 }

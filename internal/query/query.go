@@ -76,10 +76,17 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		systemMessage,
 		api.Message{Role: "user", Content: actualQuery})
 	availableTools := toolset.APITools()
-	if opts.DumpTooling {
+	if opts.DumpTooling || opts.ShowTools {
 		fmt.Println("Available tools:")
 		for _, tool := range availableTools {
 			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
+		}
+	}
+
+	if opts.ShowTools {
+		fmt.Printf("Initial Messages (%d):\n", len(messages))
+		for _, m := range messages {
+			fmt.Printf("\t%s: %s\n", m.Role, m.Content)
 		}
 	}
 

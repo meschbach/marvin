@@ -16,3 +16,8 @@ echo "===="
 echo "LLM Query"
 echo "===="
 ./marvin -c marvin.test.hcl query --show-thinking --show-done --show-tools "does Marvin support retrieval augmented generation?"
+
+echo "===="
+echo "Docker MCP"
+echo "===="
+( cd examples/mcp-time && ../../marvin -c marvin.hcl query --dump-tools --show-done --show-tools "What is the current time in London?")
