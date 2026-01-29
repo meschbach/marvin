@@ -65,6 +65,9 @@ func NewToolSet(ctx context.Context, cfg *config.File) (*ToolSet, error) {
 	if err := ts.loadToolsFromDocker(ctx, cfg); err != nil {
 		return nil, err
 	}
+	if err := ts.loadToolsFromHTTP(ctx, cfg); err != nil {
+		return nil, err
+	}
 	if len(ts.gateway.resourceServices) > 0 {
 		if err := ts.registerTool(ctx, ts.gateway); err != nil {
 			return nil, err

@@ -150,6 +150,13 @@ func (m *Mark3labsTool) namespaced(op string) string { return m.Name + "." + op 
 // corresponding tool message. The call.Function.Describe is expected to be
 // "<toolName>.<operationName>".
 func (m *Mark3labsTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+	c := m.mcpClient
+	invocationContext, done := context.WithTimeout(ctx, 15*time.Second)
+	defer done()
+
+	if err := m.ensureRunning(ctx); err != nil {
+		return nil, err
+	}
 	// Extract the operation name from the namespaced function name
 	opName := call.Function.Name
 	if idx := strings.IndexByte(opName, '.'); idx >= 0 {
@@ -162,18 +169,6 @@ func (m *Mark3labsTool) invoke(ctx context.Context, call api.ToolCall) (out []ap
 	//fmt.Printf("Invoking %q with arguments %#v\n", t.Program, t.Args)
 	if err := m.ensureRunning(ctx); err != nil {
 		return nil, err
-	}
-
-	c := m.mcpClient
-	invocationContext, done := context.WithTimeout(ctx, 15*time.Second)
-	defer done()
-	if err := c.Start(invocationContext); err != nil {
-		return nil, &operationalError{"failed to start client", err}
-	}
-
-	_, err := c.Initialize(invocationContext, mcp.InitializeRequest{})
-	if err != nil {
-		return nil, &operationalError{"failed to initialize client", err}
 	}
 
 	//fmt.Printf("<\ttool\t%s\t%#v\n", opName, call.Function.Arguments)

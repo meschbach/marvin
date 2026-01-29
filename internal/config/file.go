@@ -18,6 +18,7 @@ type File struct {
 	// Documents represents blocks fo contextual documents to manage
 	Documents      []*DocumentsBlock `hcl:"documents,block"`
 	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
+	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
 }
 
 func (f *File) resolveWorkingDirectory(marvinFilePath string) (string, error) {
