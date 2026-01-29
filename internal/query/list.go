@@ -35,7 +35,7 @@ func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 		dumpLayer := func(prefix string, p api.ToolFunctionParameters) {
 			prefix = prefix + "\t"
 			fmt.Printf("%s%s\n", prefix, p.Type)
-			for name, prop := range p.Properties {
+			for name, prop := range p.Properties.All() {
 				var optionalRequiredText string
 				if slices.Contains(p.Required, name) {
 					optionalRequiredText = "(required)"

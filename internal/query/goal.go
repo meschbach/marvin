@@ -102,6 +102,11 @@ func (r reasoningStep) invoke(ctx context.Context, call api.ToolCall) (out []api
 }
 
 func (r reasoningStep) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
+	props := api.NewToolPropertiesMap()
+	props.Set("step", api.ToolProperty{
+		Type:        []string{"string"},
+		Description: "Defines the step to be taken",
+	})
 	return api.Tools{
 		{
 			Type: "function",
@@ -109,14 +114,9 @@ func (r reasoningStep) defineAPI(ctx context.Context) (tool api.Tools, problem e
 				Name:        "reasoning_step",
 				Description: "Defines a small and finite step to approach the problem",
 				Parameters: api.ToolFunctionParameters{
-					Type:     "object",
-					Required: []string{"step"},
-					Properties: map[string]api.ToolProperty{
-						"step": {
-							Type:        []string{"string"},
-							Description: "Defines the step to be taken",
-						},
-					},
+					Type:       "object",
+					Required:   []string{"step"},
+					Properties: props,
 				},
 			},
 		},
@@ -128,7 +128,7 @@ type questionForUser struct {
 
 func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	args := call.Function.Arguments
-	prompt, hasPrompt := args["prompt"]
+	prompt, hasPrompt := args.Get("prompt")
 	if !hasPrompt {
 		return nil, fmt.Errorf("missing required argument 'prompt'")
 	}
@@ -155,6 +155,11 @@ func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []a
 }
 
 func (q questionForUser) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
+	props := api.NewToolPropertiesMap()
+	props.Set("prompt", api.ToolProperty{
+		Type:        []string{mcpParameterTypeString},
+		Description: "The prompt to ask the user",
+	})
 	definitions := &toolDefinition{}
 	definitions.tool = api.Tools{
 		{
@@ -163,14 +168,9 @@ func (q questionForUser) defineAPI(ctx context.Context) (definition *toolDefinit
 				Name:        "reasoning_clairifying_question",
 				Description: "Request clarification from the user or to better understand what the instructions are",
 				Parameters: api.ToolFunctionParameters{
-					Type:     mcpParameterTypeObject,
-					Required: []string{"prompt"},
-					Properties: map[string]api.ToolProperty{
-						"prompt": {
-							Type:        []string{mcpParameterTypeString},
-							Description: "The prompt to ask the user",
-						},
-					},
+					Type:       mcpParameterTypeObject,
+					Required:   []string{"prompt"},
+					Properties: props,
 				},
 			},
 		},

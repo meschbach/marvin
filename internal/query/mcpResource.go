@@ -29,6 +29,11 @@ func (m *mcpResourceGateway) register(gateway mcpResource) {
 
 func (m *mcpResourceGateway) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
 	fmt.Printf("gateway\t\t> defining API with %d services\n", len(m.resourceServices))
+	props := api.NewToolPropertiesMap()
+	props.Set("uri", api.ToolProperty{
+		Type:        ToolPropTypeString,
+		Description: "URI of the resource to read",
+	})
 	definition = &toolDefinition{}
 	definition.tool = append(definition.tool, api.Tool{
 		Type: ToolTypeFunction,
@@ -36,14 +41,9 @@ func (m *mcpResourceGateway) defineAPI(ctx context.Context) (definition *toolDef
 			Name:        "read_resource",
 			Description: "read_resource is a gateway to other tools resources identified by a URI.  Pass the full URI as the `uri` parameter",
 			Parameters: api.ToolFunctionParameters{
-				Type:     "resource_resource",
-				Required: []string{"uri"},
-				Properties: map[string]api.ToolProperty{
-					"uri": {
-						Type:        ToolPropTypeString,
-						Description: "URI of the resource to read",
-					},
-				},
+				Type:       "resource_resource",
+				Required:   []string{"uri"},
+				Properties: props,
 			},
 		},
 	})
@@ -64,7 +64,7 @@ func (m *mcpResourceGateway) defineAPI(ctx context.Context) (definition *toolDef
 
 func (m *mcpResourceGateway) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	args := call.Function.Arguments
-	uriUnknownType, hasURI := args["uri"]
+	uriUnknownType, hasURI := args.Get("uri")
 	if !hasURI {
 		return []api.Message{toolResponseMessage(call, "required parameter uri is missing")}, nil
 	}

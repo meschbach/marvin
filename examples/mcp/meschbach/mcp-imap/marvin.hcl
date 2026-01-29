@@ -9,7 +9,7 @@ To list the available IMAP accounts read the resource mcp-imap:///
 EOS
 }
 
-docker_mcp "meschbach" "ghcr.io/meschbach/mcp-imap:v0.1.1" {
+docker_mcp "meschbach" "ghcr.io/meschbach/mcp-imap:v0.1.2" {
   verbose = false
   env "MCP_MAILBOX" {
     pass_through = true

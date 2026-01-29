@@ -39,22 +39,27 @@ func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition
 		Role:    roleSystem,
 		Content: fmt.Sprintf(chromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
 	})
+	searchProps := api.NewToolPropertiesMap()
+	searchProps.Set(ChromemSearchQueryParameter, api.ToolProperty{
+		Type:        ToolPropTypeString,
+		Description: "query terms of interest to search for",
+	})
 	definitions.tool = append(definitions.tool, api.Tool{
 		Type: ToolTypeFunction,
 		Function: api.ToolFunction{
 			Name:        "search",
 			Description: fmt.Sprintf("Searches the document repository %q for a document matching the given query", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
-				Type:     ToolTypeFunction,
-				Required: []string{"query"},
-				Properties: map[string]api.ToolProperty{
-					ChromemSearchQueryParameter: {
-						Type:        ToolPropTypeString,
-						Description: "query terms of interest to search for",
-					},
-				},
+				Type:       ToolTypeFunction,
+				Required:   []string{"query"},
+				Properties: searchProps,
 			},
 		},
+	})
+	readProps := api.NewToolPropertiesMap()
+	readProps.Set(ChromemDocumentPathParameter, api.ToolProperty{
+		Type:        ToolPropTypeString,
+		Description: "path name to read",
 	})
 	definitions.tool = append(definitions.tool, api.Tool{
 		Type: ToolTypeFunction,
@@ -62,14 +67,9 @@ func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition
 			Name:        "read_document",
 			Description: fmt.Sprintf("Retrieves a specific document from the repository %q", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
-				Type:     ToolTypeFunction,
-				Required: []string{ChromemDocumentPathParameter},
-				Properties: map[string]api.ToolProperty{
-					ChromemDocumentPathParameter: {
-						Type:        ToolPropTypeString,
-						Description: "path name to read",
-					},
-				},
+				Type:       ToolTypeFunction,
+				Required:   []string{ChromemDocumentPathParameter},
+				Properties: readProps,
 			},
 		},
 	})
@@ -99,7 +99,7 @@ func (c *chromemTool) invoke(ctx context.Context, call api.ToolCall) (out []api.
 }
 
 func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	query, has := call.Function.Arguments[ChromemSearchQueryParameter]
+	query, has := call.Function.Arguments.Get(ChromemSearchQueryParameter)
 	if !has {
 		return []api.Message{
 			toolResponseMessage(call, "required parameter query is missing"),
@@ -130,7 +130,7 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 }
 
 func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	path, has := call.Function.Arguments[ChromemDocumentPathParameter]
+	path, has := call.Function.Arguments.Get(ChromemDocumentPathParameter)
 	if !has {
 		return nil, fmt.Errorf("required parameter path is missing")
 	}
