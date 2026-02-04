@@ -229,7 +229,7 @@ func (aw *ApprovalWorkflow) FormatApprovalForSlack(request *ToolApprovalRequest)
 		"**Requested:** %s\n\n"+
 		"**Configuration:**\n```json\n%s\n```\n\n"+
 		"**To approve:** Reply with \"Approve %s\"\n"+
-		"**To reject:** Reply with \"Reject %s: [reason]\"",
+		"**To reject:** Reply with \"Reject %s because [reason]\"",
 		request.RequesterID,
 		request.ToolType,
 		request.ToolID,

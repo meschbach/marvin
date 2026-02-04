@@ -87,6 +87,16 @@ func NewIntentProcessor() *IntentProcessor {
 				Action:     "remove_tool",
 				Confidence: 0.7,
 			},
+			{
+				Pattern:    `(?i)approve\s+([a-zA-Z0-9-]+)`,
+				Action:     "approve_tool",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)reject\s+([a-zA-Z0-9-]+)(?::\s*(.+))?`,
+				Action:     "reject_tool",
+				Confidence: 0.9,
+			},
 		},
 	}
 }
@@ -142,6 +152,17 @@ func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent
 		case "remove_tool":
 			if len(matches) > 1 {
 				intent.Target = strings.TrimSpace(matches[1])
+			}
+		case "approve_tool":
+			if len(matches) > 1 {
+				intent.Target = strings.TrimSpace(matches[1])
+			}
+		case "reject_tool":
+			if len(matches) > 1 {
+				intent.Target = strings.TrimSpace(matches[1])
+			}
+			if len(matches) > 2 && matches[2] != "" {
+				intent.Config = strings.TrimSpace(matches[2])
 			}
 		}
 

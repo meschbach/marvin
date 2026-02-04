@@ -386,16 +386,6 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 					}
 				}
 
-			case socketmode.EventTypeSlashCommand:
-				// Handle slash commands
-				cmd, ok := event.Data.(slack.SlashCommand)
-				if ok {
-					sb.socketClient.Ack(*event.Request)
-					if err := sb.handleSlashCommand(ctx, &cmd); err != nil {
-						sb.securityLogger.LogError(cmd.UserID, "SlackSlash", err.Error())
-					}
-				}
-
 			default:
 				fmt.Printf("Unhandled Socket Mode event: %s\n", event.Type)
 			}
@@ -482,8 +472,41 @@ func (sb *SlackBot) handleToolManagementIntent(ctx context.Context, slackCtx *Sl
 		return sb.handleListTools(ctx, slackCtx, session)
 	case "remove_tool":
 		return sb.handleRemoveTool(ctx, slackCtx, session, intent)
+	case "approve_tool":
+		return sb.handleApprovalCommand(ctx, slackCtx, session, intent, "approve")
+	case "reject_tool":
+		return sb.handleApprovalCommand(ctx, slackCtx, session, intent, "reject")
 	default:
 		return sb.sendMessage(ctx, slackCtx, fmt.Sprintf("I don't know how to handle: %s", intent.Action))
+	}
+}
+
+// handleApprovalCommand handles approve/reject commands via natural language
+func (sb *SlackBot) handleApprovalCommand(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent, action string) error {
+	// Verify admin permissions
+	if !sb.approvalWorkflow.IsAdmin(slackCtx.UserID) {
+		return sb.sendMessage(ctx, slackCtx, "❌ Only admins can approve/reject tool requests")
+	}
+
+	requestID := intent.Target
+	if requestID == "" {
+		return sb.sendMessage(ctx, slackCtx, "❌ Please specify a request ID")
+	}
+
+	if action == "approve" {
+		if err := sb.approvalWorkflow.ApproveTool(slackCtx.UserID, requestID, "Approved via natural language"); err != nil {
+			return sb.sendMessage(ctx, slackCtx, fmt.Sprintf("❌ Error approving request: %s", err.Error()))
+		}
+		return sb.sendApprovalNotification(ctx, slackCtx.UserID, requestID, "approved")
+	} else {
+		reason := "No reason provided"
+		if intent.Config != nil {
+			reason = intent.Config.(string)
+		}
+		if err := sb.approvalWorkflow.RejectTool(slackCtx.UserID, requestID, reason); err != nil {
+			return sb.sendMessage(ctx, slackCtx, fmt.Sprintf("❌ Error rejecting request: %s", err.Error()))
+		}
+		return sb.sendApprovalNotification(ctx, slackCtx.UserID, requestID, "rejected")
 	}
 }
 
@@ -987,58 +1010,6 @@ func (sb *SlackBot) handleInteractiveCallback(ctx context.Context, callback *sla
 	}
 
 	return fmt.Errorf("unhandled interactive callback type: %s", callback.Type)
-}
-
-// handleSlashCommand handles slash commands
-func (sb *SlackBot) handleSlashCommand(ctx context.Context, cmd *slack.SlashCommand) error {
-	switch cmd.Command {
-	case "/approve":
-		// Handle approval slash command: /approve <request-id>
-		if len(strings.TrimSpace(cmd.Text)) == 0 {
-			return sb.sendSlashResponse(ctx, cmd, "Usage: /approve <request-id>")
-		}
-		requestID := strings.TrimSpace(cmd.Text)
-		if err := sb.approvalWorkflow.ApproveTool(cmd.UserID, requestID, "Approved via slash command"); err != nil {
-			return sb.sendSlashResponse(ctx, cmd, fmt.Sprintf("Error approving request: %s", err.Error()))
-		}
-		return sb.sendSlashResponse(ctx, cmd, fmt.Sprintf("Request %s approved", requestID))
-
-	case "/reject":
-		// Handle rejection slash command: /reject <request-id> <reason>
-		parts := strings.SplitN(cmd.Text, " ", 2)
-		if len(parts) < 2 {
-			return sb.sendSlashResponse(ctx, cmd, "Usage: /reject <request-id> <reason>")
-		}
-		requestID := parts[0]
-		reason := parts[1]
-		if err := sb.approvalWorkflow.RejectTool(cmd.UserID, requestID, reason); err != nil {
-			return sb.sendSlashResponse(ctx, cmd, fmt.Sprintf("Error rejecting request: %s", err.Error()))
-		}
-		return sb.sendSlashResponse(ctx, cmd, fmt.Sprintf("Request %s rejected: %s", requestID, reason))
-
-	case "/list-tools":
-		// Handle tool listing command
-		session := sb.sessionManager.GetOrCreateSession(cmd.UserID, cmd.ChannelID, &query.UserContext{
-			UserID:  cmd.UserID,
-			IsAdmin: sb.tenantToolSet.IsAdmin(cmd.UserID),
-		})
-		return sb.handleListTools(ctx, &SlackContext{
-			UserID:    cmd.UserID,
-			ChannelID: cmd.ChannelID,
-		}, session)
-
-	default:
-		return sb.sendSlashResponse(ctx, cmd, fmt.Sprintf("Unknown command: %s", cmd.Command))
-	}
-}
-
-// sendSlashResponse sends a response to a slash command
-func (sb *SlackBot) sendSlashResponse(ctx context.Context, cmd *slack.SlashCommand, message string) error {
-	_, _, err := sb.client.PostMessage(
-		cmd.ChannelID,
-		slack.MsgOptionText(message, false),
-	)
-	return err
 }
 
 // sendApprovalNotification sends approval status notification
