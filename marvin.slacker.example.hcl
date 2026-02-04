@@ -4,10 +4,12 @@
 # Socket Mode Requirements:
 # 1. Create a Slack App at https://api.slack.com/apps
 # 2. Enable Socket Mode in the app settings
-# 3. Add the Bot User scope (bot, chat:write, etc.)
-# 4. Add Event Subscriptions: message.channels, app_mention
+# 3. Add the Required Bot Token Scopes:
+#    - Basic: bot, chat:write, app_mentions:read, channels:history
+#    - Presence: users:read, users:write, presence:write (required for bot to appear online)
+# 4. Add Required Event Subscriptions: message.channels, app_mention
 # 5. Generate App Token (xapp-...) with socket:write scope
-# 6. Generate Bot Token (xoxb-...) with required scopes
+# 6. Generate Bot Token (xoxb-...) with all required scopes
 #
 # Environment Variables Required:
 # - SLACK_BOT_TOKEN: Bot token (xoxb-...)  

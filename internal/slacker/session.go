@@ -22,14 +22,10 @@ type UserSession struct {
 	AvailableTools []string           `json:"available_tools"`
 	ToolNamespace  string             `json:"tool_namespace"`
 	UserContext    *query.UserContext `json:"-"` // Not serialized
-	mutex          sync.RWMutex
 }
 
 // GetAvailableTools returns the list of available tools for this session
 func (us *UserSession) GetAvailableTools() []string {
-	us.mutex.RLock()
-	defer us.mutex.RUnlock()
-
 	// Return a copy to prevent modification
 	tools := make([]string, len(us.AvailableTools))
 	copy(tools, us.AvailableTools)
@@ -38,18 +34,12 @@ func (us *UserSession) GetAvailableTools() []string {
 
 // AddMessage adds a message to the session
 func (us *UserSession) AddMessage(message api.Message) {
-	us.mutex.Lock()
-	defer us.mutex.Unlock()
-
 	us.Messages = append(us.Messages, message)
 	us.LastActivity = time.Now()
 }
 
 // SetThreadTS sets the thread timestamp for the session
 func (us *UserSession) SetThreadTS(threadTS string) {
-	us.mutex.Lock()
-	defer us.mutex.Unlock()
-
 	us.ThreadTS = threadTS
 }
 
@@ -57,7 +47,6 @@ func (us *UserSession) SetThreadTS(threadTS string) {
 type SessionManager struct {
 	sessions  sync.Map // "userID:channelID" -> *UserSession
 	storePath string
-	mutex     sync.RWMutex
 }
 
 // NewSessionManager creates a new session manager
@@ -70,7 +59,6 @@ func NewSessionManager(storePath string) (*SessionManager, error) {
 	sm := &SessionManager{
 		storePath: storePath,
 		sessions:  sync.Map{},
-		mutex:     sync.RWMutex{},
 	}
 
 	// Load existing sessions
@@ -88,10 +76,8 @@ func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userConte
 	// Try to get existing session
 	if session, exists := sm.sessions.Load(sessionKey); exists {
 		userSession := session.(*UserSession)
-		userSession.mutex.Lock()
 		userSession.LastActivity = time.Now()
 		userSession.UserContext = userContext
-		userSession.mutex.Unlock()
 		return userSession
 	}
 
@@ -134,9 +120,6 @@ func (sm *SessionManager) AddMessage(userID, channelID string, message api.Messa
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
 	}
 
-	userSession.mutex.Lock()
-	defer userSession.mutex.Unlock()
-
 	userSession.Messages = append(userSession.Messages, message)
 	userSession.LastActivity = time.Now()
 
@@ -149,9 +132,6 @@ func (sm *SessionManager) ClearSession(userID, channelID string) error {
 	if !exists {
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
 	}
-
-	userSession.mutex.Lock()
-	defer userSession.mutex.Unlock()
 
 	userSession.Messages = []api.Message{}
 	userSession.LastActivity = time.Now()
@@ -166,9 +146,6 @@ func (sm *SessionManager) SetThreadTS(userID, channelID, threadTS string) error 
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
 	}
 
-	userSession.mutex.Lock()
-	defer userSession.mutex.Unlock()
-
 	userSession.ThreadTS = threadTS
 	return sm.saveSession(userSession)
 }
@@ -179,9 +156,6 @@ func (sm *SessionManager) UpdateAvailableTools(userID, channelID string, tools [
 	if !exists {
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
 	}
-
-	userSession.mutex.Lock()
-	defer userSession.mutex.Unlock()
 
 	userSession.AvailableTools = tools
 	userSession.LastActivity = time.Now()
@@ -220,9 +194,6 @@ func (sm *SessionManager) CleanupOldSessions(maxAge time.Duration) {
 
 // saveSession persists a session to disk
 func (sm *SessionManager) saveSession(session *UserSession) error {
-	session.mutex.RLock()
-	defer session.mutex.RUnlock()
-
 	filename := filepath.Join(sm.storePath, fmt.Sprintf("session-%s-%s.json", session.UserID, session.ChannelID))
 
 	data, err := json.MarshalIndent(session, "", "  ")

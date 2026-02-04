@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/meschbach/marvin/internal/config"
@@ -13,6 +14,7 @@ import (
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 )
 
@@ -41,6 +43,137 @@ type SlackContext struct {
 	Message   string
 	Timestamp string
 	ThreadTS  string
+}
+
+// slackUpdater handles rate-limited updates to Slack messages
+type slackUpdater struct {
+	client         *slack.Client
+	channelID      string
+	messageTS      string
+	lastUpdate     time.Time
+	contentBuffer  strings.Builder
+	thoughtBuffer  strings.Builder
+	toolCalls      []string
+	updateInterval time.Duration
+	mutex          sync.Mutex
+	complete       bool
+}
+
+// newSlackUpdater creates a new rate-limited message updater
+func newSlackUpdater(client *slack.Client, channelID, messageTS string) *slackUpdater {
+	return &slackUpdater{
+		client:         client,
+		channelID:      channelID,
+		messageTS:      messageTS,
+		lastUpdate:     time.Now(), // Initialize to now to prevent immediate update
+		contentBuffer:  strings.Builder{},
+		thoughtBuffer:  strings.Builder{},
+		toolCalls:      []string{},
+		updateInterval: 1 * time.Second,
+	}
+}
+
+// addContent adds regular content to the buffer
+func (su *slackUpdater) addContent(content string) {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	su.contentBuffer.WriteString(content)
+}
+
+// addThought adds thought content to the buffer with proper formatting
+func (su *slackUpdater) addThought(thought string) {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	su.thoughtBuffer.WriteString(fmt.Sprintf("> Thought: %s", thought))
+}
+
+// addToolCall records a tool call without exposing details
+func (su *slackUpdater) addToolCall(toolName string) {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	su.toolCalls = append(su.toolCalls, toolName)
+}
+
+// shouldUpdate checks if enough time has passed since the last update
+func (su *slackUpdater) shouldUpdate() bool {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	return time.Since(su.lastUpdate) >= su.updateInterval
+}
+
+// updateMessage updates the Slack message if enough time has passed
+func (su *slackUpdater) updateMessage() error {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+
+	// Don't update if not enough time has passed and not complete
+	if !su.complete && time.Since(su.lastUpdate) < su.updateInterval {
+		return nil
+	}
+
+	var message strings.Builder
+
+	// Add content if present
+	if su.contentBuffer.Len() > 0 {
+		message.WriteString(su.contentBuffer.String())
+	}
+
+	// Add thoughts if present
+	if su.thoughtBuffer.Len() > 0 {
+		if message.Len() > 0 {
+			message.WriteString("\n\n")
+		}
+		message.WriteString(su.thoughtBuffer.String())
+	}
+
+	// Add tool call notifications if present
+	if len(su.toolCalls) > 0 {
+		if message.Len() > 0 {
+			message.WriteString("\n\n")
+		}
+		message.WriteString("🔧 Tools used: ")
+		for i, tool := range su.toolCalls {
+			if i > 0 {
+				message.WriteString(", ")
+			}
+			message.WriteString(fmt.Sprintf("`%s`", tool))
+		}
+	}
+
+	// Update the message with proper block formatting
+	blocks := parseMessageToBlocks(message.String())
+	_, _, _, err := su.client.UpdateMessage(
+		su.channelID,
+		su.messageTS,
+		slack.MsgOptionBlocks(blocks...),
+	)
+
+	if err == nil {
+		su.lastUpdate = time.Now()
+	}
+
+	return err
+}
+
+// markComplete marks the response as complete and forces final update
+func (su *slackUpdater) markComplete() {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	su.complete = true
+}
+
+// forceUpdate forces an immediate update regardless of timing
+func (su *slackUpdater) forceUpdate() error {
+	// Mark as complete first
+	su.mutex.Lock()
+	su.complete = true
+	su.mutex.Unlock()
+
+	// Then update message without holding the lock during API call
+	if err := su.updateMessage(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // NewSlackBot creates a new Slack bot instance
@@ -193,7 +326,6 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case event := <-sb.socketClient.Events:
-			fmt.Printf("Socket Mode Event Received: %#v\n", event.Type)
 			switch event.Type {
 			case socketmode.EventTypeHello:
 				// IMPORTANT: Hello events from Slack should NOT be acknowledged
@@ -229,13 +361,16 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 				// Acknowledge the event
 				sb.socketClient.Ack(*event.Request)
 
+				payload, ok := event.Data.(slackevents.EventsAPIEvent)
+				if !ok {
+					break
+				}
 				// Handle different event types
-				switch ev := event.Data.(type) {
-				case *slack.MessageEvent:
+				switch ev := payload.InnerEvent.Data.(type) {
+				case *slackevents.MessageEvent:
 					if err := sb.handleMessage(ctx, ev); err != nil {
 						sb.securityLogger.LogError(ev.User, "SlackBot", err.Error())
 					}
-
 				default:
 					// For other events, just log them
 					fmt.Printf("EventsAPI Event Type: %T\n", ev)
@@ -269,15 +404,19 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 }
 
 // handleMessage processes incoming Slack messages
-func (sb *SlackBot) handleMessage(ctx context.Context, ev *slack.MessageEvent) error {
+func (sb *SlackBot) handleMessage(ctx context.Context, ev *slackevents.MessageEvent) error {
 	// Ignore messages from bots or messages without text
 	if ev.BotID != "" || ev.SubType != "" || ev.Text == "" {
 		return nil
 	}
 
 	// Check if message is mentioning the bot
-	if !strings.Contains(ev.Text, fmt.Sprintf("<@%s>", sb.botUserID)) {
-		return nil
+	if ev.ChannelType == "im" {
+
+	} else {
+		if !strings.Contains(ev.Text, fmt.Sprintf("<@%s>", sb.botUserID)) {
+			return nil
+		}
 	}
 
 	// Remove bot mention from message
@@ -293,8 +432,8 @@ func (sb *SlackBot) handleMessage(ctx context.Context, ev *slack.MessageEvent) e
 		UserID:    ev.User,
 		ChannelID: ev.Channel,
 		Message:   cleanMessage,
-		Timestamp: ev.Timestamp,
-		ThreadTS:  ev.ThreadTimestamp,
+		Timestamp: ev.TimeStamp,
+		ThreadTS:  ev.ThreadTimeStamp,
 		TeamID:    "", // TODO: Get from user info if needed
 	}
 
@@ -422,9 +561,11 @@ func (sb *SlackBot) handleRemoveTool(ctx context.Context, slackCtx *SlackContext
 
 // handleQuery processes regular AI queries
 func (sb *SlackBot) handleQuery(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string) error {
+	fmt.Printf("handle query\n")
 	// Add user message to session
 	userMsg := api.Message{Role: "user", Content: message}
 	if err := sb.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, userMsg); err != nil {
+		fmt.Printf("add message failure? %#v\n", err)
 		sb.securityLogger.LogError(slackCtx.UserID, "SessionManager", err.Error())
 	}
 
@@ -435,11 +576,14 @@ func (sb *SlackBot) handleQuery(ctx context.Context, slackCtx *SlackContext, ses
 		IsAdmin:     sb.tenantToolSet.IsAdmin(slackCtx.UserID),
 	}
 
+	fmt.Println("GetUserTools")
 	userToolSet, err := sb.tenantToolSet.GetUserTools(ctx, userCtx)
 	if err != nil {
+		fmt.Printf("failed to get tool: %e\n", err)
 		return fmt.Errorf("getting user tools: %w", err)
 	}
 
+	fmt.Println("kciking off query")
 	// Start progressive response
 	go sb.processQueryWithProgressiveResponse(ctx, slackCtx, session, message, userToolSet)
 
@@ -448,8 +592,9 @@ func (sb *SlackBot) handleQuery(ctx context.Context, slackCtx *SlackContext, ses
 
 // processQueryWithProgressiveResponse handles AI processing with progressive Slack updates
 func (sb *SlackBot) processQueryWithProgressiveResponse(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet) {
+	fmt.Printf("Starting message\n")
 	// Send initial "thinking" message
-	initialMsg := fmt.Sprintf("🤔 Processing your request: \"%s\"", message)
+	initialMsg := "thinking..."
 	ts, err := sb.postMessage(ctx, slackCtx, initialMsg)
 	if err != nil {
 		sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", err.Error())
@@ -463,24 +608,289 @@ func (sb *SlackBot) processQueryWithProgressiveResponse(ctx context.Context, sla
 		}
 	}
 
-	// TODO: Implement actual AI processing using Marvin's query system
-	// For now, send a simple response
+	// Create rate-limited updater for this message
+	updater := newSlackUpdater(sb.client, slackCtx.ChannelID, ts)
 
-	time.Sleep(2 * time.Second) // Simulate processing time
-
-	response := fmt.Sprintf("I received your query: \"%s\"\n\n🚀 **AI Integration coming soon!**\n\nThis is where I would:\n1. Process your request with the AI model\n2. Use available tools as needed\n3. Provide a helpful response", message)
-
-	// Update the message with the response
-	if err := sb.updateMessage(ctx, slackCtx, ts, response); err != nil {
-		sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", err.Error())
+	// Create Ollama client
+	client, err := api.ClientFromEnvironment()
+	if err != nil {
+		// Log error and flush any pending content
+		updater.forceUpdate()
+		sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error creating Ollama client: %v", err))
 		return
 	}
 
+	// Prepare conversation messages
+	systemMessageContent := "You are a helpful assistant integrated with Slack."
+	if sb.config.SystemPrompt != nil && len(sb.config.SystemPrompt.FromString) > 0 {
+		systemMessageContent = sb.config.SystemPrompt.FromString
+	}
+
+	// Build conversation history from session
+	messages := []api.Message{
+		{Role: "system", Content: systemMessageContent},
+	}
+	messages = append(messages, session.Messages...)
+	messages = append(messages, api.Message{Role: "user", Content: message})
+
+	// Get available tools from user toolset
+	availableTools := userToolSet.APITools()
+
+	// Create streaming chat request
+	stream := true
+	req := &api.ChatRequest{
+		Model:    sb.config.LanguageModel(),
+		Messages: messages,
+		Tools:    availableTools,
+		Stream:   &stream,
+	}
+
+	// Process streaming response
+	var assistantContent, thinkingBuffer strings.Builder
+	var pendingCalls []api.ToolCall
+	var thisLine strings.Builder
+	var thisThinking strings.Builder
+
+	err = client.Chat(ctx, req, func(resp api.ChatResponse) error {
+		if resp.Done {
+			// Response complete, mark updater as complete
+			updater.markComplete()
+		}
+
+		// Handle content
+		if s := resp.Message.Content; s != "" {
+			thisLine.WriteString(s)
+			if strings.Contains(s, "\n") {
+				assistantContent.WriteString(thisLine.String())
+				updater.addContent(thisLine.String())
+				thisLine.Reset()
+
+				// Try to update if enough time has passed
+				if updater.shouldUpdate() {
+					if updateErr := updater.updateMessage(); updateErr != nil {
+						sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error updating message: %v", updateErr))
+					}
+				}
+			}
+		}
+
+		// Handle thinking
+		if len(resp.Message.Thinking) > 0 {
+			thisThinking.WriteString(resp.Message.Thinking)
+			thinkingBuffer.WriteString(resp.Message.Thinking)
+
+			if strings.Contains(resp.Message.Thinking, "\n") {
+				updater.addThought(thisThinking.String())
+				thisThinking.Reset()
+
+				// Try to update if enough time has passed
+				if updater.shouldUpdate() {
+					if updateErr := updater.updateMessage(); updateErr != nil {
+						sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error updating message: %v", updateErr))
+					}
+				}
+			}
+		}
+
+		// Handle tool calls
+		if len(resp.Message.ToolCalls) > 0 {
+			for _, toolCall := range resp.Message.ToolCalls {
+				updater.addToolCall(toolCall.Function.Name)
+			}
+			pendingCalls = append(pendingCalls, resp.Message.ToolCalls...)
+		}
+
+		return nil
+	})
+
+	// Handle any remaining content
+	if thisLine.Len() > 0 {
+		assistantContent.WriteString(thisLine.String())
+		updater.addContent(thisLine.String())
+	}
+	if thisThinking.Len() > 0 {
+		updater.addThought(thisThinking.String())
+	}
+
+	// Force final update with complete content
+	if err := updater.forceUpdate(); err != nil {
+		sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error in final message update: %v", err))
+	}
+
+	// Handle chat errors
+	if err != nil {
+		sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error in Ollama chat: %v", err))
+		return
+	}
+
+	// Execute tool calls if any
+	if len(pendingCalls) > 0 {
+		for _, call := range pendingCalls {
+			reply, herr := userToolSet.HandleCall(ctx, call)
+			if herr != nil {
+				sb.securityLogger.LogError(slackCtx.UserID, "SlackBot", fmt.Sprintf("Error invoking tool %s: %v", call.Function.Name, herr))
+				continue
+			}
+			// Add tool responses to conversation
+			messages = append(messages, reply...)
+		}
+
+		// Continue conversation with tool results (simplified for now)
+		// In a full implementation, we might want to continue the conversation loop
+	}
+
 	// Add assistant message to session
-	assistantMsg := api.Message{Role: "assistant", Content: response}
+	finalContent := assistantContent.String()
+	if thinkingBuffer.Len() > 0 {
+		finalContent += fmt.Sprintf("\n\n> Thought: %s", thinkingBuffer.String())
+	}
+
+	assistantMsg := api.Message{
+		Role:      "assistant",
+		Content:   finalContent,
+		ToolCalls: pendingCalls,
+		Thinking:  thinkingBuffer.String(),
+	}
 	if err := sb.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, assistantMsg); err != nil {
 		sb.securityLogger.LogError(slackCtx.UserID, "SessionManager", err.Error())
 	}
+}
+
+// normalizeMarkdownForSlack converts standard markdown to Slack's mrkdwn format
+func normalizeMarkdownForSlack(text string) string {
+	result := text
+
+	// Convert **bold** to *bold* (Slack uses single asterisks for bold)
+	result = strings.ReplaceAll(result, "**", "*")
+
+	// Handle edge case where replacement might create ***bold***
+	// Replace *** with * (which will become bold)
+	result = strings.ReplaceAll(result, "***", "*")
+
+	// Convert __bold__ to *bold* (another common markdown variant)
+	result = strings.ReplaceAll(result, "__", "*")
+
+	// Convert *italic* to _italic_ (Slack prefers underscores for italics)
+	// Be careful not to interfere with bold formatting
+	result = strings.ReplaceAll(result, "*_", "_")
+	result = strings.ReplaceAll(result, "_*", "_")
+
+	return result
+}
+
+// parseMessageToBlocks converts markdown message to Slack blocks with proper header handling
+func parseMessageToBlocks(message string) []slack.Block {
+	// Normalize markdown for Slack compatibility
+	message = normalizeMarkdownForSlack(message)
+	var blocks []slack.Block
+	lines := strings.Split(message, "\n")
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+
+		// Handle H1 headers (# Header)
+		if strings.HasPrefix(line, "# ") && !strings.HasPrefix(line, "## ") {
+			headerText := strings.TrimPrefix(line, "# ")
+			headerBlock := slack.NewHeaderBlock(&slack.TextBlockObject{
+				Type: slack.PlainTextType,
+				Text: headerText,
+			})
+			blocks = append(blocks, headerBlock)
+			continue
+		}
+
+		// Handle H2 headers (## Header)
+		if strings.HasPrefix(line, "## ") {
+			headerText := strings.TrimPrefix(line, "## ")
+			headerBlock := slack.NewHeaderBlock(&slack.TextBlockObject{
+				Type: slack.PlainTextType,
+				Text: headerText,
+			})
+			blocks = append(blocks, headerBlock)
+			continue
+		}
+
+		// Handle H3+ headers (### Header, #### Header) - convert to bold text
+		if strings.HasPrefix(line, "### ") || strings.HasPrefix(line, "#### ") {
+			boldText := strings.TrimPrefix(strings.TrimPrefix(line, "### "), "#### ")
+			sectionBlock := slack.NewSectionBlock(&slack.TextBlockObject{
+				Type: slack.MarkdownType,
+				Text: "*" + boldText + "*",
+			}, nil, nil)
+			blocks = append(blocks, sectionBlock)
+			continue
+		}
+
+		// Handle block quotes (> Quote text)
+		if strings.HasPrefix(line, "> ") {
+			// Collect consecutive quote lines
+			var quoteLines []string
+			for i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "> ") {
+				quoteLine := strings.TrimPrefix(strings.TrimSpace(lines[i]), "> ")
+				quoteLines = append(quoteLines, quoteLine)
+				i++
+			}
+			i-- // Back up one since we'll increment in the outer loop
+
+			if len(quoteLines) > 0 {
+				quoteText := strings.Join(quoteLines, "\n")
+				sectionBlock := slack.NewSectionBlock(&slack.TextBlockObject{
+					Type: slack.MarkdownType,
+					Text: quoteText,
+				}, nil, nil)
+				blocks = append(blocks, sectionBlock)
+			}
+			continue
+		}
+
+		// Skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// For regular content, collect consecutive non-empty lines that aren't special
+		var contentLines []string
+		for i < len(lines) {
+			currentLine := strings.TrimSpace(lines[i])
+			if currentLine == "" {
+				break // Empty line breaks content collection
+			}
+			if isHeaderLine(currentLine) || strings.HasPrefix(currentLine, "> ") {
+				break // Header or quote breaks content collection
+			}
+			contentLines = append(contentLines, lines[i])
+			i++
+		}
+		i-- // Back up one since we'll increment in the outer loop
+
+		if len(contentLines) > 0 {
+			contentText := strings.Join(contentLines, "\n")
+			sectionBlock := slack.NewSectionBlock(&slack.TextBlockObject{
+				Type: slack.MarkdownType,
+				Text: contentText,
+			}, nil, nil)
+			blocks = append(blocks, sectionBlock)
+		}
+	}
+
+	// If no blocks were created (message was empty or only had unsupported content),
+	// create a simple section block
+	if len(blocks) == 0 {
+		blocks = append(blocks, slack.NewSectionBlock(&slack.TextBlockObject{
+			Type: slack.MarkdownType,
+			Text: message,
+		}, nil, nil))
+	}
+
+	return blocks
+}
+
+// isHeaderLine checks if a line is a markdown header
+func isHeaderLine(line string) bool {
+	return strings.HasPrefix(line, "# ") ||
+		strings.HasPrefix(line, "## ") ||
+		strings.HasPrefix(line, "### ") ||
+		strings.HasPrefix(line, "#### ")
 }
 
 // sendMessage sends a message to Slack
@@ -495,20 +905,24 @@ func (sb *SlackBot) sendMessage(ctx context.Context, slackCtx *SlackContext, mes
 
 // postMessage posts a new message and returns its timestamp
 func (sb *SlackBot) postMessage(ctx context.Context, slackCtx *SlackContext, message string) (string, error) {
-	_, timestamp, err := sb.client.PostMessage(
+	blocks := parseMessageToBlocks(message)
+	_, timestamp, err := sb.client.PostMessageContext(
+		ctx,
 		slackCtx.ChannelID,
-		slack.MsgOptionText(message, false),
 		slack.MsgOptionTS(slackCtx.ThreadTS),
+		slack.MsgOptionBlocks(blocks...),
 	)
 	return timestamp, err
 }
 
 // updateMessage updates an existing message
 func (sb *SlackBot) updateMessage(ctx context.Context, slackCtx *SlackContext, timestamp, message string) error {
-	_, _, _, err := sb.client.UpdateMessage(
+	blocks := parseMessageToBlocks(message)
+	_, _, _, err := sb.client.UpdateMessageContext(
+		ctx,
 		slackCtx.ChannelID,
 		timestamp,
-		slack.MsgOptionText(message, false),
+		slack.MsgOptionBlocks(blocks...),
 	)
 	return err
 }
