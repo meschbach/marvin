@@ -120,7 +120,7 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 		return definitions, &operationalError{"list tools", err}
 	}
 	for _, d := range discovered.Tools {
-		fmt.Printf("mcp-%s\t>\tDiscovered tool %s\n", m.Name, d.Name)
+		//fmt.Printf("mcp-%s\t>\tDiscovered tool %s\n", m.Name, d.Name)
 		//todo: likely drift here -- will cause problems in the future
 		var params api.ToolFunctionParameters
 		bytes, err := json.Marshal(d.InputSchema)

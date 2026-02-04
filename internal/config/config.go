@@ -33,8 +33,14 @@ func (c *CommandLineOptions) Load() (*File, error) {
 	return file, nil
 }
 
+// LoadFromPath loads configuration from a specific path
+func (c *CommandLineOptions) LoadFromPath(filePath string) (*File, error) {
+	c.ConfigFile = filePath
+	return c.Load()
+}
+
 func loadConfig(filePath string) (*File, error) {
-	fmt.Printf("Loading config from %s\n", filePath)
+	//fmt.Printf("Loading config from %s\n", filePath)
 	p := hclparse.NewParser()
 	parsedContent, diags := p.ParseHCLFile(filePath)
 	if diags != nil {

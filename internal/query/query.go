@@ -10,6 +10,7 @@ import (
 )
 
 type ChatOptions struct {
+	Verbose bool
 	//ShowTools will print out tool utilization and integration
 	ShowTools bool
 	//DumpTooling will print out the tooling available
@@ -22,7 +23,9 @@ type ChatOptions struct {
 
 // PerformWithConfig executes the search using the optional parsed configuration.
 func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) {
-	fmt.Printf("user search:\t%s\n", actualQuery)
+	if opts.Verbose {
+		fmt.Printf("user search:\t%s\n", actualQuery)
+	}
 
 	// search Ollama for a response
 	client, err := api.ClientFromEnvironment()
@@ -100,7 +103,9 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		showDone:     opts.ShowDone,
 	}
 	model := cfg.LanguageModel()
-	fmt.Printf("config\t> model: %s\n", model)
+	if opts.Verbose {
+		fmt.Printf("config\t> model: %s\n", model)
+	}
 
 	if err := conversation.runAIToConclusion(ctx, model, availableTools); err != nil {
 		return

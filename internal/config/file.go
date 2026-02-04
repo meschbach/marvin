@@ -19,6 +19,7 @@ type File struct {
 	Documents      []*DocumentsBlock `hcl:"documents,block"`
 	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
 	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
+	MultiTenant    *MultiTenantBlock `hcl:"multi_tenant,block"`
 }
 
 func (f *File) resolveWorkingDirectory(marvinFilePath string) (string, error) {
@@ -59,4 +60,21 @@ func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) (
 type SystemPromptBlock struct {
 	FromString string `hcl:"from_string,optional"`
 	FromFile   string `hcl:"from_file,optional"`
+}
+
+type MultiTenantBlock struct {
+	AdminUsers        []string `hcl:"admin_users,optional"`
+	AdminChannel      string   `hcl:"admin_channel,optional"`
+	SessionStorePath  string   `hcl:"session_store_path,optional"`
+	CredentialStore   string   `hcl:"credential_store,optional"`
+	SecurityLogFormat string   `hcl:"security_log_format,optional"`
+	ApprovalTimeout   string   `hcl:"approval_timeout,optional"`
+}
+
+type SharingBlock struct {
+	AllowedUsers      []string `hcl:"allowed_users,optional"`
+	AllowedTeams      []string `hcl:"allowed_teams,optional"`
+	CanShare          bool     `hcl:"can_share,optional"`
+	ExpiresAt         string   `hcl:"expires_at,optional"`
+	AutoApproveShares bool     `hcl:"auto_approve_shares,optional"`
 }
