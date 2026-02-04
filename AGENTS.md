@@ -144,6 +144,37 @@ assert.NotNil(t, cfg)
 - Configuration structs should match HCL block structure
 - Use interfaces for tool implementations to enable testing
 
+### Component Design Principles
+- **Prefer small components**: Many small, focused components are better than few large ones
+- **Consumer-defined interfaces**: Interfaces defined by components that need them, not implementers
+- **Avoid unnecessary abstraction**: Don't create interfaces for single implementations
+- **Direct dependencies**: Use concrete types when there's only one implementation
+- **Component cohesion**: Keep related functionality together in focused files
+
+### File Size and Refactoring Guidelines
+- **Target file sizes**: <200 lines (ideal), <400 lines (maximum)
+- **Keep structs and methods together**: Maintain Go conventions for readability
+- **Functional grouping**: Group related functionality together in focused files
+- **Single responsibility**: Each file should have one primary purpose
+- **No types files**: Avoid separating struct definitions from their methods
+- **No centralized interfaces**: Define interfaces inline where they're used
+
+### Refactoring Strategy
+When files exceed size targets:
+1. **Analyze responsibilities**: Identify distinct functional areas within the file
+2. **Split into focused components**: Create smaller structs with single responsibilities
+3. **Maintain cohesion**: Keep struct definitions with their core methods in same files
+4. **Consumer-defined interfaces**: Define interfaces where needed by consuming components
+5. **Avoid over-abstraction**: Use concrete types unless testing or multiple implementations
+6. **Preserve functionality**: Ensure all existing behavior is maintained
+7. **Test thoroughly**: Verify refactoring doesn't break existing functionality
+
+### Interface Guidelines
+- **Define by consumers**: Interfaces defined by components that need the behavior
+- **Single implementations**: Avoid interfaces with only one implementation
+- **Testing focus**: Use interfaces primarily for testability
+- **Inline definitions**: Define interfaces in same file as consumer, not centralized
+
 ### Dependencies and External Libraries
 - **Cobra**: CLI framework
 - **HCL v2**: Configuration parsing

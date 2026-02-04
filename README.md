@@ -100,6 +100,34 @@ Apache-2.0
 
 ---
 
+## Development
+
+### Code Organization
+
+This project follows specific code organization standards to maintain quality and readability:
+
+**File Size Guidelines**:
+- Target: <200 lines per file (ideal)
+- Maximum: <400 lines per file
+- Structs kept with their methods (Go conventions)
+
+**Functional Grouping**:
+- Related functionality grouped in focused files
+- Interface boundaries where logical separation exists
+- Clear single responsibility for each file
+
+For detailed guidelines, see:
+- [`AGENTS.md`](AGENTS.md) - Agent development guidelines
+- [`docs/REFACTORING.md`](docs/REFACTORING.md) - Code quality refactoring decisions
+
+### Contributing
+
+When contributing:
+1. Follow the established code organization patterns
+2. Keep files under 400 lines (ideally under 200)
+3. Maintain functional cohesion within files
+4. Test thoroughly after refactoring
+
 ### Acknowledgements
 
 - Ollama for local model serving and a simple streaming API

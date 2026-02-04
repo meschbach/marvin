@@ -12,37 +12,6 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-// UserSession represents a user's conversation session
-type UserSession struct {
-	UserID         string             `json:"user_id"`
-	ChannelID      string             `json:"channel_id"`
-	ThreadTS       string             `json:"thread_ts,omitempty"`
-	LastActivity   time.Time          `json:"last_activity"`
-	Messages       []api.Message      `json:"messages"`
-	AvailableTools []string           `json:"available_tools"`
-	ToolNamespace  string             `json:"tool_namespace"`
-	UserContext    *query.UserContext `json:"-"` // Not serialized
-}
-
-// GetAvailableTools returns the list of available tools for this session
-func (us *UserSession) GetAvailableTools() []string {
-	// Return a copy to prevent modification
-	tools := make([]string, len(us.AvailableTools))
-	copy(tools, us.AvailableTools)
-	return tools
-}
-
-// AddMessage adds a message to the session
-func (us *UserSession) AddMessage(message api.Message) {
-	us.Messages = append(us.Messages, message)
-	us.LastActivity = time.Now()
-}
-
-// SetThreadTS sets the thread timestamp for the session
-func (us *UserSession) SetThreadTS(threadTS string) {
-	us.ThreadTS = threadTS
-}
-
 // SessionManager handles user sessions with persistence
 type SessionManager struct {
 	sessions  sync.Map // "userID:channelID" -> *UserSession
