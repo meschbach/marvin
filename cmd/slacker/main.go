@@ -88,7 +88,11 @@ func main() {
 	securityLogger := sec.NewSecurityLogger()
 
 	// Initialize session manager
-	sessionManager, err := slacker.NewSessionManager(options.SessionStore)
+	sessionStorePath := options.SessionStore
+	if cfg.MultiTenant != nil && cfg.MultiTenant.SessionStorePath != "" {
+		sessionStorePath = cfg.MultiTenant.SessionStorePath
+	}
+	sessionManager, err := slacker.NewSessionManager(sessionStorePath)
 	if err != nil {
 		log.Fatalf("Error creating session manager: %v", err)
 	}
