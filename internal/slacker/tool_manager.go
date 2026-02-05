@@ -16,7 +16,7 @@ type ToolManagerImpl struct {
 	approvalWorkflow   *ApprovalWorkflow
 	tenantToolSet      *query.TenantToolSet
 	securityLogger     *sec.SecurityLogger
-	notificationSender *NotificationSender
+	notificationSender OutgoingMessages
 }
 
 // NewToolManager creates a new tool manager
@@ -24,7 +24,7 @@ func NewToolManager(
 	approvalWorkflow *ApprovalWorkflow,
 	tenantToolSet *query.TenantToolSet,
 	securityLogger *sec.SecurityLogger,
-	notificationSender *NotificationSender,
+	notificationSender OutgoingMessages,
 ) *ToolManagerImpl {
 	return &ToolManagerImpl{
 		approvalWorkflow:   approvalWorkflow,

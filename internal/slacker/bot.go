@@ -82,7 +82,7 @@ func NewSlackBot(
 // StartSocketMode starts the Socket Mode API
 func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 	go func() {
-		if err := sb.connection.GetSocketClient().RunContext(ctx); err != nil {
+		if err := sb.connection.socketClient.RunContext(ctx); err != nil {
 			sb.handleConnectionError(err)
 		}
 	}()
@@ -91,7 +91,7 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case event := <-sb.connection.GetSocketClient().Events:
+		case event := <-sb.connection.socketClient.Events:
 			if err := sb.eventRouter.RouteEvent(ctx, event); err != nil {
 				botUserID := sb.connection.GetBotUserID()
 				// Determine user ID for error logging - this is simplified

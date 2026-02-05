@@ -64,7 +64,7 @@ func (er *EventRouter) RouteEvent(ctx context.Context, event socketmode.Event) e
 
 	case socketmode.EventTypeEventsAPI:
 		// Acknowledge the event
-		er.connection.GetSocketClient().Ack(*event.Request)
+		er.connection.socketClient.Ack(*event.Request)
 
 		payload, ok := event.Data.(slackevents.EventsAPIEvent)
 		if !ok {
@@ -83,7 +83,7 @@ func (er *EventRouter) RouteEvent(ctx context.Context, event socketmode.Event) e
 		// Handle interactive events (buttons, modals, etc.)
 		callback, ok := event.Data.(slack.InteractionCallback)
 		if ok {
-			er.connection.GetSocketClient().Ack(*event.Request)
+			er.connection.socketClient.Ack(*event.Request)
 			return er.handleInteractiveCallback(ctx, &callback)
 		}
 

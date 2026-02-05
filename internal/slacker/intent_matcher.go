@@ -44,7 +44,7 @@ func NewIntentProcessor() *IntentProcessor {
 				Confidence: 0.9,
 			},
 			{
-				Pattern:    `(?i)add (?:local|local program) (?:tool|at) (.+)`,
+				Pattern:    `(?i)add (?:local|local program) (?:tool|at)?\s*(.+)`,
 				Action:     "add_tool",
 				ToolType:   "local",
 				Confidence: 0.8,

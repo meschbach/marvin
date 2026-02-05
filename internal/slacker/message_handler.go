@@ -2,6 +2,7 @@ package slacker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 
 // QueryHandler defines the interface for handling queries
 type QueryHandler interface {
-	HandleQuery(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string) error
+	HandleQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, updater *SlackUpdater) error
 }
 
 // MessageProcessor defines the interface for processing messages
@@ -114,8 +115,10 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 		return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
 	}
 
-	// Handle as regular query
-	return mh.queryHandler.HandleQuery(ctx, slackCtx, session, cleanMessage)
+	// Handle as a regular query
+	updater := NewSlackUpdater(mh.connection.client, ev.Channel)
+	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, cleanMessage, updater)
+	return errors.Join(err, queryError)
 }
 
 // LogSessionEvent logs a session event

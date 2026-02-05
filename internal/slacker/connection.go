@@ -140,11 +140,6 @@ func (sc *SlackConnection) GetClient() *slack.Client {
 	return sc.client
 }
 
-// GetSocketClient returns the Socket Mode client
-func (sc *SlackConnection) GetSocketClient() *socketmode.Client {
-	return sc.socketClient
-}
-
 // GetAdminUsers returns the list of admin users
 func (sc *SlackConnection) GetAdminUsers() []string {
 	return sc.adminUsers

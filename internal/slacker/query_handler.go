@@ -42,37 +42,6 @@ func NewQueryProcessor(
 	}
 }
 
-// HandleQuery processes regular AI queries
-func (qp *QueryProcessor) HandleQuery(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string) error {
-	fmt.Printf("handle query\n")
-	// Add user message to session
-	userMsg := api.Message{Role: "user", Content: message}
-	if err := qp.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, userMsg); err != nil {
-		fmt.Printf("add message failure? %#v\n", err)
-		qp.securityLogger.LogError(slackCtx.UserID, "SessionManager", err.Error())
-	}
-
-	// Get user's tools
-	userCtx := &query.UserContext{
-		UserID:      slackCtx.UserID,
-		SlackTeamID: slackCtx.TeamID,
-		IsAdmin:     qp.tenantToolSet.IsAdmin(slackCtx.UserID),
-	}
-
-	fmt.Println("GetUserTools")
-	userToolSet, err := qp.tenantToolSet.GetUserTools(ctx, userCtx)
-	if err != nil {
-		fmt.Printf("failed to get tool: %e\n", err)
-		return fmt.Errorf("getting user tools: %w", err)
-	}
-
-	fmt.Println("kicking off query")
-	// Start progressive response
-	go qp.streamer.ProcessQueryWithProgressiveResponse(ctx, slackCtx, session, message, userToolSet)
-
-	return nil
-}
-
 // HandleQueryWithUpdater processes queries with a specific Slack updater
 func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, updater *SlackUpdater) error {
 	// Add user message to session
@@ -95,7 +64,22 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 	}
 
 	// Start progressive response with specific updater
-	go qp.streamer.ProcessQueryWithUpdater(ctx, slackCtx, session, message, userToolSet, updater)
+	go func() {
+		ctx, done := context.WithCancel(context.Background())
+		defer done()
+		defer func() {
+			err := updater.ForceUpdate()
+			if err != nil {
+				qp.securityLogger.LogError(slackCtx.UserID, "Updater ForceUpdate", err.Error())
+			}
+			fmt.Printf("(%s) query complete\n", slackCtx.UserID)
+		}()
+
+		fmt.Printf("(%s) Starting query\n", slackCtx.UserID)
+		if err := qp.streamer.ProcessQueryWithUpdater(ctx, slackCtx, session, message, userToolSet, updater); err != nil {
+			qp.securityLogger.LogError(slackCtx.UserID, "ProcessQueryWithUpdater", err.Error())
+		}
+	}()
 
 	return nil
 }

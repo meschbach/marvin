@@ -9,9 +9,21 @@ import (
 	"github.com/slack-go/slack"
 )
 
-// SlackUpdater handles rate-limited updates to Slack messages
+// SlackSink provides an abstraction for Slack message operations.
+// It enables testing by allowing mock implementations and supports different
+// Slack client strategies while maintaining a consistent interface for
+// real-time message operations.
+type SlackSink interface {
+	//todo: should use the context version
+	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
+}
+
+// SlackUpdater provides real-time progress updates for long-running AI operations in Slack.
+// It solves the user experience problem of silent AI processing by showing incremental progress,
+// thoughts, and tool usage while preventing API rate limiting through intelligent throttling.
 type SlackUpdater struct {
-	client         *slack.Client
+	client         SlackSink
 	channelID      string
 	messageTS      string
 	lastUpdate     time.Time
@@ -21,22 +33,23 @@ type SlackUpdater struct {
 	updateInterval time.Duration
 	mutex          sync.Mutex
 	complete       bool
+	messagePosted  bool
 }
 
-// SlackUpdaterImpl maintains backward compatibility
-type SlackUpdaterImpl = SlackUpdater
-
-// NewSlackUpdater creates a new rate-limited message updater
-func NewSlackUpdater(client *slack.Client, channelID, messageTS string) *SlackUpdater {
+// NewSlackUpdater creates an updater that provides visibility into AI operations.
+// It transforms the "black box" experience of AI processing into an interactive session
+// where users can see the AI reasoning, tool usage, and progress in real-time.
+func NewSlackUpdater(client SlackSink, channelID string) *SlackUpdater {
 	return &SlackUpdater{
 		client:         client,
 		channelID:      channelID,
-		messageTS:      messageTS,
 		lastUpdate:     time.Now(), // Initialize to now to prevent immediate update
 		contentBuffer:  strings.Builder{},
 		thoughtBuffer:  strings.Builder{},
 		toolCalls:      []string{},
 		updateInterval: 1 * time.Second,
+		mutex:          sync.Mutex{},
+		messagePosted:  false,
 	}
 }
 
@@ -47,14 +60,18 @@ func (su *SlackUpdater) AddContent(content string) {
 	su.contentBuffer.WriteString(content)
 }
 
-// AddThought adds thought content to the buffer with proper formatting
+// AddThought reveals AI reasoning to build trust and transparency.
+// Seeing the thought process helps users understand how decisions are made
+// and provides insight into the AI's problem-solving approach.
 func (su *SlackUpdater) AddThought(thought string) {
 	su.mutex.Lock()
 	defer su.mutex.Unlock()
 	su.thoughtBuffer.WriteString(fmt.Sprintf("> Thought: %s", thought))
 }
 
-// AddToolCall records a tool call without exposing details
+// AddToolCall provides transparency into tool usage without exposing sensitive data.
+// This shows users what actions are being taken on their behalf, building confidence
+// in the AI's capabilities while maintaining security boundaries.
 func (su *SlackUpdater) AddToolCall(toolName string) {
 	su.mutex.Lock()
 	defer su.mutex.Unlock()
@@ -68,11 +85,9 @@ func (su *SlackUpdater) ShouldUpdate() bool {
 	return time.Since(su.lastUpdate) >= su.updateInterval
 }
 
-// BuildMessage builds the complete message from buffers
-func (su *SlackUpdater) BuildMessage() string {
-	su.mutex.Lock()
-	defer su.mutex.Unlock()
-
+// buildMessage builds the complete message from buffers
+// Note: This method assumes the caller already holds the mutex lock
+func (su *SlackUpdater) buildMessage() string {
 	var message strings.Builder
 
 	// Add content if present
@@ -105,7 +120,14 @@ func (su *SlackUpdater) BuildMessage() string {
 	return message.String()
 }
 
-// UpdateMessage updates the Slack message if enough time has passed
+// BuildMessage builds the complete message from buffers with proper locking
+func (su *SlackUpdater) BuildMessage() string {
+	su.mutex.Lock()
+	defer su.mutex.Unlock()
+	return su.buildMessage()
+}
+
+// UpdateMessage posts or updates the Slack message if enough time has passed
 func (su *SlackUpdater) UpdateMessage() error {
 	su.mutex.Lock()
 	defer su.mutex.Unlock()
@@ -115,27 +137,43 @@ func (su *SlackUpdater) UpdateMessage() error {
 		return nil
 	}
 
-	message := su.BuildMessage()
+	message := su.buildMessage()
 
 	// Parse message to blocks
 	parser := NewSlackParser()
 	blocks := parser.ParseMessageToBlocks(message)
 
-	// Update the message with proper block formatting
-	_, _, _, err := su.client.UpdateMessage(
-		su.channelID,
-		su.messageTS,
-		slack.MsgOptionBlocks(blocks...),
-	)
+	var err error
 
-	if err == nil {
-		su.lastUpdate = time.Now()
+	if !su.messagePosted {
+		// Post the first message
+		_, ts, err := su.client.PostMessage(
+			su.channelID,
+			slack.MsgOptionBlocks(blocks...),
+		)
+		if err == nil {
+			su.messageTS = ts
+			su.messagePosted = true
+			su.lastUpdate = time.Now()
+		}
+	} else {
+		// Update the existing message
+		_, _, _, err = su.client.UpdateMessage(
+			su.channelID,
+			su.messageTS,
+			slack.MsgOptionBlocks(blocks...),
+		)
+		if err == nil {
+			su.lastUpdate = time.Now()
+		}
 	}
 
 	return err
 }
 
-// MarkComplete marks the response as complete and forces final update
+// MarkComplete signals that AI processing has finished, enabling the final update.
+// This ensures users get a complete, final message rather than being left with
+// a partially displayed response.
 func (su *SlackUpdater) MarkComplete() {
 	su.mutex.Lock()
 	defer su.mutex.Unlock()
@@ -149,7 +187,7 @@ func (su *SlackUpdater) ForceUpdate() error {
 	su.complete = true
 	su.mutex.Unlock()
 
-	// Then update message without holding the lock during API call
+	// Then update message - UpdateMessage handles its own locking
 	if err := su.UpdateMessage(); err != nil {
 		return err
 	}
