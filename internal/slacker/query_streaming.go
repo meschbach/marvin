@@ -48,7 +48,7 @@ func NewQueryStreamer[LLM llm](
 
 // ProcessQueryWithUpdater handles AI processing with a specific Slack updater
 func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet, updater *SlackUpdater) error {
-	fmt.Printf("Starting message\n")
+	qs.securityLogger.LogDebug(slackCtx.UserID, "query_streaming", "Starting message streaming")
 	if updater == nil { //catch here to avoid costly
 		return errors.New("updater is required")
 	}

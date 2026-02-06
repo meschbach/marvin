@@ -46,6 +46,15 @@ func (sl *SecurityLogger) LogInfo(userID, component, message string) {
 		time.Now().Format(time.RFC3339), userID, component, message)
 }
 
+// LogDebug logs debug-level messages for development and troubleshooting
+func (sl *SecurityLogger) LogDebug(userID, component, message string) {
+	sl.mutex.Lock()
+	defer sl.mutex.Unlock()
+
+	fmt.Fprintf(sl.output, "[DEBUG] %s - User: %s, Component: %s, Message: %s\n",
+		time.Now().Format(time.RFC3339), userID, component, message)
+}
+
 // LogSessionEvent logs session-related events
 func (sl *SecurityLogger) LogSessionEvent(userID, channelID, event string) {
 	sl.mutex.Lock()
