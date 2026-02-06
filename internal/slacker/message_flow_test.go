@@ -55,7 +55,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 	notificationSender := NewMockNotificationSender()
 
 	// Create tool manager
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager)
 
 	// Create a mock connection (create a real client to avoid panics in GetUserInfo)
 	conn := &SlackConnection{
@@ -199,7 +199,7 @@ func TestEventRouter_Integration(t *testing.T) {
 
 	// Create mock notification sender to avoid nil pointer issues
 	notificationSender := NewMockNotificationSender()
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager)
 
 	conn := &SlackConnection{
 		botUserID: "U123456789",

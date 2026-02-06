@@ -95,6 +95,11 @@ func NewIntentProcessor() *IntentProcessor {
 				Action:     "reject_tool",
 				Confidence: 0.9,
 			},
+			{
+				Pattern:    `(?i)reset (?:my )?(?:session|context|conversation)`,
+				Action:     "reset_session",
+				Confidence: 0.9,
+			},
 		},
 	}
 }

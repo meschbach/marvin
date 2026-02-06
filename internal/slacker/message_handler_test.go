@@ -280,6 +280,36 @@ func TestIntentProcessor_ProcessMessage(t *testing.T) {
 			message:     "I want to add a tool",
 			shouldMatch: false,
 		},
+		{
+			name:           "Reset session",
+			message:        "reset session",
+			shouldMatch:    true,
+			expectedAction: "reset_session",
+		},
+		{
+			name:           "Reset my session",
+			message:        "reset my session",
+			shouldMatch:    true,
+			expectedAction: "reset_session",
+		},
+		{
+			name:           "Reset context",
+			message:        "reset context",
+			shouldMatch:    true,
+			expectedAction: "reset_session",
+		},
+		{
+			name:           "Reset conversation",
+			message:        "reset conversation",
+			shouldMatch:    true,
+			expectedAction: "reset_session",
+		},
+		{
+			name:           "Reset my context",
+			message:        "reset my context",
+			shouldMatch:    true,
+			expectedAction: "reset_session",
+		},
 	}
 
 	for _, tt := range tests {

@@ -11,43 +11,46 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+type llm interface {
+	Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error
+}
+
 // QueryStreamer handles LLM integration and streaming responses
-type QueryStreamer struct {
-	tenantToolSet  *query.TenantToolSet
-	sessionManager *SessionManager
-	config         *config.File
-	securityLogger *sec.SecurityLogger
-	formatter      *SlackFormatter
+type QueryStreamer[LLM llm] struct {
+	tenantToolSet   *query.TenantToolSet
+	sessionManager  *SessionManager
+	config          *config.File
+	securityLogger  *sec.SecurityLogger
+	languageService LLM
+
+	//Deprecated: not used
+	formatter *SlackFormatter
 }
 
 // NewQueryStreamer creates a new query streamer
-func NewQueryStreamer(
+func NewQueryStreamer[LLM llm](
 	tenantToolSet *query.TenantToolSet,
 	sessionManager *SessionManager,
 	config *config.File,
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
-) *QueryStreamer {
-	return &QueryStreamer{
-		tenantToolSet:  tenantToolSet,
-		sessionManager: sessionManager,
-		config:         config,
-		securityLogger: securityLogger,
-		formatter:      formatter,
+	languageService LLM,
+) *QueryStreamer[LLM] {
+	return &QueryStreamer[LLM]{
+		tenantToolSet:   tenantToolSet,
+		sessionManager:  sessionManager,
+		config:          config,
+		securityLogger:  securityLogger,
+		formatter:       formatter,
+		languageService: languageService,
 	}
 }
 
 // ProcessQueryWithUpdater handles AI processing with a specific Slack updater
-func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet, updater *SlackUpdater) error {
+func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet, updater *SlackUpdater) error {
 	fmt.Printf("Starting message\n")
 	if updater == nil { //catch here to avoid costly
 		return errors.New("updater is required")
-	}
-
-	// Create Ollama client
-	client, err := api.ClientFromEnvironment()
-	if err != nil {
-		return err
 	}
 
 	// Prepare conversation messages
@@ -78,7 +81,7 @@ func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *
 	// Process streaming response with extracted handler
 	handler := newStreamingResponseHandler(updater)
 
-	err = client.Chat(ctx, req, handler.handleResponse)
+	err := qs.languageService.Chat(ctx, req, handler.handleResponse)
 
 	// Extract final state from handler
 	assistantContent, thinkingBuffer, pendingCalls := handler.finished()
@@ -88,32 +91,72 @@ func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *
 		return err
 	}
 
-	// Execute tool calls if any
-	if len(pendingCalls) > 0 {
-		for _, call := range pendingCalls {
-			reply, herr := userToolSet.HandleCall(ctx, call)
-			if herr != nil {
-				qs.securityLogger.LogError(slackCtx.UserID, "QueryStreamer", fmt.Sprintf("Error invoking tool %s: %v", call.Function.Name, herr))
-				continue
-			}
-			messages = append(messages, reply...)
-		}
-	}
-
-	// Add assistant message to session
-	finalContent := assistantContent
-	if thinkingBuffer != "" {
-		finalContent += fmt.Sprintf("\n\n> Thought: %s", thinkingBuffer)
-	}
-
 	assistantMsg := api.Message{
 		Role:      "assistant",
-		Content:   finalContent,
+		Content:   assistantContent,
 		ToolCalls: pendingCalls,
 		Thinking:  thinkingBuffer,
 	}
 	if err := qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, assistantMsg); err != nil {
 		return err
 	}
+
+	// Continue conversation loop while there are tool calls to process
+	for len(pendingCalls) > 0 {
+		if err := updater.ForceUpdate(); err != nil {
+			return err
+		}
+		// Execute all pending tool calls and collect responses
+		for _, call := range pendingCalls {
+			reply, herr := userToolSet.HandleCall(ctx, call)
+			if herr != nil {
+				qs.securityLogger.LogError(slackCtx.UserID, "QueryStreamer", fmt.Sprintf("Error invoking tool %s: %v", call.Function.Name, herr))
+				// Add error message to conversation so LLM can respond appropriately
+				errorMsg := api.Message{
+					Role:       "tool",
+					ToolName:   call.Function.Name,
+					ToolCallID: call.ID,
+					Content:    fmt.Sprintf("Error: %v", herr),
+				}
+				messages = append(messages, errorMsg)
+				continue
+			}
+			messages = append(messages, reply...)
+		}
+
+		// Create a streaming request to let the LLM consume tool results
+		nextHandler := newStreamingResponseHandler(updater)
+
+		// Build the follow-up request with tool results included
+		followUpReq := &api.ChatRequest{
+			Model:    qs.config.LanguageModel(),
+			Messages: messages,
+			Stream:   &stream,
+		}
+
+		// Make LLM call to consume tool results and continue conversation
+		err = qs.languageService.Chat(ctx, followUpReq, nextHandler.handleResponse)
+		if err != nil {
+			return err
+		}
+
+		// Extract response state
+		nextAssistantContent, nextThinkingBuffer, nextPendingCalls := nextHandler.finished()
+
+		// Add this assistant message to session
+		nextAssistantMsg := api.Message{
+			Role:      "assistant",
+			Content:   nextAssistantContent,
+			ToolCalls: nextPendingCalls,
+			Thinking:  nextThinkingBuffer,
+		}
+		if err := qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, nextAssistantMsg); err != nil {
+			return err
+		}
+
+		// Update loop state for next iteration
+		pendingCalls = nextPendingCalls
+	}
+
 	return nil
 }

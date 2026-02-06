@@ -46,7 +46,7 @@ func NewSlackBot(
 	// Create message handler dependencies
 	intentProcessor := NewIntentProcessor()
 	queryHandler := NewQueryProcessor(tenantToolSet, sessionManager, config, securityLogger, formatter)
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, securityLogger, notificationSender)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, securityLogger, notificationSender, sessionManager)
 
 	messageHandler := NewMessageHandler(
 		intentProcessor,

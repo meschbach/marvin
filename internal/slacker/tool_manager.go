@@ -17,6 +17,7 @@ type ToolManagerImpl struct {
 	tenantToolSet      *query.TenantToolSet
 	securityLogger     *sec.SecurityLogger
 	notificationSender OutgoingMessages
+	sessionManager     *SessionManager
 }
 
 // NewToolManager creates a new tool manager
@@ -25,12 +26,14 @@ func NewToolManager(
 	tenantToolSet *query.TenantToolSet,
 	securityLogger *sec.SecurityLogger,
 	notificationSender OutgoingMessages,
+	sessionManager *SessionManager,
 ) *ToolManagerImpl {
 	return &ToolManagerImpl{
 		approvalWorkflow:   approvalWorkflow,
 		tenantToolSet:      tenantToolSet,
 		securityLogger:     securityLogger,
 		notificationSender: notificationSender,
+		sessionManager:     sessionManager,
 	}
 }
 
@@ -49,6 +52,8 @@ func (tm *ToolManagerImpl) HandleToolIntent(ctx context.Context, slackCtx *Slack
 		return tm.handleApprovalCommand(ctx, slackCtx, session, intent, "approve")
 	case "reject_tool":
 		return tm.handleApprovalCommand(ctx, slackCtx, session, intent, "reject")
+	case "reset_session":
+		return tm.handleResetSession(ctx, slackCtx, session)
 	default:
 		return tm.notificationSender.SendMessage(slackCtx.UserID, fmt.Sprintf("I don't know how to handle: %s", intent.Action))
 	}
@@ -155,4 +160,14 @@ func (tm *ToolManagerImpl) handleApprovalCommand(ctx context.Context, slackCtx *
 		// Send rejection notification via notification sender
 		return tm.notificationSender.SendMessage(slackCtx.UserID, fmt.Sprintf("❌ Tool request %s rejected", requestID))
 	}
+}
+
+// handleResetSession handles resetting user session context
+func (tm *ToolManagerImpl) handleResetSession(ctx context.Context, slackCtx *SlackContext, session *UserSession) error {
+	if err := tm.sessionManager.ClearSession(slackCtx.UserID, slackCtx.ChannelID); err != nil {
+		return tm.notificationSender.SendMessage(slackCtx.UserID, fmt.Sprintf("❌ Error resetting session: %s", err.Error()))
+	}
+
+	tm.securityLogger.LogSessionEvent(slackCtx.UserID, slackCtx.ChannelID, "Session reset by user")
+	return tm.notificationSender.SendMessage(slackCtx.UserID, "✅ Your conversation history has been cleared")
 }

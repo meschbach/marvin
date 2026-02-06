@@ -17,7 +17,7 @@ type QueryProcessor struct {
 	config         *config.File
 	securityLogger *sec.SecurityLogger
 	formatter      *SlackFormatter
-	streamer       *QueryStreamer
+	streamer       *QueryStreamer[*api.Client]
 }
 
 // QueryProcessorImpl maintains backward compatibility
@@ -31,7 +31,12 @@ func NewQueryProcessor(
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
 ) *QueryProcessor {
-	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter)
+	ollama, err := api.ClientFromEnvironment()
+	if err != nil {
+		//todo: handle more gracefully
+		panic(err)
+	}
+	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, ollama)
 	return &QueryProcessor{
 		tenantToolSet:  tenantToolSet,
 		sessionManager: sessionManager,
