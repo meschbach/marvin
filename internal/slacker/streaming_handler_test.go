@@ -124,7 +124,8 @@ func TestStreamingResponseHandler_HandleThinking(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
 		Message: api.Message{
@@ -154,7 +155,8 @@ func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Simulate streaming responses
 	responses := []api.ChatResponse{
@@ -197,7 +199,8 @@ func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
 		Done: true,
@@ -214,7 +217,8 @@ func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
 		Message: api.Message{
@@ -242,7 +246,8 @@ func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Test buffer accumulation across multiple responses
 	responses := []api.ChatResponse{
@@ -262,10 +267,68 @@ func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
 
 func TestStreamingResponseHandler_ErrorHandling(t *testing.T) {
 	// Test that handler doesn't panic on malformed responses
-	handler := newStreamingResponseHandler(&SlackUpdater{})
+	mockClient := &mockSlackSink{}
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Empty response should not error
 	response := api.ChatResponse{}
 	err := handler.handleResponse(response)
 	require.NoError(t, err)
+}
+
+// TestStreamingResponseHandler_StateTransitions tests the state machine transitions
+func TestStreamingResponseHandler_StateTransitions(t *testing.T) {
+
+	tests := []struct {
+		name           string
+		responses      []api.ChatResponse
+		expectedStates []streamingState
+	}{
+		{
+			name: "thinking to content transition",
+			responses: []api.ChatResponse{
+				{Message: api.Message{Thinking: "Let me think"}},
+				{Message: api.Message{Content: "Here's the answer"}},
+			},
+			expectedStates: []streamingState{stateThinking, stateContent},
+		},
+		{
+			name: "content to thinking transition",
+			responses: []api.ChatResponse{
+				{Message: api.Message{Content: "Starting analysis"}},
+				{Message: api.Message{Thinking: "Deeper consideration"}},
+			},
+			expectedStates: []streamingState{stateContent, stateThinking},
+		},
+		{
+			name: "multiple transitions",
+			responses: []api.ChatResponse{
+				{Message: api.Message{Thinking: "Initial thought"}},
+				{Message: api.Message{Content: "First content"}},
+				{Message: api.Message{Thinking: "Second thought"}},
+				{Message: api.Message{Content: "Final content"}},
+			},
+			expectedStates: []streamingState{stateThinking, stateContent, stateThinking, stateContent},
+		},
+		{
+			name: "tool call priority",
+			responses: []api.ChatResponse{
+				{Message: api.Message{Thinking: "Need tools", Content: "And content", ToolCalls: []api.ToolCall{{ID: "test"}}}},
+			},
+			expectedStates: []streamingState{stateToolCalls},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &capturingUserInterface{}
+			handler := newStreamingResponseHandler(mock)
+
+			for i, resp := range tt.responses {
+				err := handler.handleResponse(resp)
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedStates[i], handler.currentState, "State mismatch at response %d", i)
+			}
+		})
+	}
 }
