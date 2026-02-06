@@ -5,36 +5,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockSlackSink implements SlackSink for testing
-type mockSlackSink struct {
-	postedMessages  []string
-	updatedMessages []string
-}
 
 // testContext provides a consistent context for testing
 func testContext() context.Context {
 	return context.Background()
 }
 
-func (m *mockSlackSink) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
-	// For testing, we don't need to parse the actual options
-	m.updatedMessages = append(m.updatedMessages, "updated")
-	return "channel", "timestamp", "text", nil
-}
-
-func (m *mockSlackSink) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
-	// For testing, we don't need to parse the actual options
-	m.postedMessages = append(m.postedMessages, "posted")
-	return "channel", "test-timestamp", nil
-}
-
 func TestSlackUpdater_BasicOperations(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Test basic operations with timeout
@@ -70,12 +51,12 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 	}
 
 	// Verify calls were made
-	assert.Equal(t, 1, len(client.postedMessages), "Expected one posted message")
-	assert.Equal(t, 2, len(client.updatedMessages), "Expected two updated messages")
+	assert.Equal(t, 1, len(client.PostedMessages), "Expected one posted message")
+	assert.Equal(t, 2, len(client.UpdatedMessages), "Expected two updated messages")
 }
 
 func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Test concurrent access with timeout
@@ -113,7 +94,7 @@ func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 }
 
 func TestSlackUpdater_StateTransitions(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Initially in thinking state
@@ -137,7 +118,7 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 }
 
 func TestSlackUpdater_ToolCalls(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add tool call
@@ -145,7 +126,7 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 	updater.AddToolCall(ctx, "test-tool")
 
 	// Should have posted a message for the tool call
-	assert.Len(t, client.postedMessages, 1, "Should post message for tool call")
+	assert.Len(t, client.PostedMessages, 1, "Should post message for tool call")
 
 	// Check buffer content
 	_, _, tools := updater.getBufferContent()
@@ -153,7 +134,7 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 }
 
 func TestSlackUpdater_Complete(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add some content and complete
@@ -165,7 +146,7 @@ func TestSlackUpdater_Complete(t *testing.T) {
 }
 
 func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add content and force update (for backward compatibility)
@@ -177,7 +158,7 @@ func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 }
 
 func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add thinking content
@@ -194,11 +175,11 @@ func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	assert.NoError(t, err)
 
 	// The posted message should be formatted
-	assert.Len(t, client.postedMessages, 1, "Should post formatted message")
+	assert.Len(t, client.PostedMessages, 1, "Should post formatted message")
 }
 
 func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Start with thinking
@@ -223,7 +204,7 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 }
 
 func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add content in thinking state
@@ -240,7 +221,7 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should have posted messages
-	assert.Greater(t, len(client.postedMessages), 0, "Should have posted messages")
+	assert.Greater(t, len(client.PostedMessages), 0, "Should have posted messages")
 
 	// Get final buffer should show current state
 	content, thinking, _ := updater.getBufferContent()
@@ -249,7 +230,7 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 }
 
 func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add final content and complete
@@ -260,7 +241,7 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 	assert.NoError(t, err, "Complete should not error")
 
 	// Should have flushed content on complete
-	assert.Greater(t, len(client.postedMessages), 0, "Should post content on complete")
+	assert.Greater(t, len(client.PostedMessages), 0, "Should post content on complete")
 
 	// Buffer should be reset after complete
 	content, _, _ := updater.getBufferContent()
@@ -268,7 +249,7 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 }
 
 func TestSlackUpdater_UserReportedScenario(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// User scenario: thinking first, then content
@@ -292,7 +273,7 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 
 	// User reports they only see thoughts at end, not content
 	// Let's verify what actually gets posted
-	t.Logf("Total messages posted: %d", len(client.postedMessages))
+	t.Logf("Total messages posted: %d", len(client.PostedMessages))
 
 	// Check what's in the buffer
 	content, thinking, _ := updater.getBufferContent()
@@ -300,11 +281,11 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 
 	// The issue might be that content is not being posted
 	// Let's ensure we get both thinking and content visible
-	assert.Greater(t, len(client.postedMessages), 0, "Should have posted something")
+	assert.Greater(t, len(client.PostedMessages), 0, "Should have posted something")
 }
 
 func TestSlackUpdater_RealWorldScenario(t *testing.T) {
-	client := &mockSlackSink{}
+	client := &MockSlackSink{}
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Simulate real scenario: thinking -> content -> ForceUpdate
@@ -329,7 +310,7 @@ func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Should have posted both thinking and content
-	assert.GreaterOrEqual(t, len(client.postedMessages), 1, "Should have posted messages")
+	assert.GreaterOrEqual(t, len(client.PostedMessages), 1, "Should have posted messages")
 
 	// Buffer should contain content after flush
 	content, thinking, _ := updater.getBufferContent()

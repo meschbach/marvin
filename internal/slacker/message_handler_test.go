@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/meschbach/marvin/internal/query"
@@ -9,202 +10,68 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// createTestSlackConnection creates a test SlackConnection with consistent bot ID
+func createTestSlackConnection() *SlackConnection {
+	return &SlackConnection{botUserID: "U123456789"}
+}
+
+// createTestMessageEvent creates a test message event with common fields
+func createTestMessageEvent(user, channel, channelType, text string) *slackevents.MessageEvent {
+	return &slackevents.MessageEvent{
+		User:        user,
+		Channel:     channel,
+		ChannelType: channelType,
+		Text:        text,
+		TimeStamp:   "1234567890.123456",
+	}
+}
+
 // TestMessageHandler_MessageFiltering tests just the message filtering logic
 // This isolates the core logic without requiring complex dependencies
 func TestMessageHandler_MessageFiltering(t *testing.T) {
-	// Create a mock connection for testing bot ID
-	conn := &SlackConnection{
-		botUserID: "U123456789",
-	}
+	conn := createTestSlackConnection()
 
 	// Test message filtering logic directly
 	tests := []struct {
-		name          string
-		event         *slackevents.MessageEvent
-		shouldProcess bool
-		expectedClean string
+		name        string
+		event       *slackevents.MessageEvent
+		wantProcess bool
+		wantClean   string
 	}{
-		{
-			name: "Direct message should be processed",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "D1234567890",
-				ChannelType: "im",
-				Text:        "hello bot",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: true,
-			expectedClean: "hello bot",
-		},
-		{
-			name: "Channel message with mention should be processed",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "C1234567890",
-				ChannelType: "channel",
-				Text:        "<@U123456789> hello in channel",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: true,
-			expectedClean: "hello in channel",
-		},
-		{
-			name: "Channel message without mention should be ignored",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "C1234567890",
-				ChannelType: "channel",
-				Text:        "hello without mention",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: false,
-			expectedClean: "",
-		},
-		{
-			name: "Bot message should be ignored",
-			event: &slackevents.MessageEvent{
-				BotID:       "B987654321",
-				User:        "U987654321",
-				Channel:     "D1234567890",
-				ChannelType: "im",
-				Text:        "hello from bot",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: false,
-			expectedClean: "",
-		},
-		{
-			name: "Empty message should be ignored",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "C1234567890",
-				ChannelType: "channel",
-				Text:        "<@U123456789>   ",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: false,
-			expectedClean: "",
-		},
-		{
-			name: "SubType message should be ignored",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "D1234567890",
-				ChannelType: "im",
-				Text:        "hello bot",
-				SubType:     "message_changed", // Any subtype should be ignored
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: false,
-			expectedClean: "",
-		},
-		{
-			name: "Empty text should be ignored",
-			event: &slackevents.MessageEvent{
-				User:        "U987654321",
-				Channel:     "D1234567890",
-				ChannelType: "im",
-				Text:        "",
-				TimeStamp:   "1234567890.123456",
-			},
-			shouldProcess: false,
-			expectedClean: "",
-		},
+		{"Direct message should be processed", createTestMessageEvent("U987654321", "D1234567890", "im", "hello bot"), true, "hello bot"},
+		{"Channel message with mention should be processed", createTestMessageEvent("U987654321", "C1234567890", "channel", "<@U123456789> hello in channel"), true, "hello in channel"},
+		{"Channel message without mention should be ignored", createTestMessageEvent("U987654321", "C1234567890", "channel", "hello without mention"), false, ""},
+		{"Bot message should be ignored", func() *slackevents.MessageEvent {
+			e := createTestMessageEvent("U987654321", "D1234567890", "im", "hello from bot")
+			e.BotID = "B987654321"
+			return e
+		}(), false, ""},
+		{"Empty message should be ignored", createTestMessageEvent("U987654321", "C1234567890", "channel", "<@U123456789>   "), false, ""},
+		{"SubType message should be ignored", func() *slackevents.MessageEvent {
+			e := createTestMessageEvent("U987654321", "D1234567890", "im", "hello bot")
+			e.SubType = "message_changed"
+			return e
+		}(), false, ""},
+		{"Empty text should be ignored", createTestMessageEvent("U987654321", "D1234567890", "im", ""), false, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test the filtering logic directly
-			shouldProcess := shouldProcessMessage(tt.event, conn.GetBotUserID())
-			assert.Equal(t, tt.shouldProcess, shouldProcess, "Message filtering result mismatch")
+			botUserID := conn.GetBotUserID()
+
+			// Test filtering logic inline
+			shouldProcess := tt.event.BotID == "" && tt.event.SubType == "" && tt.event.Text != "" &&
+				(tt.event.ChannelType == "im" || strings.Contains(tt.event.Text, "<@"+botUserID+">")) &&
+				strings.TrimSpace(strings.ReplaceAll(tt.event.Text, "<@"+botUserID+">", "")) != ""
+
+			assert.Equal(t, tt.wantProcess, shouldProcess, "Message filtering result mismatch")
 
 			if shouldProcess {
-				cleanMessage := cleanMessageText(tt.event.Text, conn.GetBotUserID())
-				assert.Equal(t, tt.expectedClean, cleanMessage, "Message cleaning result mismatch")
+				cleanMessage := strings.TrimSpace(strings.ReplaceAll(tt.event.Text, "<@"+botUserID+">", ""))
+				assert.Equal(t, tt.wantClean, cleanMessage, "Message cleaning result mismatch")
 			}
 		})
 	}
-}
-
-// Helper functions to test the core logic without dependencies
-
-// shouldProcessMessage tests if a message should be processed based on filtering rules
-func shouldProcessMessage(event *slackevents.MessageEvent, botUserID string) bool {
-	// Ignore messages from bots or messages without text
-	if event.BotID != "" || event.SubType != "" || event.Text == "" {
-		return false
-	}
-
-	// Check if message is mentioning the bot
-	if event.ChannelType == "im" {
-		// Direct message - always process
-		return true
-	} else {
-		// Channel message - check for bot mention
-		if !containsBotMention(event.Text, botUserID) {
-			return false
-		}
-	}
-
-	// Remove bot mention from message and check if empty
-	cleanMessage := cleanMessageText(event.Text, botUserID)
-	return cleanMessage != ""
-}
-
-// containsBotMention checks if the text contains a bot mention
-func containsBotMention(text, botUserID string) bool {
-	botMention := "<@" + botUserID + ">"
-	return containsString(text, botMention)
-}
-
-// cleanMessageText removes bot mention and trims whitespace
-func cleanMessageText(text, botUserID string) string {
-	botMention := "<@" + botUserID + ">"
-	cleanText := replaceAllString(text, botMention, "")
-	return trimString(cleanText)
-}
-
-// String manipulation functions to avoid import issues in tests
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func replaceAllString(s, old, new string) string {
-	result := ""
-	i := 0
-	for i < len(s) {
-		if i <= len(s)-len(old) && s[i:i+len(old)] == old {
-			result += new
-			i += len(old)
-		} else {
-			result += s[i : i+1]
-			i++
-		}
-	}
-	return result
-}
-
-func trimString(s string) string {
-	// Simple trim leading and trailing whitespace
-	start := 0
-	end := len(s)
-
-	// Trim leading whitespace
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
-		start++
-	}
-
-	// Trim trailing whitespace
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
-		end--
-	}
-
-	return s[start:end]
 }
 
 // TestIntentProcessor_ProcessMessage tests intent recognition
@@ -336,21 +203,14 @@ func TestIntentProcessor_ProcessMessage(t *testing.T) {
 
 // TestSlackContext_Creation tests SlackContext creation and properties
 func TestSlackContext_Creation(t *testing.T) {
-	event := &slackevents.MessageEvent{
-		User:            "U987654321",
-		Channel:         "D1234567890",
-		ChannelType:     "im",
-		Text:            "test message",
-		TimeStamp:       "1234567890.123456",
-		ThreadTimeStamp: "1234567890.123456",
-	}
+	event := createTestMessageEvent("U987654321", "D1234567890", "im", "test message")
+	event.ThreadTimeStamp = "1234567890.123456"
 
-	conn := &SlackConnection{
-		botUserID: "U123456789",
-	}
+	conn := createTestSlackConnection()
 
 	// Simulate SlackContext creation
-	cleanMessage := cleanMessageText(event.Text, conn.GetBotUserID())
+	botUserID := conn.GetBotUserID()
+	cleanMessage := strings.TrimSpace(strings.ReplaceAll(event.Text, "<@"+botUserID+">", ""))
 
 	slackCtx := &SlackContext{
 		UserID:    event.User,

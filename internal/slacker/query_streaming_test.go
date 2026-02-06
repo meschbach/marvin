@@ -2,88 +2,20 @@ package slacker
 
 import (
 	"context"
-	"os"
 	"testing"
 
-	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
-	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/require"
 )
 
-// createMockSlackUpdater creates a SlackUpdater with a mock client for testing
-func createMockSlackUpdater() *SlackUpdater {
-	client := &mockSlackSink{}
-	return NewSlackUpdater(client, "test-channel")
-}
-
-// mockLLM simulates an LLM that can be configured to return specific responses
-// and track the requests it receives for verification
-type mockLLM struct {
-	responses [][]api.ChatResponse // Multiple response sets for multi-turn conversations
-	calls     []*api.ChatRequest   // Track all calls made to the LLM
-	callCount int
-}
-
-func (m *mockLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
-	m.calls = append(m.calls, req)
-
-	if m.callCount >= len(m.responses) {
-		return nil // No more responses configured
-	}
-
-	responses := m.responses[m.callCount]
-	m.callCount++
-
-	for _, resp := range responses {
-		if err := fn(resp); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// setupTestEnvironment creates a minimal test environment for QueryStreamer
-func setupTestEnvironment(t *testing.T) (*QueryStreamer[*mockLLM], *mockLLM, *SessionManager) {
-	t.Helper()
-
-	// Create temporary directory for sessions
-	tempDir, err := os.MkdirTemp("", "marvin-query-test-*")
-	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tempDir) })
-
-	// Create components
-	sessionManager, err := NewSessionManager(tempDir)
-	require.NoError(t, err)
-
-	securityLogger := sec.NewSecurityLogger()
-	cfg := &config.File{Model: "test-model"}
-
-	// Create mock components
-	mockLLM := &mockLLM{}
-
-	// Create formatter
-	formatter := NewSlackFormatter()
-
-	// Create QueryStreamer
-	queryStreamer := NewQueryStreamer(
-		nil, // tenantToolSet not needed for these tests
-		sessionManager,
-		cfg,
-		securityLogger,
-		formatter,
-		mockLLM,
-	)
-
-	return queryStreamer, mockLLM, sessionManager
-}
-
 // TestQueryStreamer_FixedBehavior verifies that tool calls now properly complete
 // with LLM consuming tool results and providing a final response
 func TestQueryStreamer_FixedBehavior(t *testing.T) {
-	qs, mockLLM, sessionManager := setupTestEnvironment(t)
+	env := NewTestEnvironment(t)
+	qs := env.QueryStreamer
+	mockLLM := env.MockLLM
+	sessionManager := env.SessionManager
 
 	// Configure the mock LLM to call a tool first, then consume results
 	mockLLM.responses = [][]api.ChatResponse{
@@ -122,7 +54,7 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
-	updater := createMockSlackUpdater()
+	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
@@ -154,7 +86,10 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 // TestQueryStreamer_DesiredBehavior shows what the behavior should be after fixing
 // This test currently fails, demonstrating what needs to be implemented
 func TestQueryStreamer_DesiredBehavior(t *testing.T) {
-	qs, mockLLM, sessionManager := setupTestEnvironment(t)
+	env := NewTestEnvironment(t)
+	qs := env.QueryStreamer
+	mockLLM := env.MockLLM
+	sessionManager := env.SessionManager
 
 	// Configure the mock LLM to call a tool first, then consume results and respond
 	mockLLM.responses = [][]api.ChatResponse{
@@ -193,7 +128,7 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
-	updater := createMockSlackUpdater()
+	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
@@ -238,7 +173,10 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 // TestQueryStreamer_MultiTurnConversation tests that the conversation loop properly handles
 // multiple rounds of tool calls until the LLM is truly finished
 func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
-	qs, mockLLM, sessionManager := setupTestEnvironment(t)
+	env := NewTestEnvironment(t)
+	qs := env.QueryStreamer
+	mockLLM := env.MockLLM
+	sessionManager := env.SessionManager
 
 	// Configure the mock LLM for a 3-turn conversation:
 	// 1. Call tool A
@@ -294,7 +232,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
-	updater := createMockSlackUpdater()
+	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
@@ -334,7 +272,10 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 
 // TestQueryStreamer_NoToolCalls verifies that conversations without tools work normally
 func TestQueryStreamer_NoToolCalls(t *testing.T) {
-	qs, mockLLM, sessionManager := setupTestEnvironment(t)
+	env := NewTestEnvironment(t)
+	qs := env.QueryStreamer
+	mockLLM := env.MockLLM
+	sessionManager := env.SessionManager
 
 	// Configure the mock LLM for a simple 1-turn conversation without tools
 	mockLLM.responses = [][]api.ChatResponse{
@@ -355,7 +296,7 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
-	updater := createMockSlackUpdater()
+	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
@@ -396,7 +337,10 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 // TestQueryStreamer_LLMWaitingForMoreTools tests the specific scenario mentioned:
 // LLM takes a turn but is still waiting for more tool calls, requiring continued looping
 func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
-	qs, mockLLM, sessionManager := setupTestEnvironment(t)
+	env := NewTestEnvironment(t)
+	qs := env.QueryStreamer
+	mockLLM := env.MockLLM
+	sessionManager := env.SessionManager
 
 	// Configure the mock LLM to show that it's still thinking and needs more tools
 	// This tests that the loop properly continues until LLM is truly done
@@ -450,7 +394,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
-	updater := createMockSlackUpdater()
+	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 

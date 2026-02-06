@@ -9,25 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type capturingUserInterface struct {
-	thoughts  []string
-	content   []string
-	toolCalls []string
-}
-
-func (c *capturingUserInterface) AddThought(ctx context.Context, thought string) error {
-	c.thoughts = append(c.thoughts, thought)
-	return nil
-}
-func (c *capturingUserInterface) AddContent(ctx context.Context, message string) error {
-	c.content = append(c.content, message)
-	return nil
-}
-func (c *capturingUserInterface) AddToolCall(ctx context.Context, message string) error {
-	c.toolCalls = append(c.toolCalls, message)
-	return nil
-}
-
 func TestStreamingResponseHandler_HandleContent(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -65,13 +46,13 @@ func TestStreamingResponseHandler_HandleContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock := &capturingUserInterface{}
+			mock := &MockUserInterface{}
 			handler := newStreamingResponseHandler(mock)
 			ctx := context.Background()
 			err := handler.handleResponse(ctx, tt.response)
 			_, _, _, err = handler.finished(ctx)
 			require.NoError(t, err)
-			if assert.Len(t, mock.content, len(tt.content), "Expected %#v\n\tGot %#v", tt.content, mock.content) {
+			if assert.Len(t, mock.Content, len(tt.content), "Expected %#v\n\tGot %#v", tt.content, mock.Content) {
 
 			}
 		})
@@ -114,16 +95,16 @@ func TestStreamingResponseHandler_HandleThinking(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock := &capturingUserInterface{}
+			mock := &MockUserInterface{}
 			handler := newStreamingResponseHandler(mock)
 			ctx := context.Background()
 			err := handler.handleResponse(ctx, tt.response)
 			require.NoError(t, err)
 			_, _, _, err = handler.finished(ctx)
 			require.NoError(t, err)
-			if assert.Len(t, mock.thoughts, len(tt.thinking), "Expected %#v\n\tGot %#v", tt.thinking, mock.thoughts) {
+			if assert.Len(t, mock.Thoughts, len(tt.thinking), "Expected %#v\n\tGot %#v", tt.thinking, mock.Thoughts) {
 				for i, expected := range tt.thinking {
-					assert.Equal(t, expected, mock.thoughts[i], "Expected @ %d %#v\n\tGot %#v", i, expected, mock.thoughts[i])
+					assert.Equal(t, expected, mock.Thoughts[i], "Expected @ %d %#v\n\tGot %#v", i, expected, mock.Thoughts[i])
 				}
 			}
 		})
@@ -131,7 +112,7 @@ func TestStreamingResponseHandler_HandleThinking(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
@@ -164,7 +145,7 @@ func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Simulate streaming responses
@@ -210,7 +191,7 @@ func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
@@ -230,7 +211,7 @@ func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	response := api.ChatResponse{
@@ -261,7 +242,7 @@ func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
 }
 
 func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Test buffer accumulation across multiple responses
@@ -284,7 +265,7 @@ func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
 
 func TestStreamingResponseHandler_ErrorHandling(t *testing.T) {
 	// Test that handler doesn't panic on malformed responses
-	mockClient := &mockSlackSink{}
+	mockClient := &MockSlackSink{}
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Empty response should not error
@@ -339,7 +320,7 @@ func TestStreamingResponseHandler_StateTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock := &capturingUserInterface{}
+			mock := &MockUserInterface{}
 			handler := newStreamingResponseHandler(mock)
 
 			ctx := context.Background()
