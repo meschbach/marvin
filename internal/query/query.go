@@ -98,6 +98,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		client:       client,
 		messages:     messages,
 		tools:        toolset,
+		config:       cfg,
 		showThinking: opts.ShowThinking,
 		showTools:    opts.ShowTools,
 		showDone:     opts.ShowDone,

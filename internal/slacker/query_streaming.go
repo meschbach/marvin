@@ -76,6 +76,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 		Messages: messages,
 		Tools:    availableTools,
 		Stream:   &stream,
+		Options:  qs.config.BuildAPIOptions(),
 	}
 
 	// Process streaming response with extracted handler
@@ -135,6 +136,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 			Model:    qs.config.LanguageModel(),
 			Messages: messages,
 			Stream:   &stream,
+			Options:  qs.config.BuildAPIOptions(),
 		}
 
 		// Make LLM call to consume tool results and continue conversation

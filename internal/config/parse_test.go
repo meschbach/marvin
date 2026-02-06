@@ -90,3 +90,57 @@ local_program "three" {
 		}
 	}
 }
+
+func TestBuildAPIOptions_NoOptions(t *testing.T) {
+	cfg := &File{}
+	result := cfg.BuildAPIOptions()
+	assert.Nil(t, result, "should return nil when no options block")
+}
+
+func TestBuildAPIOptions_NilOptions(t *testing.T) {
+	cfg := &File{Options: nil}
+	result := cfg.BuildAPIOptions()
+	assert.Nil(t, result, "should return nil when options block is nil")
+}
+
+func TestBuildAPIOptions_EmptyOptions(t *testing.T) {
+	cfg := &File{Options: &ModelOptionsBlock{}}
+	result := cfg.BuildAPIOptions()
+	assert.Nil(t, result, "should return nil when all option fields are nil/empty")
+}
+
+func TestBuildAPIOptions_SingleOption(t *testing.T) {
+	temp := float32(0.7)
+	cfg := &File{Options: &ModelOptionsBlock{
+		Temperature: &temp,
+	}}
+	result := cfg.BuildAPIOptions()
+	require.NotNil(t, result)
+	assert.Equal(t, temp, result["temperature"])
+	assert.Len(t, result, 1, "should only contain the specified option")
+}
+
+func TestBuildAPIOptions_MultipleOptions(t *testing.T) {
+	ctxSize := 4096
+	temp := float32(0.7)
+	topP := float32(0.9)
+	topK := 50
+	stop := []string{"###", "END"}
+
+	cfg := &File{Options: &ModelOptionsBlock{
+		ContextWindowSize: &ctxSize,
+		Temperature:       &temp,
+		TopP:              &topP,
+		TopK:              &topK,
+		Stop:              stop,
+	}}
+
+	result := cfg.BuildAPIOptions()
+	require.NotNil(t, result)
+	assert.Equal(t, ctxSize, result["num_ctx"])
+	assert.Equal(t, temp, result["temperature"])
+	assert.Equal(t, topP, result["top_p"])
+	assert.Equal(t, topK, result["top_k"])
+	assert.Equal(t, stop, result["stop"])
+	assert.Len(t, result, 5, "should contain all specified options")
+}

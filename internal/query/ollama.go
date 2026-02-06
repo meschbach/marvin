@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
 )
 
@@ -14,6 +15,7 @@ type ollamaConversation struct {
 	client         *api.Client
 	messages       []api.Message
 	tools          *ToolSet
+	config         *config.File
 	showThinking   bool
 	showDone       bool
 	showTools      bool
@@ -31,6 +33,7 @@ func (o *ollamaConversation) runAIToConclusion(ctx context.Context, model string
 			Messages: o.messages,
 			Tools:    availableTools,
 			Stream:   &stream,
+			Options:  o.config.BuildAPIOptions(),
 		}
 
 		// Accumulate the assistant response and capture any tool calls
