@@ -1,11 +1,13 @@
 package slacker
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockSlackSink implements SlackSink for testing
@@ -14,13 +16,18 @@ type mockSlackSink struct {
 	updatedMessages []string
 }
 
-func (m *mockSlackSink) UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+// testContext provides a consistent context for testing
+func testContext() context.Context {
+	return context.Background()
+}
+
+func (m *mockSlackSink) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
 	// For testing, we don't need to parse the actual options
 	m.updatedMessages = append(m.updatedMessages, "updated")
 	return "channel", "timestamp", "text", nil
 }
 
-func (m *mockSlackSink) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+func (m *mockSlackSink) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
 	// For testing, we don't need to parse the actual options
 	m.postedMessages = append(m.postedMessages, "posted")
 	return "channel", "test-timestamp", nil
@@ -33,36 +40,65 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 	// Test basic operations with timeout
 	done := make(chan error, 1)
 	go func() {
-		updater.AddContent("test content")
-		updater.AddThought("test thought")
-		updater.AddToolCall("test-tool")
-		err := updater.ForceUpdate()
+		ctx := testContext()
+		err := updater.AddContent(ctx, "test content")
+		if err != nil {
+			done <- err
+			return
+		}
+		err = updater.AddThought(ctx, "test thought")
+		if err != nil {
+			done <- err
+			return
+		}
+		err = updater.AddToolCall(ctx, "test-tool")
+		if err != nil {
+			done <- err
+			return
+		}
+		err = updater.ForceUpdate(ctx)
 		done <- err
 	}()
 
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("ForceUpdate failed: %v", err)
+			t.Fatalf("Operations failed: %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Deadlock detected in basic operations")
 	}
 
+	// Verify calls were made
+	assert.Equal(t, 1, len(client.postedMessages), "Expected one posted message")
+	assert.Equal(t, 2, len(client.updatedMessages), "Expected two updated messages")
+}
+
+func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
+	client := &mockSlackSink{}
+	updater := NewSlackUpdater(client, "test-channel")
+
 	// Test concurrent access with timeout
-	done = make(chan error, 1)
+	done := make(chan error, 1)
 	go func() {
 		// Start another goroutine that adds content
 		go func() {
-			updater.AddContent("concurrent content")
-			updater.AddThought("concurrent thought")
+			ctx := testContext()
+			err := updater.AddContent(ctx, "concurrent content")
+			if err != nil {
+				return
+			}
+			err = updater.AddThought(ctx, "concurrent thought")
+			if err != nil {
+				return
+			}
 		}()
 
 		// Give it time to run
 		time.Sleep(10 * time.Millisecond)
 
 		// This should not deadlock
-		err := updater.ForceUpdate()
+		err := updater.ForceUpdate(testContext())
 		done <- err
 	}()
 
@@ -87,13 +123,14 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 	assert.Empty(t, tools, "Should start with no tools")
 
 	// Add thought
-	updater.AddThought("Let me think about this")
+	ctx := testContext()
+	updater.AddThought(ctx, "Let me think about this")
 	content, thinking, _ = updater.getBufferContent()
 	assert.Equal(t, "", content, "Content should be empty")
 	assert.Equal(t, "Let me think about this", thinking, "Should have thinking content")
 
 	// Transition to content by adding content
-	updater.AddContent("Here's the answer")
+	updater.AddContent(ctx, "Here's the answer")
 	content, thinking, _ = updater.getBufferContent()
 	assert.Equal(t, "Here's the answer", content, "Should have content")
 	assert.Equal(t, "", thinking, "Thinking should be flushed")
@@ -104,7 +141,8 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add tool call
-	updater.AddToolCall("test-tool")
+	ctx := testContext()
+	updater.AddToolCall(ctx, "test-tool")
 
 	// Should have posted a message for the tool call
 	assert.Len(t, client.postedMessages, 1, "Should post message for tool call")
@@ -119,8 +157,10 @@ func TestSlackUpdater_Complete(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add some content and complete
-	updater.AddContent("Final answer")
-	err := updater.Complete()
+	ctx := testContext()
+	err := updater.AddContent(ctx, "Final answer")
+	require.NoError(t, err)
+	err = updater.Complete(ctx)
 	assert.NoError(t, err, "Complete should not error")
 }
 
@@ -129,8 +169,10 @@ func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add content and force update (for backward compatibility)
-	updater.AddContent("Some content")
-	err := updater.ForceUpdate()
+	ctx := testContext()
+	err := updater.AddContent(ctx, "Some content")
+	require.NoError(t, err)
+	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err, "ForceUpdate should not error")
 }
 
@@ -139,14 +181,16 @@ func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add thinking content
-	updater.AddThought("This is a thought process")
+	ctx := testContext()
+	err := updater.AddThought(ctx, "This is a thought process")
+	require.NoError(t, err)
 
 	// Check that thinking would be formatted with italics in message format
 	_, thinking, _ := updater.getBufferContent()
 	assert.Equal(t, "This is a thought process", thinking, "Should store thinking without formatting")
 
 	// When posted, it should be formatted with italics
-	err := updater.ForceUpdate()
+	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err)
 
 	// The posted message should be formatted
@@ -158,18 +202,22 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Start with thinking
-	updater.AddThought("Initial thought")
+	ctx := testContext()
+	err := updater.AddThought(ctx, "Initial thought")
+	require.NoError(t, err)
 	content, thinking, _ := updater.getBufferContent()
 	assert.Equal(t, "Initial thought", thinking)
 
 	// Transition to content
-	updater.AddContent("Some content")
+	err = updater.AddContent(ctx, "Some content")
+	require.NoError(t, err)
 	content, thinking, _ = updater.getBufferContent()
 	assert.Equal(t, "Some content", content)
 	assert.Equal(t, "", thinking)
 
 	// Transition back to thinking
-	updater.AddThought("Another thought")
+	err = updater.AddThought(ctx, "Another thought")
+	require.NoError(t, err)
 	_, thinking, _ = updater.getBufferContent()
 	assert.Equal(t, "Another thought", thinking)
 }
@@ -179,13 +227,16 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add content in thinking state
-	updater.AddThought("Let me think")
+	ctx := testContext()
+	err := updater.AddThought(ctx, "Let me think")
+	require.NoError(t, err)
 
 	// Transition to content and add final content
-	updater.AddContent("Here's the final answer")
+	err = updater.AddContent(ctx, "Here's the final answer")
+	require.NoError(t, err)
 
 	// ForceUpdate should flush all accumulated content
-	err := updater.ForceUpdate()
+	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err)
 
 	// Should have posted messages
@@ -202,8 +253,10 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Add final content and complete
-	updater.AddContent("Final answer")
-	err := updater.Complete()
+	ctx := testContext()
+	err := updater.AddContent(ctx, "Final answer")
+	require.NoError(t, err)
+	err = updater.Complete(ctx)
 	assert.NoError(t, err, "Complete should not error")
 
 	// Should have flushed content on complete
@@ -219,16 +272,22 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// User scenario: thinking first, then content
-	updater.AddThought("Let me think about this problem")
-	updater.AddThought("I need to analyze the requirements")
+	ctx := testContext()
+	err := updater.AddThought(ctx, "Let me think about this problem")
+	require.NoError(t, err)
+	err = updater.AddThought(ctx, "I need to analyze the requirements")
+	require.NoError(t, err)
 
 	// Transition to content
-	updater.AddContent("Based on my analysis, here's the solution:")
-	updater.AddContent("1. First approach")
-	updater.AddContent("2. Second approach")
+	err = updater.AddContent(ctx, "Based on my analysis, here's the solution:")
+	require.NoError(t, err)
+	err = updater.AddContent(ctx, "1. First approach")
+	require.NoError(t, err)
+	err = updater.AddContent(ctx, "2. Second approach")
+	require.NoError(t, err)
 
 	// Force final update (like the integration does)
-	err := updater.ForceUpdate()
+	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err, "ForceUpdate should not error")
 
 	// User reports they only see thoughts at end, not content
@@ -249,19 +308,24 @@ func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel")
 
 	// Simulate real scenario: thinking -> content -> ForceUpdate
-	updater.AddThought("Let me analyze this problem")
+	ctx := testContext()
+	err := updater.AddThought(ctx, "Let me analyze this problem")
+	require.NoError(t, err)
 
 	// Should be in thinking state
 	_, thinking, _ := updater.getBufferContent()
 	assert.Equal(t, "Let me analyze this problem", thinking)
 
 	// Add content (should trigger transition and flush)
-	updater.AddContent("Based on my analysis, here's the solution:")
-	updater.AddContent("Step 1: Identify the problem")
-	updater.AddContent("Step 2: Implement fix")
+	err = updater.AddContent(ctx, "Based on my analysis, here's the solution:")
+	require.NoError(t, err)
+	err = updater.AddContent(ctx, "Step 1: Identify the problem")
+	require.NoError(t, err)
+	err = updater.AddContent(ctx, "Step 2: Implement fix")
+	require.NoError(t, err)
 
 	// ForceUpdate should flush final content
-	err := updater.ForceUpdate()
+	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err)
 
 	// Should have posted both thinking and content

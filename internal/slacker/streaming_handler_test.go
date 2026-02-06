@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ollama/ollama/api"
@@ -14,14 +15,17 @@ type capturingUserInterface struct {
 	toolCalls []string
 }
 
-func (c *capturingUserInterface) AddThought(thought string) {
+func (c *capturingUserInterface) AddThought(ctx context.Context, thought string) error {
 	c.thoughts = append(c.thoughts, thought)
+	return nil
 }
-func (c *capturingUserInterface) AddContent(message string) {
+func (c *capturingUserInterface) AddContent(ctx context.Context, message string) error {
 	c.content = append(c.content, message)
+	return nil
 }
-func (c *capturingUserInterface) AddToolCall(message string) {
+func (c *capturingUserInterface) AddToolCall(ctx context.Context, message string) error {
 	c.toolCalls = append(c.toolCalls, message)
+	return nil
 }
 
 func TestStreamingResponseHandler_HandleContent(t *testing.T) {
@@ -63,8 +67,9 @@ func TestStreamingResponseHandler_HandleContent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &capturingUserInterface{}
 			handler := newStreamingResponseHandler(mock)
-			err := handler.handleResponse(tt.response)
-			handler.finished()
+			ctx := context.Background()
+			err := handler.handleResponse(ctx, tt.response)
+			_, _, _, err = handler.finished(ctx)
 			require.NoError(t, err)
 			if assert.Len(t, mock.content, len(tt.content), "Expected %#v\n\tGot %#v", tt.content, mock.content) {
 
@@ -111,9 +116,11 @@ func TestStreamingResponseHandler_HandleThinking(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &capturingUserInterface{}
 			handler := newStreamingResponseHandler(mock)
-			err := handler.handleResponse(tt.response)
+			ctx := context.Background()
+			err := handler.handleResponse(ctx, tt.response)
 			require.NoError(t, err)
-			handler.finished()
+			_, _, _, err = handler.finished(ctx)
+			require.NoError(t, err)
 			if assert.Len(t, mock.thoughts, len(tt.thinking), "Expected %#v\n\tGot %#v", tt.thinking, mock.thoughts) {
 				for i, expected := range tt.thinking {
 					assert.Equal(t, expected, mock.thoughts[i], "Expected @ %d %#v\n\tGot %#v", i, expected, mock.thoughts[i])
@@ -144,11 +151,13 @@ func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
 		},
 	}
 
-	err := handler.handleResponse(response)
+	ctx := context.Background()
+	err := handler.handleResponse(ctx, response)
 	require.NoError(t, err)
 
 	// Test that tool calls are captured in final state
-	_, _, calls := handler.finished()
+	_, _, calls, err := handler.finished(ctx)
+	require.NoError(t, err)
 	assert.Len(t, calls, 2)
 	assert.Equal(t, "test_tool", calls[0].Function.Name)
 	assert.Equal(t, "another_tool", calls[1].Function.Name)
@@ -185,12 +194,14 @@ func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
 		},
 	}
 
+	ctx := context.Background()
 	for _, resp := range responses {
-		err := handler.handleResponse(resp)
+		err := handler.handleResponse(ctx, resp)
 		require.NoError(t, err)
 	}
 
-	content, thinking, calls := handler.finished()
+	content, thinking, calls, err := handler.finished(ctx)
+	require.NoError(t, err)
 
 	assert.Equal(t, "Hello world\n", content)
 	assert.Equal(t, "Starting analysis\n", thinking)
@@ -206,11 +217,13 @@ func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
 		Done: true,
 	}
 
-	err := handler.handleResponse(response)
+	ctx := context.Background()
+	err := handler.handleResponse(ctx, response)
 	require.NoError(t, err)
 
 	// Should not panic or error on done response
-	content, thinking, calls := handler.finished()
+	content, thinking, calls, err := handler.finished(ctx)
+	require.NoError(t, err)
 	assert.Empty(t, content)
 	assert.Empty(t, thinking)
 	assert.Empty(t, calls)
@@ -234,11 +247,13 @@ func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
 		},
 	}
 
-	err := handler.handleResponse(response)
+	ctx := context.Background()
+	err := handler.handleResponse(ctx, response)
 	require.NoError(t, err)
 
 	// Test that all aspects are captured in final state
-	content, thinking, calls := handler.finished()
+	content, thinking, calls, err := handler.finished(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, "Processing data", content)
 	assert.Equal(t, "Analyzing input", thinking)
 	assert.Len(t, calls, 1)
@@ -256,12 +271,14 @@ func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
 		{Message: api.Message{Content: " Part 3\n"}},
 	}
 
+	ctx := context.Background()
 	for _, resp := range responses {
-		err := handler.handleResponse(resp)
+		err := handler.handleResponse(ctx, resp)
 		require.NoError(t, err)
 	}
 
-	content, _, _ := handler.finished()
+	content, _, _, err := handler.finished(ctx)
+	require.NoError(t, err)
 	assert.Equal(t, "Part 1 Part 2 Part 3\n", content)
 }
 
@@ -271,8 +288,9 @@ func TestStreamingResponseHandler_ErrorHandling(t *testing.T) {
 	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
 
 	// Empty response should not error
+	ctx := context.Background()
 	response := api.ChatResponse{}
-	err := handler.handleResponse(response)
+	err := handler.handleResponse(ctx, response)
 	require.NoError(t, err)
 }
 
@@ -324,8 +342,9 @@ func TestStreamingResponseHandler_StateTransitions(t *testing.T) {
 			mock := &capturingUserInterface{}
 			handler := newStreamingResponseHandler(mock)
 
+			ctx := context.Background()
 			for i, resp := range tt.responses {
-				err := handler.handleResponse(resp)
+				err := handler.handleResponse(ctx, resp)
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedStates[i], handler.currentState, "State mismatch at response %d", i)
 			}

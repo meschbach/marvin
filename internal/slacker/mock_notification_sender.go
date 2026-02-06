@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"context"
 	"fmt"
 )
 
@@ -23,7 +24,7 @@ func NewMockNotificationSender() *MockNotificationSender {
 }
 
 // SendMessage captures the call parameters without making Slack API calls
-func (m *MockNotificationSender) SendMessage(userID, message string) error {
+func (m *MockNotificationSender) SendMessage(ctx context.Context, userID, message string) error {
 	call := MockNotificationCall{
 		UserID:  userID,
 		Message: message,
@@ -33,13 +34,13 @@ func (m *MockNotificationSender) SendMessage(userID, message string) error {
 }
 
 // NotifyAdmins captures the call without making Slack API calls
-func (m *MockNotificationSender) NotifyAdmins(request *ToolApprovalRequest) error {
+func (m *MockNotificationSender) NotifyAdmins(ctx context.Context, request *ToolApprovalRequest) error {
 	// For testing, we'll just return nil
 	return nil
 }
 
 // SendApprovalNotification captures the call without making Slack API calls
-func (m *MockNotificationSender) SendApprovalNotification(adminID, requestID, status string) error {
+func (m *MockNotificationSender) SendApprovalNotification(ctx context.Context, adminID, requestID, status string) error {
 	call := MockNotificationCall{
 		UserID:  adminID,
 		Message: fmt.Sprintf("Tool request %s has been %s", requestID, status),

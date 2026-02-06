@@ -1,6 +1,8 @@
 package slacker
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/ollama/ollama/api"
@@ -18,9 +20,9 @@ const (
 )
 
 type userInterface interface {
-	AddThought(thought string)
-	AddContent(message string)
-	AddToolCall(functionName string)
+	AddThought(ctx context.Context, thought string) error
+	AddContent(ctx context.Context, message string) error
+	AddToolCall(ctx context.Context, functionName string) error
 }
 
 // streamingResponseHandler processes LLM streaming responses and updates Slack.
@@ -65,19 +67,23 @@ func (h *streamingResponseHandler[T]) detectTransition(resp api.ChatResponse) st
 }
 
 // handleTransition flushes buffers when state changes occur
-func (h *streamingResponseHandler[T]) handleTransition(newState streamingState) {
+func (h *streamingResponseHandler[T]) handleTransition(ctx context.Context, newState streamingState) error {
 	if h.currentState != newState {
 		// Flush previous state's buffers
 		switch h.currentState {
 		case stateThinking:
 			if h.thisThinking.Len() > 0 {
-				h.updater.AddThought(h.thisThinking.String())
+				if err := h.updater.AddThought(ctx, h.thisThinking.String()); err != nil {
+					return fmt.Errorf("failed to add thought: %w", err)
+				}
 				h.thinkingBuffer.WriteString(h.thisThinking.String())
 				h.thisThinking.Reset()
 			}
 		case stateContent:
 			if h.thisLine.Len() > 0 {
-				h.updater.AddContent(h.thisLine.String())
+				if err := h.updater.AddContent(ctx, h.thisLine.String()); err != nil {
+					return fmt.Errorf("failed to add content: %w", err)
+				}
 				h.assistantContent.WriteString(h.thisLine.String())
 				h.thisLine.Reset()
 			}
@@ -86,14 +92,17 @@ func (h *streamingResponseHandler[T]) handleTransition(newState streamingState) 
 		h.prevState = h.currentState
 		h.currentState = newState
 	}
+	return nil
 }
 
 // handleResponse processes a single streaming response chunk.
 // Maintains buffer state and updates Slack with content, thoughts, and tool calls.
-func (h *streamingResponseHandler[T]) handleResponse(resp api.ChatResponse) error {
+func (h *streamingResponseHandler[T]) handleResponse(ctx context.Context, resp api.ChatResponse) error {
 	// Detect state transition
 	newState := h.detectTransition(resp)
-	h.handleTransition(newState)
+	if err := h.handleTransition(ctx, newState); err != nil {
+		return fmt.Errorf("failed to handle transition: %w", err)
+	}
 
 	if resp.Done {
 		// Response complete - would mark updater as complete
@@ -105,7 +114,9 @@ func (h *streamingResponseHandler[T]) handleResponse(resp api.ChatResponse) erro
 		h.thisLine.WriteString(s)
 		if strings.Contains(s, "\n") {
 			nextContent := h.thisLine.String()
-			h.updater.AddContent(nextContent)
+			if err := h.updater.AddContent(ctx, nextContent); err != nil {
+				return fmt.Errorf("failed to add content: %w", err)
+			}
 			h.assistantContent.WriteString(nextContent)
 			h.thisLine.Reset()
 		}
@@ -122,7 +133,9 @@ func (h *streamingResponseHandler[T]) handleResponse(resp api.ChatResponse) erro
 		h.pendingCalls = append(h.pendingCalls, resp.Message.ToolCalls...)
 		// Log tool calls in Slack update
 		for _, toolCall := range resp.Message.ToolCalls {
-			h.updater.AddToolCall(toolCall.Function.Name)
+			if err := h.updater.AddToolCall(ctx, toolCall.Function.Name); err != nil {
+				return fmt.Errorf("failed to add tool call: %w", err)
+			}
 		}
 	}
 
@@ -131,18 +144,22 @@ func (h *streamingResponseHandler[T]) handleResponse(resp api.ChatResponse) erro
 
 // finished returns the accumulated content, thinking, and tool calls.
 // Called after streaming completes to build the final assistant message.
-func (h *streamingResponseHandler[T]) finished() (string, string, []api.ToolCall) {
+func (h *streamingResponseHandler[T]) finished(ctx context.Context) (string, string, []api.ToolCall, error) {
 	// Flush any remaining content and thinking
 	if h.thisLine.Len() > 0 {
 		line := h.thisLine.String()
-		h.updater.AddContent(line)
+		if err := h.updater.AddContent(ctx, line); err != nil {
+			return "", "", nil, fmt.Errorf("failed to add final content: %w", err)
+		}
 		h.assistantContent.WriteString(line)
 	}
 	if h.thisThinking.Len() > 0 {
 		line := h.thisThinking.String()
-		h.updater.AddThought(line)
+		if err := h.updater.AddThought(ctx, line); err != nil {
+			return "", "", nil, fmt.Errorf("failed to add final thought: %w", err)
+		}
 		h.thinkingBuffer.WriteString(line)
 	}
 
-	return h.assistantContent.String(), h.thinkingBuffer.String(), h.pendingCalls
+	return h.assistantContent.String(), h.thinkingBuffer.String(), h.pendingCalls, nil
 }

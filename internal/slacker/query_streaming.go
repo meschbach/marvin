@@ -81,10 +81,13 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 	// Process streaming response with extracted handler
 	handler := newStreamingResponseHandler(updater)
 
-	err := qs.languageService.Chat(ctx, req, handler.handleResponse)
+	// Wrap handleResponse to provide context
+	err := qs.languageService.Chat(ctx, req, func(resp api.ChatResponse) error {
+		return handler.handleResponse(ctx, resp)
+	})
 
 	// Extract final state from handler
-	assistantContent, thinkingBuffer, pendingCalls := handler.finished()
+	assistantContent, thinkingBuffer, pendingCalls, err := handler.finished(ctx)
 
 	// Handle chat errors
 	if err != nil {
@@ -103,7 +106,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 
 	// Continue conversation loop while there are tool calls to process
 	for len(pendingCalls) > 0 {
-		if err := updater.ForceUpdate(); err != nil {
+		if err := updater.ForceUpdate(ctx); err != nil {
 			return err
 		}
 		// Execute all pending tool calls and collect responses
@@ -135,13 +138,18 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 		}
 
 		// Make LLM call to consume tool results and continue conversation
-		err = qs.languageService.Chat(ctx, followUpReq, nextHandler.handleResponse)
+		err = qs.languageService.Chat(ctx, followUpReq, func(resp api.ChatResponse) error {
+			return nextHandler.handleResponse(ctx, resp)
+		})
 		if err != nil {
 			return err
 		}
 
 		// Extract response state
-		nextAssistantContent, nextThinkingBuffer, nextPendingCalls := nextHandler.finished()
+		nextAssistantContent, nextThinkingBuffer, nextPendingCalls, err := nextHandler.finished(ctx)
+		if err != nil {
+			return err
+		}
 
 		// Add this assistant message to session
 		nextAssistantMsg := api.Message{

@@ -73,16 +73,16 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 		ctx, done := context.WithCancel(context.Background())
 		defer done()
 		defer func() {
-			err := updater.ForceUpdate()
+			err := updater.ForceUpdate(ctx)
 			if err != nil {
 				qp.securityLogger.LogError(slackCtx.UserID, "Updater ForceUpdate", err.Error())
 			}
 			fmt.Printf("(%s) query complete\n", slackCtx.UserID)
 		}()
 
-		fmt.Printf("(%s) Starting query\n", slackCtx.UserID)
-		if err := qp.streamer.ProcessQueryWithUpdater(ctx, slackCtx, session, message, userToolSet, updater); err != nil {
-			qp.securityLogger.LogError(slackCtx.UserID, "ProcessQueryWithUpdater", err.Error())
+		err := qp.streamer.ProcessQueryWithUpdater(ctx, slackCtx, session, message, userToolSet, updater)
+		if err != nil {
+			qp.securityLogger.LogError(slackCtx.UserID, "QueryProcessing", err.Error())
 		}
 	}()
 

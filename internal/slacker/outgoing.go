@@ -1,8 +1,10 @@
 package slacker
 
+import "context"
+
 // OutgoingMessages defines the interface for notification senders
 type OutgoingMessages interface {
-	SendMessage(userID, message string) error
-	NotifyAdmins(request *ToolApprovalRequest) error
-	SendApprovalNotification(adminID, requestID, status string) error
+	SendMessage(ctx context.Context, userID, message string) error
+	NotifyAdmins(ctx context.Context, request *ToolApprovalRequest) error
+	SendApprovalNotification(ctx context.Context, adminID, requestID, status string) error
 }

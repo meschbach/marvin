@@ -74,7 +74,9 @@ func NewSlackBot(
 	}
 
 	// Set approval workflow notification function
-	approvalWorkflow.SetNotifyFunction(bot.notifyAdmins)
+	approvalWorkflow.SetNotifyFunction(func(ctx context.Context, request *ToolApprovalRequest) error {
+		return bot.notifyAdmins(ctx, request)
+	})
 
 	return bot, nil
 }
@@ -149,8 +151,8 @@ func (sb *SlackBot) ValidateSlackSetup() error {
 }
 
 // notifyAdmins sends approval notifications to admin users
-func (sb *SlackBot) notifyAdmins(request *ToolApprovalRequest) error {
-	return sb.notificationSender.NotifyAdmins(request)
+func (sb *SlackBot) notifyAdmins(ctx context.Context, request *ToolApprovalRequest) error {
+	return sb.notificationSender.NotifyAdmins(ctx, request)
 }
 
 // handleConnectionError handles Socket Mode connection errors with enhanced diagnostics

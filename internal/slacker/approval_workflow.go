@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -28,7 +29,7 @@ type ApprovalWorkflow struct {
 	formatter *ApprovalFormatter
 
 	// Slack integration
-	notifyFunc func(*ToolApprovalRequest) error
+	notifyFunc func(ctx context.Context, request *ToolApprovalRequest) error
 }
 
 // NewApprovalWorkflow creates a new approval workflow system
@@ -48,7 +49,7 @@ func NewApprovalWorkflow(adminUsers []string, logger *sec.SecurityLogger) *Appro
 }
 
 // SetNotifyFunction sets the Slack notification function
-func (aw *ApprovalWorkflow) SetNotifyFunction(notifyFunc func(*ToolApprovalRequest) error) {
+func (aw *ApprovalWorkflow) SetNotifyFunction(notifyFunc func(ctx context.Context, request *ToolApprovalRequest) error) {
 	aw.notifyFunc = notifyFunc
 }
 
@@ -80,7 +81,7 @@ func (aw *ApprovalWorkflow) RequestToolApproval(request *ToolApprovalRequest) (s
 
 	// Send notification to admins
 	if aw.notifyFunc != nil {
-		if err := aw.notifyFunc(request); err != nil {
+		if err := aw.notifyFunc(context.Background(), request); err != nil {
 			return requestID, fmt.Errorf("notifying admins: %w", err)
 		}
 	}
