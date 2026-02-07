@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,12 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 			done <- err
 			return
 		}
-		err = updater.AddToolCall(ctx, "test-tool")
+		toolCall := api.ToolCall{
+			Function: api.ToolCallFunction{
+				Name: "test-tool",
+			},
+		}
+		err = updater.AddToolCall(ctx, toolCall)
 		if err != nil {
 			done <- err
 			return
@@ -122,7 +128,12 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 
 	// Add tool call
 	ctx := testContext()
-	require.NoError(t, updater.AddToolCall(ctx, "test-tool"))
+	toolCall := api.ToolCall{
+		Function: api.ToolCallFunction{
+			Name: "test-tool",
+		},
+	}
+	require.NoError(t, updater.AddToolCall(ctx, toolCall))
 	require.NoError(t, updater.ForceUpdate(ctx))
 
 	// Should have posted a message for the tool call

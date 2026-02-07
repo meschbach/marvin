@@ -44,7 +44,7 @@ type ConversationEngine struct {
 	// logger provides optional debugging and security logging
 	logger Logger
 
-	// tools represents the available tools for the conversation
+	// tools represent the available tools for the conversation
 	tools *ToolSet
 
 	// messages maintains the conversation history
@@ -180,7 +180,7 @@ func (e *ConversationEngine) RunConversation(
 				// Log tool calls for debugging
 				e.logger.Debug("", "ConversationEngine", fmt.Sprintf("Tool call detected: %s", resp.Message.ToolCalls[0].Function.Name))
 				for _, toolCall := range resp.Message.ToolCalls {
-					if err := updater.AddToolCall(ctx, toolCall.Function.Name); err != nil {
+					if err := updater.AddToolCall(ctx, toolCall); err != nil {
 						return &StreamingUpdateError{
 							Component: "ConversationEngine.AddToolCall",
 							Message:   fmt.Sprintf("failed to stream tool call for %s", toolCall.Function.Name),
@@ -263,6 +263,7 @@ func (e *ConversationEngine) RunConversation(
 				pendingCallsErrors = errors.Join(wrappedErr, pendingCallsErrors)
 			}
 			e.messages = append(e.messages, reply...)
+			e.logger.Debug("", "ConversationEngine", fmt.Sprintf("Invoked tool %s, received the following response:\n%#v\n", call.Function.Name, reply))
 		}
 		if pendingCallsErrors != nil {
 			return pendingCallsErrors

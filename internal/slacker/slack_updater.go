@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/query"
+	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
 )
 
@@ -209,9 +210,9 @@ func (su *SlackUpdater) AddThought(ctx context.Context, thought string) error {
 }
 
 // AddToolCall records a tool call and treats it as regular content
-func (su *SlackUpdater) AddToolCall(ctx context.Context, toolName string) error {
+func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
 	// Tool calls now treated as regular content with thinking-style formatting
-	toolContent := fmt.Sprintf("🔧 Used tool: `%s`", toolName)
+	toolContent := fmt.Sprintf("🔧 Used tool: `%s`", toolCall.Function.Name)
 	return su.addContentInternal(ctx, toolContent, updaterStateTool)
 }
 

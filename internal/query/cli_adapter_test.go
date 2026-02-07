@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,12 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test AddToolCall
-	err = updater.AddToolCall(ctx, "calculator")
+	toolCall := api.ToolCall{
+		Function: api.ToolCallFunction{
+			Name: "calculator",
+		},
+	}
+	err = updater.AddToolCall(ctx, toolCall)
 	require.NoError(t, err)
 
 	// Test UpdateStats

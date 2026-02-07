@@ -2,6 +2,9 @@ package query
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/ollama/ollama/api"
 )
 
 // ConversationStats holds real-time statistics from LLM streaming responses
@@ -39,7 +42,7 @@ type StreamingUpdater interface {
 
 	// AddToolCall notifies when the AI invokes a tool.
 	// Provides transparency into tool usage and execution.
-	AddToolCall(ctx context.Context, toolName string) error
+	AddToolCall(ctx context.Context, toolCall api.ToolCall) error
 
 	// UpdateStats provides real-time statistics about token usage and completion.
 	// Enables monitoring, cost tracking, and performance analysis.
@@ -62,6 +65,16 @@ type NullLogger struct{}
 func (n *NullLogger) Debug(_, _, _ string) {}
 
 func (n *NullLogger) Error(_, _, _ string) {}
+
+type VerboseLogger struct{}
+
+func (v *VerboseLogger) Debug(userID, component, message string) {
+	fmt.Printf("[DEBUG] {user: %s, component: %s}: %s\n", userID, component, message)
+}
+
+func (v *VerboseLogger) Error(userID, component, message string) {
+	fmt.Printf("[ERROR] {user: %s, component: %s}: %s\n", userID, component, message)
+}
 
 // OptionalStatisticsUpdater provides a default no-op implementation for UpdateStats
 // This allows adapters that don't care about statistics to ignore them gracefully

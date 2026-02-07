@@ -71,20 +71,21 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}
 
 	systemMessage := api.Message{
-		Role: "system", Content: systemMessageContent,
+		Role: RoleSystem, Content: systemMessageContent,
 	}
 
 	// Maintain the rolling chat messages to support tool-call loops
-	messages := append(toolset.instructions,
-		systemMessage,
-		api.Message{Role: "user", Content: actualQuery})
 	availableTools := toolset.APITools()
-	if opts.DumpTooling || opts.ShowTools {
-		fmt.Println("Available tools:")
-		for _, tool := range availableTools {
+	for _, tool := range availableTools {
+		if opts.DumpTooling {
 			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 		}
+		toolset.instructions = append(toolset.instructions, api.Message{Role: RoleAssistant, Content: fmt.Sprintf("Tool %s does %s", tool.Function.Name, tool.Function.Description)})
 	}
+	messages := append(toolset.instructions,
+		systemMessage,
+		api.Message{Role: RoleUser, Content: actualQuery},
+	)
 
 	if opts.ShowTools {
 		fmt.Printf("Initial Messages (%d):\n", len(messages))
@@ -97,10 +98,17 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	ollamaLLM := NewOllamaLLM(client)
 	updater := NewCLIStreamingUpdater(opts.ShowThinking, opts.ShowTools, opts.ShowDone)
 
+	var logger Logger
+	if opts.Verbose {
+		logger = &VerboseLogger{}
+	} else {
+		logger = &NullLogger{}
+	}
+
 	engine := NewConversationEngine(
 		ollamaLLM,
 		cfg,
-		&NullLogger{}, // CLI doesn't need security logging
+		logger,
 		toolset,
 		messages,
 	)

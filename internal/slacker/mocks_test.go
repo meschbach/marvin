@@ -90,8 +90,8 @@ func (c *MockUserInterface) AddContent(ctx context.Context, message string) erro
 	return nil
 }
 
-func (c *MockUserInterface) AddToolCall(ctx context.Context, message string) error {
-	c.ToolCalls = append(c.ToolCalls, message)
+func (c *MockUserInterface) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+	c.ToolCalls = append(c.ToolCalls, toolCall.Function.Name)
 	return nil
 }
 

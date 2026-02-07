@@ -21,7 +21,7 @@ type toolDefinition struct {
 }
 
 func (t *toolDefinition) appendInstruction(message string) {
-	t.instructions = append(t.instructions, api.Message{Role: "system", Content: message})
+	t.instructions = append(t.instructions, api.Message{Role: RoleAssistant, Content: message})
 }
 
 type Tool interface {
@@ -117,7 +117,7 @@ func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Mes
 // toolResponseMessage is a utility to respond to a tool invocation with some content
 func toolResponseMessage(call api.ToolCall, content string) api.Message {
 	return api.Message{
-		Role:       "tool",
+		Role:       RoleToolResult,
 		ToolName:   call.Function.Name,
 		ToolCallID: call.ID,
 		Content:    content,

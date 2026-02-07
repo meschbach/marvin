@@ -3,6 +3,8 @@ package query
 import (
 	"context"
 	"fmt"
+
+	"github.com/ollama/ollama/api"
 )
 
 // CLIStreamingUpdater provides streaming updates for the command-line interface.
@@ -65,10 +67,13 @@ func (c *CLIStreamingUpdater) AddThought(ctx context.Context, thought string) er
 }
 
 // AddToolCall logs tool calls if debug mode is enabled
-func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolName string) error {
+func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
 	if c.showTools {
 		// Note: Detailed tool call info will be logged by the engine
-		fmt.Printf("🔧 Tool call: %s\n", toolName)
+		fmt.Printf("🔧 Tool call: %s\n", toolCall.Function.Name)
+		for key, value := range toolCall.Function.Arguments.All() {
+			fmt.Printf("\t-\t%s: %#v\n", key, value)
+		}
 	}
 	return nil
 }

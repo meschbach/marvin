@@ -33,6 +33,7 @@ func queryCommand(global *globalOptions) *cobra.Command {
 		},
 	}
 	pflags := cmd.PersistentFlags()
+	pflags.BoolVarP(&queryOpts.Verbose, "verbose", "v", false, "Show debugging statements.")
 	pflags.BoolVarP(&queryOpts.ShowThinking, "show-thinking", "t", false, "Show the models thinking")
 	pflags.BoolVarP(&queryOpts.ShowTools, "show-tools", "s", false, "Show tools available and usage")
 	pflags.BoolVarP(&queryOpts.DumpTooling, "dump-tools", "d", false, "Dumps the available tools to the LLM")
