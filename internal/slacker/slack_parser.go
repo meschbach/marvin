@@ -10,6 +10,7 @@ import (
 type SlackParser struct{}
 
 // NewSlackParser creates a new Slack parser
+// todo: merge with formatter
 func NewSlackParser() *SlackParser {
 	return &SlackParser{}
 }

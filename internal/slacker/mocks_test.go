@@ -2,6 +2,7 @@ package slacker
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
@@ -47,16 +48,27 @@ func (m *MockLLM) Reset() {
 
 // MockSlackSink implements SlackSink for testing
 type MockSlackSink struct {
+	state           sync.Mutex
 	PostedMessages  []string
 	UpdatedMessages []string
 }
 
 func (m *MockSlackSink) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+	m.state.Lock()
+	defer m.state.Unlock()
+
+	// For testing purposes, we'll capture the fact that an update was attempted
+	// The actual message content testing will be done through other means
 	m.UpdatedMessages = append(m.UpdatedMessages, "updated")
 	return "channel", "timestamp", "text", nil
 }
 
 func (m *MockSlackSink) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
+	m.state.Lock()
+	defer m.state.Unlock()
+
+	// For testing purposes, we'll capture the fact that a post was attempted
+	// The actual message content testing will be done through other means
 	m.PostedMessages = append(m.PostedMessages, "posted")
 	return "channel", "test-timestamp", nil
 }

@@ -113,7 +113,7 @@ func TestStreamingResponseHandler_HandleThinking(t *testing.T) {
 
 func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	response := api.ChatResponse{
 		Message: api.Message{
@@ -146,7 +146,7 @@ func TestStreamingResponseHandler_HandleToolCalls(t *testing.T) {
 
 func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	// Simulate streaming responses
 	responses := []api.ChatResponse{
@@ -192,7 +192,7 @@ func TestStreamingResponseHandler_GetFinalState(t *testing.T) {
 
 func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	response := api.ChatResponse{
 		Done: true,
@@ -212,7 +212,7 @@ func TestStreamingResponseHandler_DoneResponse(t *testing.T) {
 
 func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	response := api.ChatResponse{
 		Message: api.Message{
@@ -243,7 +243,7 @@ func TestStreamingResponseHandler_MixedResponse(t *testing.T) {
 
 func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	// Test buffer accumulation across multiple responses
 	responses := []api.ChatResponse{
@@ -266,7 +266,7 @@ func TestStreamingResponseHandler_BufferAccumulation(t *testing.T) {
 func TestStreamingResponseHandler_ErrorHandling(t *testing.T) {
 	// Test that handler doesn't panic on malformed responses
 	mockClient := &MockSlackSink{}
-	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel"))
+	handler := newStreamingResponseHandler(NewSlackUpdater(mockClient, "test-channel", newCaptureFormatter(nil)))
 
 	// Empty response should not error
 	ctx := context.Background()
