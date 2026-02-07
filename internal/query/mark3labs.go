@@ -90,7 +90,7 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 			for _, r := range resources.Resources {
 				content := fmt.Sprintf("# %s\nUse URI %s to access this resources\n%s", r.Name, r.URI, r.Description)
 				m.resourceInstructions = append(m.resourceInstructions, api.Message{
-					Role:    roleSystem,
+					Role:    RoleSystem,
 					Content: content,
 				})
 				template, err := uritemplate.New(r.URI)
@@ -108,7 +108,7 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 		for _, rt := range resourceTemplates.ResourceTemplates {
 			content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Template.Raw(), rt.Description)
 			m.resourceInstructions = append(m.resourceInstructions, api.Message{
-				Role:    roleSystem,
+				Role:    RoleSystem,
 				Content: content,
 			})
 			m.resourceTemplates = append(m.resourceTemplates, rt.URITemplate.Template)

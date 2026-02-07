@@ -84,6 +84,34 @@ import (
 - **Variables**: `camelCase` for local variables, `CamelCase` for exported constants
 - **Types**: `CamelCase` for structs and interfaces
 
+### Documentation Guidelines
+- **All code elements must have documentation** - Every exported function, type, and constant
+- **Focus on WHAT and WHY** - Describe the purpose and rationale, not implementation details
+- **Concise and clear** - Avoid verbose explanations; be direct
+- **No implementation details** - Don't explain HOW the code works, only WHAT it does and WHY it exists
+- **Document the contract** - Explain behavior, inputs, outputs, and side effects
+
+**Examples:**
+```go
+// ConversationStats tracks token usage metrics for a single conversation.
+// Provides real-time visibility into LLM resource consumption.
+type ConversationStats struct {
+    PromptTokens   int
+    ResponseTokens int
+    TotalTokens    int
+}
+
+// RunConversation executes the conversation loop until completion or error.
+// Handles tool calls, streaming responses, and session persistence.
+func (e *ConversationEngine) RunConversation(ctx context.Context, model string, updater StreamingUpdater) error
+```
+
+**Anti-patterns to avoid:**
+```go
+// This function loops through messages and calls the chat API.  // ❌ Explains HOW, not WHAT
+// It processes the response in a for loop.
+```
+
 ### Error Handling Pattern
 ```go
 // Standard error handling with context

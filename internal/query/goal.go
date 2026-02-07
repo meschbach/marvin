@@ -11,11 +11,6 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-const roleSystem = "system"
-const roleUser = "user"
-const roleAssistant = "assistant"
-const roleToolResult = "tool_result"
-
 const mcpParameterTypeObject = "object"
 const mcpParameterTypeString = "string"
 
@@ -61,25 +56,25 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 	}
 
 	// QueryRAGDocuments the AI model for the steps required to complete the goal
-	stepsConversation := ollamaConversation{
-		client: client,
-		messages: []api.Message{
-			{
-				Role:    roleSystem,
-				Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via the reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
-			},
-			{Role: roleSystem, Content: availableTools},
-			{Role: roleUser, Content: goal},
+	messages := []api.Message{
+		{
+			Role:    RoleSystem,
+			Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
 		},
-		tools: reasoningToolset,
+		{Role: RoleSystem, Content: availableTools},
+		{Role: RoleUser, Content: goal},
 	}
+
+	engine := NewConversationEngine(client, cfg, &NullLogger{}, reasoningToolset, messages)
 
 	model := "ministral-3:3b"
 	if cfg != nil && cfg.Model != "" {
 		model = cfg.Model
 	}
 
-	if err := stepsConversation.runAIToConclusion(ctx, model, reasoningToolset.defs); err != nil {
+	updater := NewCLIStreamingUpdater(false, false, false)
+
+	if err := engine.RunConversation(ctx, model, updater); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
 		return
 	}
@@ -142,13 +137,13 @@ func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []a
 	trimmedInput := strings.TrimSpace(input)
 	return []api.Message{
 		{
-			Role:       roleToolResult,
+			Role:       RoleToolResult,
 			Content:    "",
 			ToolName:   call.Function.Name,
 			ToolCallID: call.ID,
 		},
 		{
-			Role:    roleUser,
+			Role:    RoleUser,
 			Content: trimmedInput,
 		},
 	}, nil
@@ -176,7 +171,7 @@ func (q questionForUser) defineAPI(ctx context.Context) (definition *toolDefinit
 		},
 	}
 	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    roleSystem,
+		Role:    RoleSystem,
 		Content: "Use the tool reasoning_clairifying_question to ask the user for additional details when you are unsure, need more information, or are otherwise not certain.",
 	})
 	return definitions, nil

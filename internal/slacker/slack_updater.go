@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/meschbach/marvin/internal/query"
 	"github.com/slack-go/slack"
 )
 
@@ -214,6 +215,13 @@ func (su *SlackUpdater) AddToolCall(ctx context.Context, toolName string) error 
 	return su.addContentInternal(ctx, toolContent, updaterStateTool)
 }
 
+// UpdateStats handles statistics updates (no-op for Slack UI)
+func (su *SlackUpdater) UpdateStats(ctx context.Context, stats query.ConversationStats) error {
+	// Slack UI doesn't currently display statistics
+	// This provides a hook for future statistics display if needed
+	return nil
+}
+
 // ForceUpdate provides compatibility with existing code - posts current buffer
 func (su *SlackUpdater) ForceUpdate(ctx context.Context) error {
 	su.mutex.Lock()
@@ -222,6 +230,11 @@ func (su *SlackUpdater) ForceUpdate(ctx context.Context) error {
 	// Post any remaining buffer content
 	_, err := su.switchToType(ctx, updaterStateComplete)
 	return err
+}
+
+// Flush implements the StreamingUpdater interface
+func (su *SlackUpdater) Flush(ctx context.Context) error {
+	return su.ForceUpdate(ctx)
 }
 
 // getBufferContent returns current buffer content for debugging

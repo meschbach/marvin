@@ -3,6 +3,7 @@
 set -e
 go test -count 1 ./internal/...
 go build -o marvin ./cmd
+go build -o slacker ./cmd/slacker
 
 echo "===="
 echo "RAG index"

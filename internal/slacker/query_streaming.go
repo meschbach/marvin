@@ -3,7 +3,6 @@ package slacker
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
@@ -46,7 +45,7 @@ func NewQueryStreamer[LLM llm](
 	}
 }
 
-// ProcessQueryWithUpdater handles AI processing with a specific Slack updater
+// ProcessQueryWithUpdater handles AI processing with a specific Slack updater using the unified ConversationEngine
 func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet, updater *SlackUpdater) error {
 	qs.securityLogger.LogDebug(slackCtx.UserID, "query_streaming", "Starting message streaming")
 	if updater == nil { //catch here to avoid costly
@@ -66,107 +65,26 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 	messages = append(messages, session.Messages...)
 	messages = append(messages, api.Message{Role: "user", Content: message})
 
-	// Get available tools from user toolset
-	availableTools := userToolSet.APITools()
+	// Create LLM adapter and logger adapter
+	llmAdapter := NewSlackLLMAdapter(qs.languageService)
+	loggerAdapter := NewSlackLoggerAdapter(qs.securityLogger, slackCtx.UserID)
 
-	// Create streaming chat request
-	stream := true
-	req := &api.ChatRequest{
-		Model:    qs.config.LanguageModel(),
-		Messages: messages,
-		Tools:    availableTools,
-		Stream:   &stream,
-		Options:  qs.config.BuildAPIOptions(),
+	// Create message callback for session management
+	messageCallback := func(ctx context.Context, msg api.Message) error {
+		return qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, msg)
 	}
 
-	// Process streaming response with extracted handler
-	handler := newStreamingResponseHandler(updater)
+	// Create the conversation engine with callback
+	engine := query.NewConversationEngineWithCallback(
+		llmAdapter,
+		qs.config,
+		loggerAdapter,
+		userToolSet,
+		messages,
+		messageCallback,
+	)
 
-	// Wrap handleResponse to provide context
-	err := qs.languageService.Chat(ctx, req, func(resp api.ChatResponse) error {
-		return handler.handleResponse(ctx, resp)
-	})
-
-	// Extract final state from handler
-	assistantContent, thinkingBuffer, pendingCalls, err := handler.finished(ctx)
-
-	// Handle chat errors
-	if err != nil {
-		return err
-	}
-
-	assistantMsg := api.Message{
-		Role:      "assistant",
-		Content:   assistantContent,
-		ToolCalls: pendingCalls,
-		Thinking:  thinkingBuffer,
-	}
-	if err := qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, assistantMsg); err != nil {
-		return err
-	}
-
-	// Continue conversation loop while there are tool calls to process
-	for len(pendingCalls) > 0 {
-		if err := updater.ForceUpdate(ctx); err != nil {
-			return err
-		}
-		// Execute all pending tool calls and collect responses
-		for _, call := range pendingCalls {
-			reply, herr := userToolSet.HandleCall(ctx, call)
-			if herr != nil {
-				qs.securityLogger.LogError(slackCtx.UserID, "QueryStreamer", fmt.Sprintf("Error invoking tool %s: %v", call.Function.Name, herr))
-				// Add error message to conversation so LLM can respond appropriately
-				errorMsg := api.Message{
-					Role:       "tool",
-					ToolName:   call.Function.Name,
-					ToolCallID: call.ID,
-					Content:    fmt.Sprintf("Error: %v", herr),
-				}
-				messages = append(messages, errorMsg)
-				continue
-			}
-			messages = append(messages, reply...)
-		}
-
-		// Create a streaming request to let the LLM consume tool results
-		nextHandler := newStreamingResponseHandler(updater)
-
-		// Build the follow-up request with tool results included
-		followUpReq := &api.ChatRequest{
-			Model:    qs.config.LanguageModel(),
-			Messages: messages,
-			Stream:   &stream,
-			Options:  qs.config.BuildAPIOptions(),
-		}
-
-		// Make LLM call to consume tool results and continue conversation
-		err = qs.languageService.Chat(ctx, followUpReq, func(resp api.ChatResponse) error {
-			return nextHandler.handleResponse(ctx, resp)
-		})
-		if err != nil {
-			return err
-		}
-
-		// Extract response state
-		nextAssistantContent, nextThinkingBuffer, nextPendingCalls, err := nextHandler.finished(ctx)
-		if err != nil {
-			return err
-		}
-
-		// Add this assistant message to session
-		nextAssistantMsg := api.Message{
-			Role:      "assistant",
-			Content:   nextAssistantContent,
-			ToolCalls: nextPendingCalls,
-			Thinking:  nextThinkingBuffer,
-		}
-		if err := qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, nextAssistantMsg); err != nil {
-			return err
-		}
-
-		// Update loop state for next iteration
-		pendingCalls = nextPendingCalls
-	}
-
-	return nil
+	// Run the conversation using the unified engine
+	model := qs.config.LanguageModel()
+	return engine.RunConversation(ctx, model, updater)
 }

@@ -36,7 +36,7 @@ This integration streamlines information retrieval for real-time decision-making
 func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
 	definitions := &toolDefinition{}
 	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    roleSystem,
+		Role:    RoleSystem,
 		Content: fmt.Sprintf(chromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
 	})
 	searchProps := api.NewToolPropertiesMap()
@@ -74,7 +74,7 @@ func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition
 		},
 	})
 	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    roleSystem,
+		Role:    RoleSystem,
 		Content: fmt.Sprintf("Use the tools `search` and `read_document` to search and read documents from the repository %q", c.config.Name),
 	})
 	return definitions, nil

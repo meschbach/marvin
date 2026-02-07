@@ -48,7 +48,7 @@ func (m *mcpResourceGateway) defineAPI(ctx context.Context) (definition *toolDef
 		},
 	})
 	definition.instructions = append(definition.instructions, api.Message{
-		Role:    roleSystem,
+		Role:    RoleSystem,
 		Content: "Use the tool read_resource to access resources identified by a URI.",
 	})
 

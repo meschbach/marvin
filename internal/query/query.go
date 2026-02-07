@@ -93,22 +93,24 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		}
 	}
 
-	// ctx already defined above
-	conversation := &ollamaConversation{
-		client:       client,
-		messages:     messages,
-		tools:        toolset,
-		config:       cfg,
-		showThinking: opts.ShowThinking,
-		showTools:    opts.ShowTools,
-		showDone:     opts.ShowDone,
-	}
+	// Create the new conversation engine
+	ollamaLLM := NewOllamaLLM(client)
+	updater := NewCLIStreamingUpdater(opts.ShowThinking, opts.ShowTools, opts.ShowDone)
+
+	engine := NewConversationEngine(
+		ollamaLLM,
+		cfg,
+		&NullLogger{}, // CLI doesn't need security logging
+		toolset,
+		messages,
+	)
+
 	model := cfg.LanguageModel()
 	if opts.Verbose {
 		fmt.Printf("config\t> model: %s\n", model)
 	}
 
-	if err := conversation.runAIToConclusion(ctx, model, availableTools); err != nil {
+	if err := engine.RunConversation(ctx, model, updater); err != nil {
 		return
 	}
 }
