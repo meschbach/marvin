@@ -42,6 +42,17 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	err = updater.UpdateStats(ctx, stats)
 	require.NoError(t, err)
 
+	// Test AddToolResult - success case
+	toolResult := []api.Message{
+		{Role: RoleToolResult, Content: "42"},
+	}
+	err = updater.AddToolResult(ctx, toolCall, toolResult, nil)
+	require.NoError(t, err)
+
+	// Test AddToolResult - error case
+	err = updater.AddToolResult(ctx, toolCall, nil, assert.AnError)
+	require.NoError(t, err)
+
 	// Test Flush
 	err = updater.Flush(ctx)
 	require.NoError(t, err)

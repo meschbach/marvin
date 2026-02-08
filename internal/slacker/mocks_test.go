@@ -75,9 +75,14 @@ func (m *MockSlackSink) PostMessageContext(ctx context.Context, channelID string
 
 // MockUserInterface captures user interface updates for testing
 type MockUserInterface struct {
-	Thoughts  []string
-	Content   []string
-	ToolCalls []string
+	Thoughts    []string
+	Content     []string
+	ToolCalls   []string
+	ToolResults []struct {
+		ToolCall api.ToolCall
+		Result   []api.Message
+		Err      error
+	}
 }
 
 func (c *MockUserInterface) AddThought(ctx context.Context, thought string) error {
@@ -95,9 +100,23 @@ func (c *MockUserInterface) AddToolCall(ctx context.Context, toolCall api.ToolCa
 	return nil
 }
 
+func (c *MockUserInterface) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+	c.ToolResults = append(c.ToolResults, struct {
+		ToolCall api.ToolCall
+		Result   []api.Message
+		Err      error
+	}{
+		ToolCall: toolCall,
+		Result:   result,
+		Err:      err,
+	})
+	return nil
+}
+
 // Reset clears all captured data
 func (c *MockUserInterface) Reset() {
 	c.Thoughts = nil
 	c.Content = nil
 	c.ToolCalls = nil
+	c.ToolResults = nil
 }

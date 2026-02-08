@@ -78,6 +78,23 @@ func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolCall api.Tool
 	return nil
 }
 
+// AddToolResult logs tool execution results if debug mode is enabled
+func (c *CLIStreamingUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+	if c.showTools {
+		if err != nil {
+			fmt.Printf("❌ Tool %s failed: %v\n", toolCall.Function.Name, err)
+		} else {
+			fmt.Printf("✅ Tool %s completed\n", toolCall.Function.Name)
+			for _, msg := range result {
+				if msg.Content != "" {
+					fmt.Printf("\tResult: %s\n", msg.Content)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // UpdateStats tracks real-time statistics from the LLM
 func (c *CLIStreamingUpdater) UpdateStats(ctx context.Context, stats ConversationStats) error {
 	// Update cumulative statistics

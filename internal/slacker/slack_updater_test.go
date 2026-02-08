@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meschbach/marvin/internal/query"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -142,6 +143,32 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 	// Check buffer content - tool calls are now treated as regular content
 	_, _ = updater.getBufferContent()
 	assert.Len(t, client.UpdatedMessages, 0, "no updates should be issued.")
+}
+
+func TestSlackUpdater_ToolResults(t *testing.T) {
+	client := &MockSlackSink{}
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+
+	ctx := testContext()
+	toolCall := api.ToolCall{
+		Function: api.ToolCallFunction{
+			Name: "test-tool",
+		},
+	}
+
+	// Test successful tool result
+	result := []api.Message{
+		{Role: query.RoleToolResult, Content: "Success!"},
+	}
+	require.NoError(t, updater.AddToolResult(ctx, toolCall, result, nil))
+
+	// Test failed tool result
+	require.NoError(t, updater.AddToolResult(ctx, toolCall, nil, assert.AnError))
+
+	require.NoError(t, updater.ForceUpdate(ctx))
+
+	// Both tool results are buffered together and posted as one message
+	assert.Len(t, client.PostedMessages, 1, "Should post single message containing both tool results")
 }
 
 func TestSlackUpdater_Complete(t *testing.T) {

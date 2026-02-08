@@ -44,6 +44,10 @@ type StreamingUpdater interface {
 	// Provides transparency into tool usage and execution.
 	AddToolCall(ctx context.Context, toolCall api.ToolCall) error
 
+	// AddToolResult notifies when a tool execution completes with its result.
+	// Provides visibility into tool execution outcomes for debugging and user feedback.
+	AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error
+
 	// UpdateStats provides real-time statistics about token usage and completion.
 	// Enables monitoring, cost tracking, and performance analysis.
 	UpdateStats(ctx context.Context, stats ConversationStats) error

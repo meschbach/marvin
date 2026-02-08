@@ -262,6 +262,17 @@ func (e *ConversationEngine) RunConversation(
 				}
 				pendingCallsErrors = errors.Join(wrappedErr, pendingCallsErrors)
 			}
+
+			// Notify updater of tool result
+			if err := updater.AddToolResult(ctx, call, reply, herr); err != nil {
+				wrappedErr := &StreamingUpdateError{
+					Component: "ConversationEngine.AddToolResult",
+					Message:   fmt.Sprintf("failed to stream tool result for %s", call.Function.Name),
+					Cause:     err,
+				}
+				pendingCallsErrors = errors.Join(wrappedErr, pendingCallsErrors)
+			}
+
 			e.messages = append(e.messages, reply...)
 			e.logger.Debug("", "ConversationEngine", fmt.Sprintf("Invoked tool %s, received the following response:\n%#v\n", call.Function.Name, reply))
 		}

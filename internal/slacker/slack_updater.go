@@ -216,6 +216,22 @@ func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) 
 	return su.addContentInternal(ctx, toolContent, updaterStateTool)
 }
 
+// AddToolResult records a tool execution result
+func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+	var resultContent string
+	if err != nil {
+		resultContent = fmt.Sprintf("❌ Tool `%s` failed: %v", toolCall.Function.Name, err)
+	} else {
+		resultContent = fmt.Sprintf("✅ Tool `%s` completed", toolCall.Function.Name)
+		for _, msg := range result {
+			if msg.Content != "" {
+				resultContent += fmt.Sprintf("\n• %s", msg.Content)
+			}
+		}
+	}
+	return su.addContentInternal(ctx, resultContent, updaterStateTool)
+}
+
 // UpdateStats handles statistics updates (no-op for Slack UI)
 func (su *SlackUpdater) UpdateStats(ctx context.Context, stats query.ConversationStats) error {
 	// Slack UI doesn't currently display statistics
