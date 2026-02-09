@@ -85,6 +85,11 @@ type SystemPromptBlock struct {
 	FromFile   string `hcl:"from_file,optional"`
 }
 
+type AssistantPromptBlock struct {
+	FromString string `hcl:"from_string,optional"`
+	FromFile   string `hcl:"from_file,optional"`
+}
+
 type MultiTenantBlock struct {
 	AdminUsers        []string `hcl:"admin_users,optional"`
 	AdminChannel      string   `hcl:"admin_channel,optional"`

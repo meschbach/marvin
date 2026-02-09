@@ -20,8 +20,9 @@ import (
 func FromDockerSpec(cfg *config.DockerMCPBlock) *Mark3labsTool {
 	spec := &dockerRuntimeSpec{cfg: cfg}
 	return &Mark3labsTool{
-		Name: cfg.Name,
-		spec: spec,
+		Name:            cfg.Name,
+		spec:            spec,
+		assistantPrompt: cfg.AssistantPrompt,
 	}
 }
 

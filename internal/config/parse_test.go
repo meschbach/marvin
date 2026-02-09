@@ -46,6 +46,56 @@ local_program "echo" {
 	}
 }
 
+func TestLoadConfig_LocalProgramWithAssistantPrompt(t *testing.T) {
+	hcl := `
+local_program "git" {
+  program = "/usr/bin/git"
+  
+  assistant_prompt {
+    from_string = "Use this git tool for version control operations."
+  }
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	if assert.Len(t, cfg.LocalPrograms, 1) {
+		lp := cfg.LocalPrograms[0]
+		assert.Equal(t, "git", lp.Name)
+		assert.Equal(t, "/usr/bin/git", lp.Program)
+		assert.NotNil(t, lp.AssistantPrompt)
+		assert.Equal(t, "Use this git tool for version control operations.", lp.AssistantPrompt.FromString)
+		assert.Empty(t, lp.AssistantPrompt.FromFile)
+	}
+}
+
+func TestLoadConfig_LocalProgramWithAssistantPromptFromFile(t *testing.T) {
+	hcl := `
+local_program "git" {
+  program = "/usr/bin/git"
+  
+  assistant_prompt {
+    from_file = "prompts/git.txt"
+  }
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	if assert.Len(t, cfg.LocalPrograms, 1) {
+		lp := cfg.LocalPrograms[0]
+		assert.Equal(t, "git", lp.Name)
+		assert.Equal(t, "/usr/bin/git", lp.Program)
+		assert.NotNil(t, lp.AssistantPrompt)
+		assert.Equal(t, "prompts/git.txt", lp.AssistantPrompt.FromFile)
+		assert.Empty(t, lp.AssistantPrompt.FromString)
+	}
+}
+
 func TestLoadConfig_AllOptionsMultipleBlocks(t *testing.T) {
 	hcl := `
 local_program "one" {
@@ -143,4 +193,58 @@ func TestBuildAPIOptions_MultipleOptions(t *testing.T) {
 	assert.Equal(t, topK, result["top_k"])
 	assert.Equal(t, stop, result["stop"])
 	assert.Len(t, result, 5, "should contain all specified options")
+}
+
+func TestLoadConfig_DockerMCPWithAssistantPrompt(t *testing.T) {
+	hcl := `
+docker_mcp "postgres" "postgres:15" {
+  
+  assistant_prompt {
+    from_string = <<EOS
+You have access to a PostgreSQL database running in Docker. Use this for:
+- Database queries and operations
+- Schema management  
+- Data manipulation
+Best practices: Use transactions for multi-step operations.
+EOS
+  }
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	if assert.Len(t, cfg.DockerMCPBlock, 1) {
+		dm := cfg.DockerMCPBlock[0]
+		assert.Equal(t, "postgres", dm.Name)
+		assert.Equal(t, "postgres:15", dm.Image)
+		assert.NotNil(t, dm.AssistantPrompt)
+		assert.Contains(t, dm.AssistantPrompt.FromString, "PostgreSQL database running in Docker")
+		assert.Empty(t, dm.AssistantPrompt.FromFile)
+	}
+}
+
+func TestLoadConfig_HttpMCPWithAssistantPrompt(t *testing.T) {
+	hcl := `
+mcp_over_http "weather_api" "http://weather-api:8080" {
+  
+  assistant_prompt {
+    from_string = "Use this weather API for current conditions, forecasts, and historical data."
+  }
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	if assert.Len(t, cfg.HttpMCPBlock, 1) {
+		hm := cfg.HttpMCPBlock[0]
+		assert.Equal(t, "weather_api", hm.Name)
+		assert.Equal(t, "http://weather-api:8080", hm.URL)
+		assert.NotNil(t, hm.AssistantPrompt)
+		assert.Equal(t, "Use this weather API for current conditions, forecasts, and historical data.", hm.AssistantPrompt.FromString)
+		assert.Empty(t, hm.AssistantPrompt.FromFile)
+	}
 }

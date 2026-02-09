@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/ollama/ollama/api"
 	"github.com/yosida95/uritemplate/v3"
 )
@@ -33,6 +35,7 @@ type Mark3labsTool struct {
 	mcpClient            *client.Client
 	resourceInstructions []api.Message
 	resourceTemplates    []*uritemplate.Template
+	assistantPrompt      *config.AssistantPromptBlock
 }
 
 func (m *Mark3labsTool) ensureRunning(ctx context.Context) (problem error) {
@@ -79,6 +82,13 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 	}
 	if init.Instructions != "" {
 		definitions.appendInstruction(init.Instructions)
+	}
+
+	// Add configurable assistant prompt for this MCP server
+	if assistantPromptContent, err := m.resolveAssistantPrompt(); err != nil {
+		return definitions, &operationalError{"resolving assistant prompt", err}
+	} else if assistantPromptContent != "" {
+		definitions.appendInstruction(assistantPromptContent)
 	}
 
 	if init.Capabilities.Resources != nil {
@@ -193,6 +203,27 @@ func (m *Mark3labsTool) invoke(ctx context.Context, call api.ToolCall) (out []ap
 
 func (m *Mark3labsTool) matches() []*uritemplate.Template {
 	return m.resourceTemplates
+}
+
+// resolveAssistantPrompt resolves the assistant prompt content from the configuration
+func (m *Mark3labsTool) resolveAssistantPrompt() (string, error) {
+	if m.assistantPrompt == nil {
+		return "", nil
+	}
+
+	if len(m.assistantPrompt.FromString) > 0 {
+		return m.assistantPrompt.FromString, nil
+	}
+
+	if len(m.assistantPrompt.FromFile) > 0 {
+		contents, err := os.ReadFile(m.assistantPrompt.FromFile)
+		if err != nil {
+			return "", fmt.Errorf("reading assistant prompt file %q: %w", m.assistantPrompt.FromFile, err)
+		}
+		return string(contents), nil
+	}
+
+	return "", nil
 }
 
 func (m *Mark3labsTool) describeMessages() []api.Message {

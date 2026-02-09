@@ -16,8 +16,9 @@ type DockerMCPBlock struct {
 	Verbose *bool               `hcl:"verbose,optional"`
 	//WorkingDirectory is an optionally overridable path.  By default, working directory is the directory containing
 	//the enclosing configuration.
-	WorkingDirectory string        `hcl:"working_directory,optional"`
-	Sharing          *SharingBlock `hcl:"sharing,block"`
+	WorkingDirectory string                `hcl:"working_directory,optional"`
+	Sharing          *SharingBlock         `hcl:"sharing,block"`
+	AssistantPrompt  *AssistantPromptBlock `hcl:"assistant_prompt,block"`
 }
 
 func (d *DockerMCPBlock) ResolveVerbose() bool {

@@ -11,20 +11,23 @@ import (
 // FromLocalProgram constructs a tool capable of invoking a local program specified in the configuration
 func FromLocalProgram(lp config.LocalProgramBlock) *Mark3labsTool {
 	spec := &localProgramRuntimeSpec{
-		Name:    lp.Name,
-		Program: lp.Program,
-		Args:    lp.Args,
+		Name:            lp.Name,
+		Program:         lp.Program,
+		Args:            lp.Args,
+		AssistantPrompt: lp.AssistantPrompt,
 	}
 	return &Mark3labsTool{
-		Name: lp.Name,
-		spec: spec,
+		Name:            lp.Name,
+		spec:            spec,
+		assistantPrompt: lp.AssistantPrompt,
 	}
 }
 
 type localProgramRuntimeSpec struct {
-	Name    string
-	Program string
-	Args    []string
+	Name            string
+	Program         string
+	Args            []string
+	AssistantPrompt *config.AssistantPromptBlock
 }
 
 func (l *localProgramRuntimeSpec) start(ctx context.Context) (runningProgram, error) {

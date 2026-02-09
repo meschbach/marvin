@@ -14,8 +14,9 @@ func FromHTTPMCPService(block *config.HttpMCPBlock) *Mark3labsTool {
 		config: block,
 	}
 	return &Mark3labsTool{
-		Name: block.Name,
-		spec: spec,
+		Name:            block.Name,
+		spec:            spec,
+		assistantPrompt: block.AssistantPrompt,
 	}
 }
 
