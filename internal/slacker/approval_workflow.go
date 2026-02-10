@@ -23,10 +23,11 @@ type ToolApprovalRequest struct {
 
 // ApprovalWorkflow manages the tool approval process with business logic
 type ApprovalWorkflow struct {
-	store     *ApprovalStore
-	admins    map[string]bool
-	logger    *sec.SecurityLogger
-	formatter *ApprovalFormatter
+	store              *ApprovalStore
+	admins             map[string]bool
+	logger             *sec.SecurityLogger
+	notificationSender *NotificationSender
+	sessionManager     *SessionManager
 
 	// Slack integration
 	notifyFunc func(ctx context.Context, request *ToolApprovalRequest) error
@@ -35,10 +36,9 @@ type ApprovalWorkflow struct {
 // NewApprovalWorkflow creates a new approval workflow system
 func NewApprovalWorkflow(adminUsers []string, logger *sec.SecurityLogger) *ApprovalWorkflow {
 	aw := &ApprovalWorkflow{
-		store:     NewApprovalStore(),
-		admins:    make(map[string]bool),
-		logger:    logger,
-		formatter: NewApprovalFormatter(),
+		store:  NewApprovalStore(),
+		admins: make(map[string]bool),
+		logger: logger,
 	}
 
 	for _, adminID := range adminUsers {
@@ -46,6 +46,16 @@ func NewApprovalWorkflow(adminUsers []string, logger *sec.SecurityLogger) *Appro
 	}
 
 	return aw
+}
+
+// SetNotificationSender sets the notification sender for requester notifications
+func (aw *ApprovalWorkflow) SetNotificationSender(notificationSender *NotificationSender) {
+	aw.notificationSender = notificationSender
+}
+
+// SetSessionManager sets the session manager for tool activation
+func (aw *ApprovalWorkflow) SetSessionManager(sessionManager *SessionManager) {
+	aw.sessionManager = sessionManager
 }
 
 // SetNotifyFunction sets the Slack notification function
@@ -101,6 +111,34 @@ func (aw *ApprovalWorkflow) ApproveTool(adminID, requestID, reason string) error
 		return fmt.Errorf("approval request %s not found", requestID)
 	}
 
+	// Get approval details for notification
+	approval, exists := aw.store.GetApproval(requestID)
+	if !exists {
+		return fmt.Errorf("approval request %s not found", requestID)
+	}
+
+	// Notify original requester
+	if aw.notificationSender != nil {
+		if err := aw.notificationSender.SendApprovalNotification(
+			context.Background(),
+			approval.RequesterID, // Send to requester, not admin
+			adminID,              // Admin who approved
+			requestID,            // Request ID
+			"approved",           // Status
+			approval.ToolID,      // Tool details
+			reason,               // Reason for approval
+		); err != nil {
+			aw.logger.LogError("system", "NotificationSender", err.Error())
+		}
+	}
+
+	// Activate tool in user's session
+	if aw.sessionManager != nil {
+		if err := aw.activateToolForUser(approval.RequesterID, approval.ToolID); err != nil {
+			aw.logger.LogError("system", "SessionManager", err.Error())
+		}
+	}
+
 	// Log approval
 	aw.logger.LogToolApproval(adminID, requestID, "approved", reason)
 
@@ -117,6 +155,27 @@ func (aw *ApprovalWorkflow) RejectTool(adminID, requestID, reason string) error 
 	// Update approval
 	if !aw.store.UpdateApproval(requestID, query.ApprovalStatusRejected, adminID, reason) {
 		return fmt.Errorf("approval request %s not found", requestID)
+	}
+
+	// Get approval details for notification
+	approval, exists := aw.store.GetApproval(requestID)
+	if !exists {
+		return fmt.Errorf("approval request %s not found", requestID)
+	}
+
+	// Notify original requester
+	if aw.notificationSender != nil {
+		if err := aw.notificationSender.SendApprovalNotification(
+			context.Background(),
+			approval.RequesterID, // Send to requester, not admin
+			adminID,              // Admin who rejected
+			requestID,            // Request ID
+			"rejected",           // Status
+			approval.ToolID,      // Tool details
+			reason,               // Reason for rejection
+		); err != nil {
+			aw.logger.LogError("system", "NotificationSender", err.Error())
+		}
 	}
 
 	// Log rejection
@@ -150,11 +209,6 @@ func (aw *ApprovalWorkflow) IsAdmin(userID string) bool {
 	return aw.admins[userID]
 }
 
-// FormatApprovalForSlack formats an approval request for Slack notification
-func (aw *ApprovalWorkflow) FormatApprovalForSlack(request *ToolApprovalRequest) string {
-	return aw.formatter.FormatApprovalForSlack(request)
-}
-
 // CleanupOldApprovals removes old approvals
 func (aw *ApprovalWorkflow) CleanupOldApprovals(olderThan time.Duration) {
 	cutoff := time.Now().Add(-olderThan)
@@ -173,4 +227,37 @@ func (aw *ApprovalWorkflow) getAdminUserList() []string {
 	}
 
 	return admins
+}
+
+// activateToolForUser adds an approved tool to the user's session
+func (aw *ApprovalWorkflow) activateToolForUser(userID, toolID string) error {
+	if aw.sessionManager == nil {
+		return fmt.Errorf("session manager not initialized")
+	}
+
+	// Find user's active sessions and add the approved tool
+	sessions := aw.sessionManager.ListSessions()
+	for _, session := range sessions {
+		if session.UserID == userID {
+			// Add tool to existing session
+			currentTools := session.AvailableTools
+			if !contains(currentTools, toolID) {
+				newTools := append(currentTools, toolID)
+				if err := aw.sessionManager.UpdateAvailableTools(userID, session.ChannelID, newTools); err != nil {
+					return fmt.Errorf("updating tools for user %s: %w", userID, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

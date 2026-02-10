@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/slack-go/slack"
 )
@@ -51,16 +52,29 @@ func (ns *NotificationSender) NotifyAdmins(ctx context.Context, request *ToolApp
 	return nil
 }
 
-// SendApprovalNotification sends approval status notification
-func (ns *NotificationSender) SendApprovalNotification(ctx context.Context, adminID, requestID, status string) error {
-	// This would need approval details from approval workflow
-	// For now, creating a basic notification
-	message := fmt.Sprintf("🔧 Tool request %s has been **%s** by <@%s>", requestID, status, adminID)
+// SendApprovalNotification sends approval status notification to the original requester
+func (ns *NotificationSender) SendApprovalNotification(ctx context.Context, requesterID, adminID, requestID, status, toolID, reason string) error {
+	var message strings.Builder
 
-	// Open DM channel with requester (would need requester ID from workflow)
-	// For now, sending to admin who approved/rejected
+	if status == "approved" {
+		message.WriteString("✅ Your tool request has been approved!\n\n")
+		message.WriteString(fmt.Sprintf("• Request ID: %s\n", requestID))
+		message.WriteString(fmt.Sprintf("• Tool ID: %s\n", toolID))
+		message.WriteString(fmt.Sprintf("• Approved by: <@%s>\n", adminID))
+		message.WriteString(fmt.Sprintf("• Reason: %s\n\n", reason))
+		message.WriteString("The tool is now available in your conversations. Try using it!")
+	} else {
+		message.WriteString("❌ Your tool request has been rejected.\n\n")
+		message.WriteString(fmt.Sprintf("• Request ID: %s\n", requestID))
+		message.WriteString(fmt.Sprintf("• Tool ID: %s\n", toolID))
+		message.WriteString(fmt.Sprintf("• Rejected by: <@%s>\n", adminID))
+		message.WriteString(fmt.Sprintf("• Reason: %s\n\n", reason))
+		message.WriteString("If you believe this is an error, please contact an admin for review.")
+	}
+
+	// Open DM channel with requester (not admin)
 	channel, _, _, err := ns.client.OpenConversationContext(ctx, &slack.OpenConversationParameters{
-		Users: []string{adminID},
+		Users: []string{requesterID},
 	})
 	if err != nil {
 		return fmt.Errorf("opening DM channel: %w", err)
@@ -69,19 +83,26 @@ func (ns *NotificationSender) SendApprovalNotification(ctx context.Context, admi
 	_, _, err = ns.client.PostMessageContext(
 		ctx,
 		channel.ID,
-		slack.MsgOptionText(message, false),
+		slack.MsgOptionText(message.String(), false),
 	)
 	return err
 }
 
+// formatRequestID creates a unique request ID for admin notifications
+func formatRequestID(requesterID string, timestamp time.Time) string {
+	return fmt.Sprintf("%s-%s", requesterID, timestamp.Format("20060102-150405"))
+}
+
 // formatApprovalForSlack formats an approval request for Slack display
 func (ns *NotificationSender) formatApprovalForSlack(request *ToolApprovalRequest) string {
+	requestID := formatRequestID(request.RequesterID, request.Timestamp)
 	var message strings.Builder
 
 	message.WriteString("🔧 **Tool Approval Request**\n\n")
 	message.WriteString(fmt.Sprintf("• **Requester:** <@%s>\n", request.RequesterID))
 	message.WriteString(fmt.Sprintf("• **Tool Type:** %s\n", request.ToolType))
 	message.WriteString(fmt.Sprintf("• **Tool ID:** %s\n", request.ToolID))
+	message.WriteString(fmt.Sprintf("• **Request ID:** %s\n", requestID))
 	message.WriteString(fmt.Sprintf("• **Timestamp:** %s\n", request.Timestamp.Format("2006-01-02 15:04:05")))
 
 	if request.Config != nil {
@@ -90,7 +111,9 @@ func (ns *NotificationSender) formatApprovalForSlack(request *ToolApprovalReques
 	}
 
 	message.WriteString("\n")
-	message.WriteString("👉 Please review and approve/reject this request.")
+	message.WriteString(fmt.Sprintf("👉 Please review and approve/reject this request.\n\n"))
+	message.WriteString(fmt.Sprintf("**To approve:** Reply with \"Approve %s\"\n", requestID))
+	message.WriteString(fmt.Sprintf("**To reject:** Reply with \"Reject %s because [reason]\"", requestID))
 
 	return message.String()
 }

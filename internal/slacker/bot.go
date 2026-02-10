@@ -43,6 +43,10 @@ func NewSlackBot(
 	formatter := NewSlackFormatter()
 	notificationSender := NewNotificationSender(connection.GetClient(), connection.GetAdminUsers())
 
+	// Inject dependencies into approval workflow
+	approvalWorkflow.SetNotificationSender(notificationSender)
+	approvalWorkflow.SetSessionManager(sessionManager)
+
 	// Create message handler dependencies
 	intentProcessor := NewIntentProcessor()
 	queryHandler := NewQueryProcessor(tenantToolSet, sessionManager, config, securityLogger, formatter)

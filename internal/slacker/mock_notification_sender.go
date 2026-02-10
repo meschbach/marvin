@@ -40,10 +40,10 @@ func (m *MockNotificationSender) NotifyAdmins(ctx context.Context, request *Tool
 }
 
 // SendApprovalNotification captures the call without making Slack API calls
-func (m *MockNotificationSender) SendApprovalNotification(ctx context.Context, adminID, requestID, status string) error {
+func (m *MockNotificationSender) SendApprovalNotification(ctx context.Context, requesterID, adminID, requestID, status, toolID, reason string) error {
 	call := MockNotificationCall{
-		UserID:  adminID,
-		Message: fmt.Sprintf("Tool request %s has been %s", requestID, status),
+		UserID:  requesterID, // Send to requester, not admin
+		Message: fmt.Sprintf("Tool request %s (%s) has been %s by admin %s. Reason: %s", requestID, toolID, status, adminID, reason),
 	}
 	m.calls = append(m.calls, call)
 	return nil

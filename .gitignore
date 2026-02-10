@@ -2,5 +2,6 @@
 .marvin.hcl
 marvin
 .marvin
+slacker
 release/
 examples/mcp/meschbach/mcp-imap/mcp-imap

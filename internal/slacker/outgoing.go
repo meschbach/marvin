@@ -6,5 +6,5 @@ import "context"
 type OutgoingMessages interface {
 	SendMessage(ctx context.Context, userID, message string) error
 	NotifyAdmins(ctx context.Context, request *ToolApprovalRequest) error
-	SendApprovalNotification(ctx context.Context, adminID, requestID, status string) error
+	SendApprovalNotification(ctx context.Context, requesterID, adminID, requestID, status, toolID, reason string) error
 }
