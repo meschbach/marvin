@@ -15,25 +15,52 @@
 # - SLACK_BOT_TOKEN: Bot token (xoxb-...)  
 # - SLACK_APP_TOKEN: App token for Socket Mode (xapp-...)
 
+# Model configuration
 model = "ministral-3:3b"
 
-# Multi-tenant settings
+# Advanced model options for fine-tuning responses
+options {
+  context_window_size = 32768
+  temperature = 0.7
+  top_p = 0.9
+}
+
+# Multi-tenant settings (required for Slacker)
 multi_tenant {
-  admin_users = ["U1234567890", "U0987654321"]  # Replace with actual Slack user IDs
-  admin_channel = "CADMIN"  # Optional admin notification channel
+  # Replace with your admin user Slack IDs (get from Slack UI)
+  admin_users = ["U1234567890", "U0987654321"]
+  
+  # Optional admin notification channel for important events
+  admin_channel = "CADMIN"
+  
+  # Persistent storage paths
   session_store_path = "./sessions"
   credential_store = "./credentials"
 }
 
 # Global HTTP MCP tools (available to all users, no approval required)
-mcp_over_http "weather-api" {
-  name = "weather-api"
-  url = "https://weather.example.com/mcp"
+mcp_over_http "weather-api" "https://weather.example.com/mcp" {
+  assistant_prompt {
+    from_string = <<EOS
+You have access to weather data via HTTP API. Use this for:
+- Current weather conditions
+- Weather forecasts  
+- Historical weather data
+Usage: Always specify location when asking for weather information.
+EOS
+  }
 }
 
-mcp_over_http "stock-prices" {
-  name = "stock-api"
-  url = "https://api.stocks.com/mcp"
+mcp_over_http "stock-prices" "https://api.stocks.com/mcp" {
+  assistant_prompt {
+    from_string = <<EOS
+You have access to stock market data. Use this for:
+- Current stock prices
+- Market trends and analysis
+- Company financial information
+Remember: This is for informational purposes only, not financial advice.
+EOS
+  }
 }
 
 # Pre-approved shared tools (admin-configured, available to specific users)
@@ -47,32 +74,66 @@ local_program "company-git" {
     can_share = false
     expires_at = "2025-12-31T23:59:59Z"
   }
+  
+  assistant_prompt {
+    from_string = <<EOS
+You have access to company Git repositories. Use this for:
+- Code review and analysis
+- Repository history and statistics
+- Issue and PR tracking
+Always respect company policies and avoid sensitive data exposure.
+EOS
+  }
 }
 
-docker_mcp "shared-docker" {
-  name = "shared-docker"
-  image = "company/mcp-tools:latest"
-  
-  env {
-    key = "COMPANY_API_KEY"
+docker_mcp "shared-docker" "company/mcp-tools:latest" {
+  env "COMPANY_API_KEY" {
     pass_through = true  # Use environment variable from system
+  }
+  
+  env "LOG_LEVEL" {
+    value = "info"
   }
   
   sharing {
     allowed_users = ["U1234567890"]
     can_share = false
   }
+  
+  assistant_prompt {
+    from_string = <<EOS
+You have access to company Docker tools. Use this for:
+- Container management
+- Development environment setup
+- Build and deployment tasks
+Follow company security and compliance guidelines.
+EOS
+  }
 }
 
 # System prompt for the AI
 system_prompt {
   from_string = <<EOS
-You are a helpful AI assistant integrated with Slack. You have access to various tools to help users with their tasks.
+You are a helpful AI assistant integrated with Slack, powered by Marvin. You help users with their tasks and can access various tools to assist them.
+
+## Tool Management Guidelines:
 
 When users ask you to add tools:
-- HTTP/MCP tools can be added immediately
-- Local programs and Docker tools require admin approval
+- HTTP/MCP tools can be added immediately (auto-approved)
+- Local programs and Docker tools require admin approval (security measure)
+- Always explain the approval process when needed
 
-Always be helpful, professional, and clear about what you're doing. If you need to make tool calls, explain what you're doing first.
+## Communication Style:
+- Be helpful, professional, and clear
+- Explain what you're doing before making tool calls
+- Provide concise, actionable responses
+- Ask for clarification if requests are ambiguous
+
+## Security Reminders:
+- Never share sensitive information
+- Validate tool configurations before use
+- Report any suspicious requests to admins
+
+You're here to make users more productive while maintaining security and best practices.
 EOS
 }

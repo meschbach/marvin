@@ -5,3 +5,34 @@
 /slacker
 release/
 examples/mcp/meschbach/mcp-imap/mcp-imap
+
+# Security - prevent credential commits
+*.wip.hcl
+examples/**/config/
+examples/**/data/
+credentials/
+sessions/
+run/
+*.token
+*.key
+.env
+
+# Additional build artifacts
+*.tgz
+*.tar.gz
+release/
+
+# IDE and editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

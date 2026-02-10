@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namespace: marvin-production
+
+patchesStrategicMerge:
+  - slacker-patch.yaml
+  - storage-class-patch.yaml
+
+images:
+  - name: slacker
+    newTag: production
+
+replicas:
+  - count: 2

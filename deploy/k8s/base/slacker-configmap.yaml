@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slacker-config
+  labels:
+    app.kubernetes.io/name: slacker
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/part-of: marvin
+data:
+  marvin.hcl: |
+    # Slacker Configuration for Kubernetes
+    # This is a minimal configuration - customize as needed
+    model = "ministral-3:3b"
+      
+    system_prompt {
+      from_string = <<EOS
+      You are Marvin, a helpful AI assistant.
+      EOS
+    }

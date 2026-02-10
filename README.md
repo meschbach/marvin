@@ -1,33 +1,51 @@
 # Marvin
 
-Marvin is an agentic workflow CLI that connects an AI reasoning loop to Model Context Protocol (MCP) tools. It’s an
-experimental workbench intended to:
+Marvin is a comprehensive AI agent platform that provides two ways to interact with Model Context Protocol (MCP) tools:
 
-- Let you ask natural language queries and stream answers from a local LLM (via Ollama)
-- [Use MCP-compatible tools to augment reasoning](docs/mcp.md)
-- Explore the capabilities of MCP-compatible tools
+## 🎯 **Two Ways to Use Marvin**
+
+### **1. Marvin CLI** - Direct Terminal Access
+- Natural language queries with streaming responses from local LLM (via Ollama)
+- Direct access to MCP-compatible tools
+- Perfect for developers and power users
+
+### **2. Slacker** - Multi-Tenant Slack Bot  
+- Enterprise Slack integration with admin approval workflows
+- Multi-user AI assistance with per-user session isolation
+- Natural language tool management and sharing
+- Ideal for team collaboration and controlled environments
+
+## 🚀 **Platform Capabilities**
+
+- **AI Reasoning Loop**: Connect to local LLMs with intelligent tool augmentation
+- **MCP Tool Integration**: Extensive support for Model Context Protocol tools
+- **Multi-Tenant Security**: Admin approval workflows and user isolation
+- **Flexible Deployment**: CLI for development, Slack for collaboration
 
 ## What Marvin is not:
-- A replacement for LLMs
-- A replacement for MCP tools
-- A chat system like Open WebUI or AnythingLLM
+- A replacement for LLMs (it uses your existing LLMs)
+- A replacement for MCP tools (it orchestrates them)
+- A traditional chat system like Open WebUI or AnythingLLM
+- A SaaS platform (it's self-hosted for privacy and control)
 
 ---
 
-## Usage
+## 🛠 **Usage**
 
-- Free-form query to your local LLM via Ollama:
+### **Marvin CLI - Quick Start**
+
+Free-form queries with your local LLM via Ollama:
 
 ```bash
 marvin query "Summarize the main differences between BFS and DFS."
 ```
 
-What happens:
+**What happens:**
 - Queries the default model (`ministral-3:3b`) on `ollama`
 - Responses are streamed to your terminal
-- If the model emits tool calls, Marvin will display them
+- Tool calls are displayed and handled automatically
 
-Example output:
+**Example output:**
 >Query:  Summarize the main differences between BFS and DFS.
 >Here are the **key differences** between **Breadth-First Search (BFS)** and **Depth-First Search (DFS)**:
 >
@@ -40,12 +58,56 @@ Example output:
 >- **DFS** is better for **deep exploration** (e.g., finding a path in a maze) and **cycle detection**.
 >- Both have **O(B + D)** time complexity, but DFS may use less space if the graph is **sparse** (many branches but shallow depth).
 
-### Configuration
-Optionally, by passing `-c <file>` or `--config <file>` you can load a configuration file.  You can specify:
-- MCP servers
-- System Prompt
+### **Slacker - Quick Start**
 
-For an example see [`marvin.example.yaml`](marvin.example.hcl).
+Deploy the multi-tenant Slack bot with admin approval workflows:
+
+```bash
+# Build and configure
+go build -o slacker ./cmd/slacker
+cp marvin.slacker.example.hcl marvin.slacker.hcl
+
+# Set your Slack bot token
+export SLACK_BOT_TOKEN=xoxb-your-bot-token-here
+
+# Run the bot
+./slacker --config marvin.slacker.hcl --passphrase "your-secure-passphrase"
+```
+
+**Slacker Features:**
+- Natural language tool management in Slack
+- Admin approval for security-sensitive tools
+- Multi-user session isolation
+- Encrypted credential storage
+- Comprehensive audit logging
+
+### **Use Case Comparison**
+
+| Use Case | Marvin CLI | Slacker | When to Choose |
+|----------|------------|---------|----------------|
+| **Development & Testing** | ✅ Ideal | ⚠️ Possible | Local development, API testing |
+| **Team Collaboration** | ❌ Limited | ✅ Ideal | Shared workspace, multiple users |
+| **Automation & CI/CD** | ✅ Ideal | ⚠️ Possible | Scripted workflows, build pipelines |
+| **Enterprise Deployment** | ⚠️ Individual | ✅ Ideal | Managed access, compliance needs |
+| **Quick Queries** | ✅ Instant | ⚠️ Context switch | Personal use, fast iteration |
+
+### **Configuration**
+
+Both Marvin CLI and Slacker use flexible HCL configuration files to specify:
+- LLM model and parameters
+- MCP servers and tools  
+- System prompts
+- Multi-tenant settings (Slacker)
+
+**Example Configurations:**
+- [`marvin.example.hcl`](marvin.example.hcl) - CLI tool examples
+- [`marvin.slacker.example.hcl`](marvin.slacker.example.hcl) - Slack bot setup
+
+**Configuration Highlights:**
+- **Multiple MCP transports**: Local programs, Docker containers, HTTP servers
+- **Tool sharing**: Grant access to specific users or teams
+- **Security controls**: Admin approval workflows for sensitive tools
+- **Session persistence**: Maintain conversation history across restarts
 
 ---
 
@@ -59,26 +121,68 @@ For an example see [`marvin.example.yaml`](marvin.example.hcl).
 
 > Models: The prototype targets a small model by default (`ministral-3:3b`). Adjust locally if you prefer another model.
 
-## Install
-Marvin is a single binary and only requires access to Ollama.  Using MCP servers only require the exectuable to be 
-accessible in the Marvin runtime.
+## 📦 **Install**
 
-### Development
-
-Project layout (key parts):
-- `cmd/` – CLI entrypoint and command wiring
-- `internal/query/` – `query` command, Ollama chat invocation, basic tool-call surfacing
-
-Run from source:
-
+### **Option 1: Pre-built Binaries**
 ```bash
-go run ./cmd/marvin query "hello, world"
+# Download and extract
+curl -L https://github.com/meschbach/marvin/releases/latest/download/marvin_linux_amd64.tgz | tar xz
+curl -L https://github.com/meschbach/marvin/releases/latest/download/slacker_linux_amd64.tgz | tar xz
+
+# Make executable
+chmod +x marvin slacker
 ```
 
-Code style:
-- Go modules
-- `cobra` for commands
-- `github.com/ollama/ollama/api` for chat streaming and tool call hooks
+### **Option 2: Build from Source**
+```bash
+# Clone repository
+git clone https://github.com/meschbach/marvin.git
+cd marvin
+
+# Build both components
+go build -o marvin ./cmd/marvin
+go build -o slacker ./cmd/slacker
+```
+
+### **Option 3: Docker**
+```bash
+# Marvin CLI
+docker run --rm -it ghcr.io/meschbach/marvin:latest
+
+# Slacker (with volume for persistence)
+docker run --rm -v $(pwd)/config:/config \
+  -e SLACK_BOT_TOKEN=xoxb-your-token \
+  ghcr.io/meschbach/marvin/slacker:latest
+```
+
+### **Prerequisites**
+- **Ollama** running locally (for CLI) or accessible (for Slacker)
+- **Slack App** with Bot User OAuth Token (for Slacker)
+- **Go 1.25+** (when building from source)
+
+### **Project Structure**
+```
+marvin/
+├── cmd/                    # CLI entrypoints
+│   ├── marvin/            # Main CLI application
+│   └── slacker/           # Slack bot application
+├── internal/              # Core functionality
+│   ├── config/            # HCL configuration parsing
+│   ├── query/             # LLM interaction and MCP tools
+│   └── slacker/           # Multi-tenant Slack integration
+├── docs/                  # Comprehensive documentation
+├── examples/              # Configuration examples
+└── deploy/                # Kubernetes deployments
+```
+
+**Run from source:**
+```bash
+# CLI
+go run ./cmd/marvin query "hello, world"
+
+# Slacker  
+go run ./cmd/slacker --config marvin.slacker.example.hcl --passphrase "test"
+```
 
 ---
 
