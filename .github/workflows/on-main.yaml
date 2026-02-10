@@ -94,7 +94,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push migrator
+      - name: Build and push slacker
         uses: docker/build-push-action@v5
         with:
           context: .
