@@ -1,7 +1,7 @@
 .idea
 .marvin.hcl
-marvin
+/marvin
 .marvin
-slacker
+/slacker
 release/
 examples/mcp/meschbach/mcp-imap/mcp-imap

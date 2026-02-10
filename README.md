@@ -72,7 +72,7 @@ Project layout (key parts):
 Run from source:
 
 ```bash
-go run ./cmd query "hello, world"
+go run ./cmd/marvin query "hello, world"
 ```
 
 Code style:

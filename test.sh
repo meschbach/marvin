@@ -2,7 +2,7 @@
 
 set -e
 go test -count 1 ./internal/...
-go build -o marvin ./cmd
+go build -o marvin ./cmd/marvin
 go build -o slacker ./cmd/slacker
 
 echo "===="

@@ -16,10 +16,10 @@ Marvin is a Go-based agentic workflow CLI that connects AI reasoning loops to Mo
 ### Core Commands
 ```bash
 # Build the main binary
-go build -o marvin ./cmd
+go build -o marvin ./cmd/marvin
 
 # Run from source (development)
-go run ./cmd query "your query here"
+go run ./cmd/marvin query "your query here"
 
 # Run all unit tests
 go test -count 1 ./internal/...
@@ -39,7 +39,7 @@ go test -run TestLoadConfig_AllOptionsMultipleBlocks ./internal/config/
 ./release.sh
 
 # Manual cross-compilation example
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s -extldflags "-static"' -o marvin ./cmd
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-w -s -extldflags "-static"' -o marvin ./cmd/marvin
 ```
 
 ### Testing in CI

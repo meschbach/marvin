@@ -8,7 +8,7 @@ function compile() {
   local arch=$1 ; shift
   local os=$1 ; shift
   local output="release/${arch}_${os}/$name"
-  CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags='-w -s -extldflags "-static"' -o "$output" "./cmd"
+  CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -ldflags='-w -s -extldflags "-static"' -o "$output" "./cmd/marvin"
 }
 
 for arch in ${TARGET_ARCHS}
