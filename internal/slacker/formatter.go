@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"context"
 	"strings"
 
 	"github.com/slack-go/slack"
@@ -12,6 +13,14 @@ type SlackFormatter struct{}
 // NewSlackFormatter creates a new Slack formatter
 func NewSlackFormatter() *SlackFormatter {
 	return &SlackFormatter{}
+}
+
+// Format converts content to Slack blocks based on content type
+func (sf *SlackFormatter) Format(ctx context.Context, content string, contentType ContentType) ([]slack.Block, error) {
+	if contentType == ContentIgnore {
+		return nil, nil
+	}
+	return sf.ParseMessageToBlocks(content), nil
 }
 
 // ParseMessageToBlocks converts markdown message to Slack blocks with proper header handling

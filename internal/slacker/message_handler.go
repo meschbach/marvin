@@ -116,7 +116,7 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 	}
 
 	// Handle as a regular query
-	updater := NewSlackUpdater(mh.connection.client, ev.Channel, &oldFormatter{})
+	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter())
 	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, cleanMessage, updater)
 	return errors.Join(err, queryError)
 }

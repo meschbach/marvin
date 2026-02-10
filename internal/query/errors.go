@@ -117,7 +117,7 @@ type StreamingUpdateError struct {
 }
 
 func (e *StreamingUpdateError) Error() string {
-	return fmt.Sprintf("Streaming update failed (%s): %s", e.Component, e.Message)
+	return fmt.Sprintf("Streaming update failed (%s): %s because %s", e.Component, e.Message, e.Cause)
 }
 
 func (e *StreamingUpdateError) Unwrap() error {

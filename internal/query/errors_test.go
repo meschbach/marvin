@@ -167,7 +167,7 @@ func TestStreamingUpdateError(t *testing.T) {
 			Message:   "write failed",
 			Cause:     errors.New("broken pipe"),
 		}
-		assert.Equal(t, "Streaming update failed (CLIStreamingUpdater): write failed", err.Error())
+		assert.Equal(t, "Streaming update failed (CLIStreamingUpdater): write failed because broken pipe", err.Error())
 	})
 
 	t.Run("Unwrap returns cause", func(t *testing.T) {

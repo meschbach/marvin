@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,83 @@ func (d *DefaultTimeProvider) Now() time.Time {
 	return time.Now()
 }
 
+// Slack character limits
+const (
+	MaxSectionTextLength = 3000
+	MaxBlocksTotal       = 50
+	MaxPlainTextLength   = 4000
+)
+
+// truncateText cuts text to specified length with ellipsis if needed
+func truncateText(text string, maxLength int) string {
+	if len(text) <= maxLength {
+		return text
+	}
+
+	// Try to truncate at word boundary
+	truncated := text[:maxLength-3] // Leave room for "..."
+
+	// Find last space before cutoff
+	lastSpace := strings.LastIndex(truncated, " ")
+	if lastSpace > 0 {
+		truncated = truncated[:lastSpace]
+	}
+
+	return truncated + "..."
+}
+
+// enforceSlackLimits ensures blocks and content respect Slack's limits
+func enforceSlackLimits(blocks []slack.Block, message string) ([]slack.Block, string) {
+	// If we have many blocks, combine them into fewer blocks
+	if len(blocks) > MaxBlocksTotal {
+		// Combine all text content
+		var combinedText strings.Builder
+		for i, block := range blocks {
+			if i < MaxBlocksTotal-1 {
+				if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
+					combinedText.WriteString(section.Text.Text)
+					combinedText.WriteString("\n\n")
+				}
+			}
+		}
+
+		// Create single section block with combined content
+		combinedContent := truncateText(combinedText.String(), MaxSectionTextLength)
+		blocks = []slack.Block{
+			slack.NewSectionBlock(&slack.TextBlockObject{
+				Type: slack.PlainTextType,
+				Text: combinedContent,
+			}, nil, nil),
+		}
+	}
+
+	// Truncate section block text content
+	for i, block := range blocks {
+		if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
+			textObj := section.Text
+			var truncatedText string
+			if textObj.Type == slack.PlainTextType && len(textObj.Text) > MaxPlainTextLength {
+				truncatedText = truncateText(textObj.Text, MaxPlainTextLength)
+			} else if len(textObj.Text) > MaxSectionTextLength {
+				truncatedText = truncateText(textObj.Text, MaxSectionTextLength)
+			} else {
+				truncatedText = textObj.Text
+			}
+
+			// Create new section with truncated text
+			blocks[i] = slack.NewSectionBlock(&slack.TextBlockObject{
+				Type: textObj.Type,
+				Text: truncatedText,
+			}, nil, nil)
+		}
+	}
+
+	// Also truncate the fallback message text
+	truncatedMessage := truncateText(message, MaxPlainTextLength)
+
+	return blocks, truncatedMessage
+}
+
 // SlackUpdaterOption configures SlackUpdater behavior
 type SlackUpdaterOption func(*SlackUpdater)
 
@@ -87,29 +165,31 @@ func WithTimeProvider(timeProvider TimeProvider) SlackUpdaterOption {
 // SlackUpdater provides real-time progress updates for long-running AI operations in Slack.
 // It uses time-based buffering with automatic flushing on state transitions.
 type SlackUpdater struct {
-	client         SlackSink
-	channelID      string
-	messageTS      string
-	currentState   updaterState
-	buffer         strings.Builder
-	mutex          sync.Mutex
-	lastUpdateTime time.Time
-	lastWritten    string
-	formatter      ContentFormatter
-	timeProvider   TimeProvider
+	client                  SlackSink
+	channelID               string
+	messageTS               string
+	currentState            updaterState
+	buffer                  strings.Builder
+	mutex                   sync.Mutex
+	lastUpdateTime          time.Time
+	lastWritten             string
+	formatter               ContentFormatter
+	timeProvider            TimeProvider
+	formattingErrorNotified bool
 }
 
 // NewSlackUpdater creates an updater that provides visibility into AI operations.
 func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormatter, options ...SlackUpdaterOption) *SlackUpdater {
 	su := &SlackUpdater{
-		client:         client,
-		channelID:      channelID,
-		currentState:   updaterStateInit,
-		buffer:         strings.Builder{},
-		mutex:          sync.Mutex{},
-		lastUpdateTime: time.Time{},
-		formatter:      formatter,
-		timeProvider:   &DefaultTimeProvider{},
+		client:                  client,
+		channelID:               channelID,
+		currentState:            updaterStateInit,
+		buffer:                  strings.Builder{},
+		mutex:                   sync.Mutex{},
+		lastUpdateTime:          time.Time{},
+		formatter:               formatter,
+		timeProvider:            &DefaultTimeProvider{},
+		formattingErrorNotified: false,
 	}
 
 	// Apply options
@@ -125,6 +205,11 @@ func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormat
 func (su *SlackUpdater) switchToType(ctx context.Context, newState updaterState) (changed bool, err error) {
 	if su.currentState == newState {
 		return false, nil
+	}
+
+	// Reset notification flag for new conversation (init -> thinking transition)
+	if su.currentState == updaterStateInit && newState == updaterStateThinking {
+		su.formattingErrorNotified = false
 	}
 
 	// Post the current buffer immediately on type change
@@ -172,8 +257,34 @@ func (su *SlackUpdater) updateMessage(ctx context.Context) error {
 	// Parse message to blocks
 	blocks, err := su.formatter.Format(ctx, message, su.currentState.toContentType())
 	if err != nil {
-		return err
+		// Log formatting error at info level
+		log.Printf("[INFO] Formatting error for user %s: %v", su.channelID, err)
+
+		// Create fallback blocks with optional notification
+		var fallbackBlocks []slack.Block
+
+		// Show notification only once per conversation
+		if !su.formattingErrorNotified {
+			notificationBlock := slack.NewSectionBlock(&slack.TextBlockObject{
+				Type: slack.MarkdownType,
+				Text: "⚠️ Formatting simplified",
+			}, nil, nil)
+			fallbackBlocks = append(fallbackBlocks, notificationBlock)
+			su.formattingErrorNotified = true
+		}
+
+		// Add content as plain text
+		contentBlock := slack.NewSectionBlock(&slack.TextBlockObject{
+			Type: slack.PlainTextType,
+			Text: message,
+		}, nil, nil)
+		fallbackBlocks = append(fallbackBlocks, contentBlock)
+
+		blocks = fallbackBlocks
 	}
+
+	// Enforce Slack character limits on both blocks and message
+	blocks, truncatedMessage := enforceSlackLimits(blocks, message)
 
 	if su.messageTS == "" {
 		// Post new message
@@ -181,7 +292,27 @@ func (su *SlackUpdater) updateMessage(ctx context.Context) error {
 			ctx,
 			su.channelID,
 			slack.MsgOptionBlocks(blocks...),
+			slack.MsgOptionText(truncatedMessage, true),
 		)
+		if err != nil {
+			// Handle invalid_blocks errors with fallback to plain text
+			if strings.Contains(err.Error(), "invalid_blocks") {
+				log.Printf("[INFO] Slack API invalid_blocks error for user %s: %v", su.channelID, err)
+				_, ts, fallbackErr := su.client.PostMessageContext(
+					ctx,
+					su.channelID,
+					slack.MsgOptionText(truncatedMessage, true),
+				)
+				if fallbackErr != nil {
+					log.Printf("[INFO] Fallback plain text message also failed for user %s: %v", su.channelID, fallbackErr)
+					return fallbackErr
+				}
+				su.messageTS = ts
+				su.lastWritten = message
+				return nil // Successfully sent as plain text
+			}
+			return err // Return other types of errors
+		}
 		su.lastWritten = message
 	} else {
 		if su.lastWritten == message {
@@ -194,9 +325,28 @@ func (su *SlackUpdater) updateMessage(ctx context.Context) error {
 			su.messageTS,
 			slack.MsgOptionBlocks(blocks...),
 		)
+		if err != nil {
+			// Handle invalid_blocks errors with fallback to plain text
+			if strings.Contains(err.Error(), "invalid_blocks") {
+				log.Printf("[INFO] Slack API invalid_blocks error for user %s: %v", su.channelID, err)
+				_, _, _, fallbackErr := su.client.UpdateMessageContext(
+					ctx,
+					su.channelID,
+					su.messageTS,
+					slack.MsgOptionText(truncatedMessage, true),
+				)
+				if fallbackErr != nil {
+					log.Printf("[INFO] Fallback plain text update also failed for user %s: %v", su.channelID, fallbackErr)
+					return fallbackErr
+				}
+				su.lastWritten = message
+				return nil // Successfully updated as plain text
+			}
+			return err // Return other types of errors
+		}
 	}
 
-	return err
+	return nil
 }
 
 // AddContent adds content and transitions to content state if needed
@@ -269,16 +419,4 @@ func (su *SlackUpdater) getBufferContent() (string, string) {
 	}
 
 	return contentContent, thinkingContent
-}
-
-type oldFormatter struct {
-}
-
-func (o *oldFormatter) Format(ctx context.Context, content string, contentType ContentType) ([]slack.Block, error) {
-	if contentType == ContentIgnore {
-		return nil, nil
-	}
-
-	p := NewSlackParser()
-	return p.ParseMessageToBlocks(content), nil
 }
