@@ -88,7 +88,7 @@ func (r reasoningStep) invoke(ctx context.Context, call api.ToolCall) (out []api
 	fmt.Printf("invoked reasoning step with %s\n", call.Function.Arguments.String())
 	return []api.Message{
 		{
-			Role:       "tool_result",
+			Role:       RoleToolResult,
 			Content:    call.Function.Arguments.String(),
 			ToolName:   call.Function.Name,
 			ToolCallID: call.ID,
