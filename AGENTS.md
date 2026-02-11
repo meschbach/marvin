@@ -222,3 +222,15 @@ When files exceed size targets:
 - Validate all external program inputs
 - Use proper error channels for user feedback
 - Tokens and credentials should be handled via environment variables or secure config
+
+### Documentation Guidelines
+- **Update both README.md and docs/** - When adding features or making significant changes, update documentation in both locations
+- **README.md** - High-level overview, quick start, and usage examples
+- **docs/** - Comprehensive documentation organized by topic:
+  - `docs/configuration/` - Detailed configuration reference
+  - `docs/deployment/` - Production deployment guides
+  - `docs/development/` - Development and testing documentation
+  - `docs/integrations/` - Integration guides with other systems
+  - `docs/slacker/` - Slack-specific documentation
+- **Keep documentation in sync** - Ensure consistency between README.md and docs/ content
+- **Use appropriate specificity** - README.md for quick reference, docs/ for detailed explanations
