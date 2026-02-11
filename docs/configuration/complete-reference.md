@@ -229,6 +229,24 @@ MARVIN_CONFIG=/path/to/marvin.hcl
 MARVIN_LOG_LEVEL=info
 ```
 
+#### Configuration Precedence
+
+Marvin determines the configuration file location using the following priority order:
+
+1. **CLI Flag**: `-c` or `--config` flag (highest priority)
+2. **Environment Variable**: `MARVIN_CONFIG` environment variable
+3. **Default**: `.marvin.hcl` in the current directory (lowest priority)
+
+Example:
+```bash
+# Environment variable is used when no CLI flag provided
+export MARVIN_CONFIG=/etc/marvin/production.hcl
+marvin query "test"
+
+# CLI flag overrides environment variable
+marvin -c /tmp/debug.hcl query "test"
+```
+
 ### Docker Environment
 ```bash
 # Container settings

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
@@ -247,4 +248,55 @@ mcp_over_http "weather_api" "http://weather-api:8080" {
 		assert.Equal(t, "Use this weather API for current conditions, forecasts, and historical data.", hm.AssistantPrompt.FromString)
 		assert.Empty(t, hm.AssistantPrompt.FromFile)
 	}
+}
+
+func TestCommandLineOptions_NewWithEnvVar(t *testing.T) {
+	// Test without env var
+	t.Setenv("MARVIN_CONFIG", "")
+	opts := NewCommandLineOptions()
+	assert.Equal(t, ".marvin.hcl", opts.ConfigFile)
+
+	// Test with env var set
+	t.Setenv("MARVIN_CONFIG", "/custom/config.hcl")
+	opts = NewCommandLineOptions()
+	assert.Equal(t, "/custom/config.hcl", opts.ConfigFile)
+}
+
+func TestCommandLineOptions_LoadPriority(t *testing.T) {
+	hcl := `
+local_program "test" {
+  program = "/bin/test"
+}
+`
+
+	// Create a temporary config file
+	tmpFile := t.TempDir() + "/test.hcl"
+	err := os.WriteFile(tmpFile, []byte(hcl), 0644)
+	require.NoError(t, err)
+
+	// Test 1: Environment variable is used when creating options
+	t.Setenv("MARVIN_CONFIG", tmpFile)
+	opts := NewCommandLineOptions()
+	cfg, err := opts.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Len(t, cfg.LocalPrograms, 1)
+
+	// Test 2: CLI flag override happens when user manually sets ConfigFile
+	// (Cobra would do this when -c flag is used)
+	t.Setenv("MARVIN_CONFIG", "/nonexistent.hcl")
+	opts = NewCommandLineOptions()
+	opts.ConfigFile = tmpFile // Simulate CLI flag being set by Cobra
+	cfg, err = opts.Load()
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	assert.Len(t, cfg.LocalPrograms, 1)
+}
+
+func TestCommandLineOptions_LoadWithEnvVarError(t *testing.T) {
+	// Test error when env var points to non-existent file
+	t.Setenv("MARVIN_CONFIG", "/nonexistent/config.hcl")
+	opts := NewCommandLineOptions()
+	_, err := opts.Load()
+	assert.Error(t, err)
 }

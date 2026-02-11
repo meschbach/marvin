@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -15,8 +16,12 @@ type CommandLineOptions struct {
 }
 
 func NewCommandLineOptions() *CommandLineOptions {
+	configFile := ".marvin.hcl"
+	if envConfig := os.Getenv("MARVIN_CONFIG"); envConfig != "" {
+		configFile = envConfig
+	}
 	return &CommandLineOptions{
-		ConfigFile: ".marvin.hcl",
+		ConfigFile: configFile,
 	}
 }
 
