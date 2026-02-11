@@ -28,6 +28,9 @@ type CLIStreamingUpdater struct {
 	// showDone determines if completion messages should be displayed
 	showDone bool
 
+	// thinkingFormat determines how thinking content is formatted
+	thinkingFormat string
+
 	// Statistics tracking (cumulative across the entire conversation)
 	promptTokens   int
 	responseTokens int
@@ -38,17 +41,18 @@ type CLIStreamingUpdater struct {
 //
 // Example:
 //
-//	updater := NewCLIStreamingUpdater(true, false, true)
+//	updater := NewCLIStreamingUpdater(true, false, true, "markdown")
 //	engine := NewConversationEngine(client, config, logger, tools, messages)
 //	err := engine.RunConversation(ctx, model, updater)
 //
 // The updater will display thinking, tool calls, and final statistics
-// according to the enabled debug flags.
-func NewCLIStreamingUpdater(showThinking, showTools, showDone bool) *CLIStreamingUpdater {
+// according to the enabled debug flags and thinking format.
+func NewCLIStreamingUpdater(showThinking, showTools, showDone bool, thinkingFormat string) *CLIStreamingUpdater {
 	return &CLIStreamingUpdater{
-		showThinking: showThinking,
-		showTools:    showTools,
-		showDone:     showDone,
+		showThinking:   showThinking,
+		showTools:      showTools,
+		showDone:       showDone,
+		thinkingFormat: thinkingFormat,
 	}
 }
 
@@ -60,7 +64,19 @@ func (c *CLIStreamingUpdater) AddContent(ctx context.Context, content string) er
 
 // AddThought streams thinking content if debug mode is enabled
 func (c *CLIStreamingUpdater) AddThought(ctx context.Context, thought string) error {
-	if c.showThinking {
+	if !c.showThinking {
+		return nil
+	}
+
+	switch c.thinkingFormat {
+	case "markdown":
+		// Simple markdown formatting - just add a header
+		fmt.Printf("## 🤔 Thinking\n%s", thought)
+	case "collapsed":
+		// Collapsed format - brief prefix
+		fmt.Printf("🤔 Thinking: %s", thought)
+	default: // "plain"
+		// Plain format - existing behavior
 		fmt.Printf("Thinking: %s", thought)
 	}
 	return nil

@@ -71,6 +71,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 		toolManager,
 		sessionManager,
 		logger,
+		&config.File{}, // Empty config for testing
 	)
 
 	t.Run("DirectMessageFlow", func(t *testing.T) {
@@ -213,6 +214,7 @@ func TestEventRouter_Integration(t *testing.T) {
 		toolManager,
 		sessionManager,
 		logger,
+		&config.File{}, // Empty config for testing
 	)
 
 	// Critical path test cases that users commonly experience

@@ -59,6 +59,7 @@ func NewSlackBot(
 		toolManager,
 		sessionManager,
 		securityLogger,
+		config,
 	)
 
 	// Create event router

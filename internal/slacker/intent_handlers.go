@@ -202,3 +202,109 @@ func generateNameFromImage(image string) string {
 
 	return "docker-tool"
 }
+
+// HandlePreferenceIntent processes preference management commands
+func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *SessionManager, userID string) (string, error) {
+	// Get current preferences
+	currentPrefs, hasPrefs := sessionManager.GetPreferences(userID)
+	if !hasPrefs {
+		currentPrefs = DefaultUserPreferences()
+	}
+
+	// Create updated preferences based on intent
+	updatedPrefs := currentPrefs
+	var responseMessage string
+
+	switch intent.Action {
+	case "toggle_thinking":
+		configStr, ok := intent.Config.(string)
+		if !ok {
+			return "🤖 Invalid option specified.", nil
+		}
+		if configStr == "on" {
+			updatedPrefs.ShowThinking = true
+			responseMessage = "🤖 Thinking display enabled. Use `/marvin thinking off` to disable."
+		} else if configStr == "off" {
+			updatedPrefs.ShowThinking = false
+			responseMessage = "🤖 Thinking display disabled. Use `/marvin thinking on` to re-enable."
+		} else {
+			return "🤖 Please specify `on` or `off` for thinking display.", nil
+		}
+
+	case "set_thinking_format":
+		configStr, ok := intent.Config.(string)
+		if !ok {
+			return "🤖 Invalid format specified.", nil
+		}
+		if configStr == "plain" || configStr == "markdown" || configStr == "collapsed" {
+			updatedPrefs.ThinkingFormat = configStr
+			responseMessage = fmt.Sprintf("🤖 Thinking format set to %s.", configStr)
+		} else {
+			return "🤖 Please specify a valid format: `plain`, `markdown`, or `collapsed`.", nil
+		}
+
+	case "toggle_tools":
+		configStr, ok := intent.Config.(string)
+		if !ok {
+			return "🔧 Invalid option specified.", nil
+		}
+		if configStr == "on" {
+			updatedPrefs.ShowTools = true
+			responseMessage = "🔧 Tool display enabled. Use `/marvin tools off` to disable."
+		} else if configStr == "off" {
+			updatedPrefs.ShowTools = false
+			responseMessage = "🔧 Tool display disabled. Use `/marvin tools on` to re-enable."
+		} else {
+			return "🔧 Please specify `on` or `off` for tool display.", nil
+		}
+
+	case "toggle_done":
+		configStr, ok := intent.Config.(string)
+		if !ok {
+			return "✅ Invalid option specified.", nil
+		}
+		if configStr == "on" {
+			updatedPrefs.ShowDone = true
+			responseMessage = "✅ Completion messages enabled. Use `/marvin done off` to disable."
+		} else if configStr == "off" {
+			updatedPrefs.ShowDone = false
+			responseMessage = "✅ Completion messages disabled. Use `/marvin done on` to re-enable."
+		} else {
+			return "✅ Please specify `on` or `off` for completion messages.", nil
+		}
+
+	case "toggle_verbose":
+		configStr, ok := intent.Config.(string)
+		if !ok {
+			return "🔍 Invalid option specified.", nil
+		}
+		if configStr == "on" {
+			updatedPrefs.Verbose = true
+			responseMessage = "🔍 Verbose mode enabled. Use `/marvin verbose off` to disable."
+		} else if configStr == "off" {
+			updatedPrefs.Verbose = false
+			responseMessage = "🔍 Verbose mode disabled. Use `/marvin verbose on` to re-enable."
+		} else {
+			return "🔍 Please specify `on` or `off` for verbose mode.", nil
+		}
+
+	case "show_preferences":
+		return fmt.Sprintf("🤖 Current preferences:\n• Thinking: %t\n• Tools: %t\n• Done messages: %t\n• Thinking format: %s\n• Tool format: %s\n• Verbose: %t\n\n• Use `/marvin thinking on/off` to toggle thinking\n• Use `/marvin thinking format [plain|markdown|collapsed]` to set format\n• Use `/marvin tools on/off` to toggle tool display\n• Use `/marvin done on/off` to toggle completion messages\n• Use `/marvin verbose on/off` to toggle verbose mode",
+			currentPrefs.ShowThinking,
+			currentPrefs.ShowTools,
+			currentPrefs.ShowDone,
+			currentPrefs.ThinkingFormat,
+			currentPrefs.ToolFormat,
+			currentPrefs.Verbose), nil
+
+	default:
+		return "", fmt.Errorf("unknown preference action: %s", intent.Action)
+	}
+
+	// Actually persist the changes
+	if err := sessionManager.UpdatePreferences(userID, updatedPrefs); err != nil {
+		return "", fmt.Errorf("failed to update preferences: %w", err)
+	}
+
+	return responseMessage, nil
+}

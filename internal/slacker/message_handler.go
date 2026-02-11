@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
+	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 )
 
@@ -29,6 +31,7 @@ type MessageHandler struct {
 	toolManager     *ToolManagerImpl
 	sessionManager  *SessionManager
 	securityLogger  *sec.SecurityLogger
+	config          *config.File
 }
 
 // NewMessageHandler creates a new message handler
@@ -39,6 +42,7 @@ func NewMessageHandler(
 	toolManager *ToolManagerImpl,
 	sessionManager *SessionManager,
 	securityLogger *sec.SecurityLogger,
+	config *config.File,
 ) *MessageHandler {
 	return &MessageHandler{
 		intentProcessor: intentProcessor,
@@ -47,6 +51,7 @@ func NewMessageHandler(
 		toolManager:     toolManager,
 		sessionManager:  sessionManager,
 		securityLogger:  securityLogger,
+		config:          config,
 	}
 }
 
@@ -111,14 +116,40 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 	}
 
 	if intent != nil && intent.Confidence >= 0.7 {
+		// Check if this is a preference management intent
+		if strings.Contains(intent.Action, "thinking") || strings.Contains(intent.Action, "tools") ||
+			strings.Contains(intent.Action, "done") || strings.Contains(intent.Action, "verbose") ||
+			intent.Action == "show_preferences" {
+			return mh.handlePreferenceIntent(ctx, slackCtx, session, intent)
+		}
+
 		// Handle tool management request
 		return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
 	}
 
 	// Handle as a regular query
-	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter())
+	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
+	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
 	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, cleanMessage, updater)
 	return errors.Join(err, queryError)
+}
+
+// handlePreferenceIntent processes preference management commands
+func (mh *MessageHandler) handlePreferenceIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
+	// Process the intent and get response message
+	response, err := HandlePreferenceIntent(intent, mh.sessionManager, session.UserID)
+	if err != nil {
+		mh.securityLogger.LogError(slackCtx.UserID, "PreferenceIntent", err.Error())
+		response = "❌ Error processing preference command. Please try again."
+	}
+
+	// Send response to user
+	_, _, err = mh.connection.client.PostMessageContext(
+		ctx,
+		slackCtx.ChannelID,
+		slack.MsgOptionText(response, true),
+	)
+	return err
 }
 
 // LogSessionEvent logs a session event

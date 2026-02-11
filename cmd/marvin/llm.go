@@ -38,6 +38,7 @@ func queryCommand(global *globalOptions) *cobra.Command {
 	pflags.BoolVarP(&queryOpts.ShowTools, "show-tools", "s", false, "Show tools available and usage")
 	pflags.BoolVarP(&queryOpts.DumpTooling, "dump-tools", "d", false, "Dumps the available tools to the LLM")
 	pflags.BoolVarP(&queryOpts.ShowDone, "show-done", "e", false, "Show the Done command issued by the LLM")
+	pflags.StringVar(&queryOpts.ThinkingFormat, "thinking-format", "", "Thinking display format (plain, markdown, collapsed)")
 	return cmd
 }
 

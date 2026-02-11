@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/ollama/ollama/api"
 )
@@ -51,15 +52,7 @@ func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userConte
 	}
 
 	// Create new session
-	newSession := &UserSession{
-		UserID:         userID,
-		ChannelID:      channelID,
-		LastActivity:   time.Now(),
-		Messages:       []api.Message{},
-		AvailableTools: []string{},
-		ToolNamespace:  fmt.Sprintf("user-%s", userID),
-		UserContext:    userContext,
-	}
+	newSession := NewUserSession(userID, channelID, userContext)
 
 	// Store session
 	sm.sessions.Store(sessionKey, newSession)
@@ -130,6 +123,81 @@ func (sm *SessionManager) UpdateAvailableTools(userID, channelID string, tools [
 	userSession.LastActivity = time.Now()
 
 	return sm.saveSession(userSession)
+}
+
+// GetPreferences returns a user's preferences from any of their sessions
+func (sm *SessionManager) GetPreferences(userID string) (UserPreferences, bool) {
+	var foundPrefs UserPreferences
+	found := false
+
+	// Look through all sessions for this user to find their preferences
+	sm.sessions.Range(func(key, value interface{}) bool {
+		userSession := value.(*UserSession)
+		if userSession.UserID == userID {
+			foundPrefs = userSession.Preferences
+			found = true
+			return false // Found what we need, stop iteration
+		}
+		return true
+	})
+
+	return foundPrefs, found
+}
+
+// UpdatePreferences updates a user's preferences across all their sessions
+func (sm *SessionManager) UpdatePreferences(userID string, preferences UserPreferences) error {
+	var updateErrors []error
+
+	// Update preferences in all sessions for this user
+	sm.sessions.Range(func(key, value interface{}) bool {
+		userSession := value.(*UserSession)
+		if userSession.UserID == userID {
+			userSession.SetPreferences(preferences)
+			if err := sm.saveSession(userSession); err != nil {
+				updateErrors = append(updateErrors, err)
+			}
+		}
+		return true
+	})
+
+	if len(updateErrors) > 0 {
+		return fmt.Errorf("failed to update some sessions: %v", updateErrors)
+	}
+
+	return nil
+}
+
+// ResolveUserPreferences resolves preferences in hierarchy: user session > HCL config > defaults
+func (sm *SessionManager) ResolveUserPreferences(userID string, config *config.File) UserPreferences {
+	// Start with default preferences
+	resolvedPrefs := DefaultUserPreferences()
+
+	// 1. Apply HCL configuration defaults for unset preferences
+	if config != nil {
+		// Only override defaults if user doesn't have explicit preferences set
+		userPrefs, hasUserPrefs := sm.GetPreferences(userID)
+
+		if !hasUserPrefs {
+			// No user preferences, use HCL config as primary
+			resolvedPrefs.ShowThinking = config.ShowThinking()
+			resolvedPrefs.ShowTools = config.ShowTools()
+			resolvedPrefs.ShowDone = config.ShowDone()
+			resolvedPrefs.ThinkingFormat = config.ThinkingFormat()
+			resolvedPrefs.ToolFormat = config.ToolFormat()
+			resolvedPrefs.Verbose = config.Verbose()
+		} else {
+			// User has preferences, they take priority over HCL config
+			resolvedPrefs = userPrefs
+		}
+	} else {
+		// No config provided, try to get user preferences
+		userPrefs, hasUserPrefs := sm.GetPreferences(userID)
+		if hasUserPrefs {
+			resolvedPrefs = userPrefs
+		}
+	}
+
+	return resolvedPrefs
 }
 
 // ListSessions returns all active sessions

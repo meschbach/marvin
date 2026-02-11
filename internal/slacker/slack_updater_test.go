@@ -18,7 +18,8 @@ func testContext() context.Context {
 
 func TestSlackUpdater_BasicOperations(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Test basic operations with timeout
 	done := make(chan error, 1)
@@ -66,7 +67,8 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 
 func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Test concurrent access with timeout
 	done := make(chan error, 1)
@@ -104,7 +106,8 @@ func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 
 func TestSlackUpdater_StateTransitions(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 	ctx := testContext()
 
 	// Initially no messages
@@ -125,7 +128,8 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 
 func TestSlackUpdater_ToolCalls(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add tool call
 	ctx := testContext()
@@ -147,7 +151,8 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 
 func TestSlackUpdater_ToolResults(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	ctx := testContext()
 	toolCall := api.ToolCall{
@@ -173,7 +178,8 @@ func TestSlackUpdater_ToolResults(t *testing.T) {
 
 func TestSlackUpdater_Complete(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add some content and complete
 	ctx := testContext()
@@ -185,7 +191,8 @@ func TestSlackUpdater_Complete(t *testing.T) {
 
 func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add content and force update (for backward compatibility)
 	ctx := testContext()
@@ -197,7 +204,8 @@ func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 
 func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add thinking content
 	ctx := testContext()
@@ -217,7 +225,8 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 	captureFormatter := newCaptureFormatter(nil)
 	client := &MockSlackSink{}
 	timer := &MockTimeProvider{CurrentTime: time.Now()}
-	updater := NewSlackUpdater(client, "test-channel", captureFormatter, WithTimeProvider(timer))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", captureFormatter, preferences, WithTimeProvider(timer))
 
 	// Start with thinking
 	ctx := testContext()
@@ -251,7 +260,8 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 
 func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add content in thinking state
 	ctx := testContext()
@@ -278,7 +288,8 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 
 func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add final content and complete
 	ctx := testContext()
@@ -296,7 +307,8 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 
 func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// User scenario: thinking first, then content
 	ctx := testContext()
@@ -332,7 +344,8 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 
 func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 	client := &MockSlackSink{}
-	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Simulate real scenario: thinking -> content -> ForceUpdate
 	ctx := testContext()

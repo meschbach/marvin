@@ -10,7 +10,7 @@ import (
 )
 
 func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
-	updater := NewCLIStreamingUpdater(true, true, true)
+	updater := NewCLIStreamingUpdater(true, true, true, "plain")
 	ctx := context.Background()
 
 	// Test AddContent
@@ -58,8 +58,31 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCLIStreamingUpdater_ThinkingFormats(t *testing.T) {
+	tests := []struct {
+		name           string
+		thinkingFormat string
+		expectedPrefix string
+	}{
+		{"plain format", "plain", "Thinking: "},
+		{"markdown format", "markdown", "## 🤔 Thinking\n"},
+		{"collapsed format", "collapsed", "🤔 Thinking: "},
+		{"default format", "", "Thinking: "}, // defaults to plain
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			updater := NewCLIStreamingUpdater(true, false, false, tt.thinkingFormat)
+			ctx := context.Background()
+
+			err := updater.AddThought(ctx, "test thinking")
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestCLIStreamingUpdater_StatisticsTracking(t *testing.T) {
-	updater := NewCLIStreamingUpdater(false, false, false)
+	updater := NewCLIStreamingUpdater(false, false, false, "plain")
 	ctx := context.Background()
 
 	// Initial state

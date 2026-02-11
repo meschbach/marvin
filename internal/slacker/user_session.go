@@ -8,6 +8,28 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+// UserPreferences represents a user's display preferences
+type UserPreferences struct {
+	ShowThinking   bool   `json:"show_thinking"`
+	ShowTools      bool   `json:"show_tools"`
+	ShowDone       bool   `json:"show_done"`
+	ThinkingFormat string `json:"thinking_format"`
+	ToolFormat     string `json:"tool_format"`
+	Verbose        bool   `json:"verbose"`
+}
+
+// DefaultUserPreferences returns default preferences for new users
+func DefaultUserPreferences() UserPreferences {
+	return UserPreferences{
+		ShowThinking:   false,      // default: disabled for reduced noise
+		ShowTools:      true,       // default: enabled
+		ShowDone:       true,       // default: enabled
+		ThinkingFormat: "plain",    // default: plain text
+		ToolFormat:     "detailed", // default: detailed format
+		Verbose:        false,      // default: disabled
+	}
+}
+
 // UserSession represents a user's conversation session
 type UserSession struct {
 	UserID         string             `json:"user_id"`
@@ -17,6 +39,7 @@ type UserSession struct {
 	Messages       []api.Message      `json:"messages"`
 	AvailableTools []string           `json:"available_tools"`
 	ToolNamespace  string             `json:"tool_namespace"`
+	Preferences    UserPreferences    `json:"preferences"`
 	UserContext    *query.UserContext `json:"-"` // Not serialized
 }
 
@@ -29,6 +52,21 @@ func NewUserSession(userID, channelID string, userContext *query.UserContext) *U
 		Messages:       []api.Message{},
 		AvailableTools: []string{},
 		ToolNamespace:  fmt.Sprintf("user-%s", userID),
+		Preferences:    DefaultUserPreferences(),
+		UserContext:    userContext,
+	}
+}
+
+// NewUserSessionWithPreferences creates a new user session with custom preferences
+func NewUserSessionWithPreferences(userID, channelID string, userContext *query.UserContext, preferences UserPreferences) *UserSession {
+	return &UserSession{
+		UserID:         userID,
+		ChannelID:      channelID,
+		LastActivity:   time.Now(),
+		Messages:       []api.Message{},
+		AvailableTools: []string{},
+		ToolNamespace:  fmt.Sprintf("user-%s", userID),
+		Preferences:    preferences,
 		UserContext:    userContext,
 	}
 }
@@ -94,4 +132,36 @@ func (us *UserSession) IsExpired(maxAge time.Duration) bool {
 // ClearMessages clears all messages from the session
 func (us *UserSession) ClearMessages() {
 	us.Messages = []api.Message{}
+}
+
+// GetPreferences returns the user's current preferences
+func (us *UserSession) GetPreferences() UserPreferences {
+	return us.Preferences
+}
+
+// SetPreferences updates the user's preferences
+func (us *UserSession) SetPreferences(preferences UserPreferences) {
+	us.Preferences = preferences
+}
+
+// UpdatePreferences updates specific preference fields
+func (us *UserSession) UpdatePreferences(updates map[string]interface{}) {
+	if showThinking, ok := updates["show_thinking"].(bool); ok {
+		us.Preferences.ShowThinking = showThinking
+	}
+	if showTools, ok := updates["show_tools"].(bool); ok {
+		us.Preferences.ShowTools = showTools
+	}
+	if showDone, ok := updates["show_done"].(bool); ok {
+		us.Preferences.ShowDone = showDone
+	}
+	if thinkingFormat, ok := updates["thinking_format"].(string); ok {
+		us.Preferences.ThinkingFormat = thinkingFormat
+	}
+	if toolFormat, ok := updates["tool_format"].(string); ok {
+		us.Preferences.ToolFormat = toolFormat
+	}
+	if verbose, ok := updates["verbose"].(bool); ok {
+		us.Preferences.Verbose = verbose
+	}
 }

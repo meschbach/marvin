@@ -13,16 +13,37 @@ type ChatOptions struct {
 	Verbose bool
 	//ShowTools will print out tool utilization and integration
 	ShowTools bool
-	//DumpTooling will print out the tooling available
+	//DumpTooling will print out tooling available
 	DumpTooling bool
-	//ShowThinking will print out the thinking process
+	//ShowThinking will print out thinking process
 	ShowThinking bool
 	//ShowDone will print out when the LLM issues a "Done" command
 	ShowDone bool
+	//ThinkingFormat determines how thinking content is formatted
+	ThinkingFormat string
 }
 
 // PerformWithConfig executes the search using the optional parsed configuration.
 func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) {
+	// Apply configuration defaults if CLI flags not set
+	if cfg != nil {
+		if !opts.ShowThinking && cfg.ShowThinking() {
+			opts.ShowThinking = true
+		}
+		if !opts.ShowTools && cfg.ShowTools() {
+			opts.ShowTools = true
+		}
+		if !opts.ShowDone && cfg.ShowDone() {
+			opts.ShowDone = true
+		}
+		if !opts.Verbose && cfg.Verbose() {
+			opts.Verbose = true
+		}
+		if opts.ThinkingFormat == "" {
+			opts.ThinkingFormat = cfg.ThinkingFormat()
+		}
+	}
+
 	if opts.Verbose {
 		fmt.Printf("user search:\t%s\n", actualQuery)
 	}
@@ -96,7 +117,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 
 	// Create the new conversation engine
 	ollamaLLM := NewOllamaLLM(client)
-	updater := NewCLIStreamingUpdater(opts.ShowThinking, opts.ShowTools, opts.ShowDone)
+	updater := NewCLIStreamingUpdater(opts.ShowThinking, opts.ShowTools, opts.ShowDone, opts.ThinkingFormat)
 
 	var logger Logger
 	if opts.Verbose {

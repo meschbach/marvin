@@ -37,6 +37,27 @@ within knowledge bases.
 EOS
 }
 
+# Display preferences for output formatting
+display {
+  # Whether to show AI thinking process (default: false)
+  show_thinking = true
+  
+  # Format for displaying thinking content: "plain", "markdown", or "collapsed" (default: "plain")
+  thinking_format = "markdown"
+  
+  # Whether to show tool invocation details (default: true)
+  show_tools = true
+  
+  # Format for displaying tool details: "simple" or "detailed" (default: "detailed")
+  tool_format = "detailed"
+  
+  # Whether to show completion messages (default: true)
+  show_done = true
+  
+  # Whether to enable verbose debugging output (default: false)
+  verbose = false
+}
+
 local_program "gitea" {
   program = "/opt/homebrew/bin/gitea-mcp-server"
   args = ["-host", "https://gitea.example.com", "-read-only","-token", "<some token>"]

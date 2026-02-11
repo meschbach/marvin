@@ -176,10 +176,11 @@ type SlackUpdater struct {
 	formatter               ContentFormatter
 	timeProvider            TimeProvider
 	formattingErrorNotified bool
+	preferences             UserPreferences
 }
 
 // NewSlackUpdater creates an updater that provides visibility into AI operations.
-func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormatter, options ...SlackUpdaterOption) *SlackUpdater {
+func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormatter, preferences UserPreferences, options ...SlackUpdaterOption) *SlackUpdater {
 	su := &SlackUpdater{
 		client:                  client,
 		channelID:               channelID,
@@ -190,6 +191,7 @@ func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormat
 		formatter:               formatter,
 		timeProvider:            &DefaultTimeProvider{},
 		formattingErrorNotified: false,
+		preferences:             preferences,
 	}
 
 	// Apply options
@@ -233,6 +235,19 @@ func (su *SlackUpdater) addContentInternal(
 
 	// Switch content type if needed (posts previous buffer immediately)
 	changed, switchErr := su.switchToType(ctx, targetState)
+
+	// For thinking content, apply formatting based on user preference
+	if targetState == updaterStateThinking {
+		switch su.preferences.ThinkingFormat {
+		case "markdown":
+			content = fmt.Sprintf("## 🤔 Thinking\n%s", content)
+		case "collapsed":
+			content = fmt.Sprintf("🤔 Thinking: %s", content)
+		default: // "plain"
+			content = fmt.Sprintf("Thinking: %s", content)
+		}
+	}
+
 	su.buffer.WriteString(content)
 
 	// Check time-based update condition: same type AND >1 second since last update
@@ -356,11 +371,21 @@ func (su *SlackUpdater) AddContent(ctx context.Context, content string) error {
 
 // AddThought adds thinking content and transitions to thinking state if needed
 func (su *SlackUpdater) AddThought(ctx context.Context, thought string) error {
+	// Check user preference - always capture internally for metrics, only display if enabled
+	if !su.preferences.ShowThinking {
+		return nil // Don't display, but thinking is captured elsewhere for metrics
+	}
+
 	return su.addContentInternal(ctx, thought, updaterStateThinking)
 }
 
 // AddToolCall records a tool call and treats it as regular content
 func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+	// Check user preference - always capture internally for metrics
+	if !su.preferences.ShowTools {
+		return nil // Don't display, but tool calls are captured elsewhere for metrics
+	}
+
 	// Tool calls now treated as regular content with thinking-style formatting
 	toolContent := fmt.Sprintf("🔧 Used tool: `%s`", toolCall.Function.Name)
 	return su.addContentInternal(ctx, toolContent, updaterStateTool)
@@ -368,6 +393,11 @@ func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) 
 
 // AddToolResult records a tool execution result
 func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+	// Check user preference - always capture internally for metrics
+	if !su.preferences.ShowTools {
+		return nil // Don't display, but tool results are captured elsewhere for metrics
+	}
+
 	var resultContent string
 	if err != nil {
 		resultContent = fmt.Sprintf("❌ Tool `%s` failed: %v", toolCall.Function.Name, err)

@@ -111,6 +111,99 @@ Both Marvin CLI and Slacker use flexible HCL configuration files to specify:
 
 ---
 
+## 🎨 **Display Preferences**
+
+Both Marvin CLI and Slacker support configurable display preferences to control how responses are formatted.
+
+### **CLI Display Flags**
+
+Control output formatting directly from the command line:
+
+```bash
+# Show AI thinking process
+marvin query "Explain quantum computing" --show-thinking
+
+# Set thinking format (plain, markdown, collapsed)
+marvin query "Help me debug this" --thinking-format markdown
+
+# Show/hide tool invocation details
+marvin query "Analyze this data" --show-tools
+marvin query "Quick summary" --hide-tools
+
+# Enable/disable completion messages
+marvin query "Generate report" --show-done
+marvin query "Simple answer" --hide-done
+
+# Enable verbose debugging
+marvin query "Debug this issue" --verbose
+```
+
+### **Slack Commands**
+
+Manage your preferences in Slack using natural language:
+
+```bash
+# Control thinking display
+@marvin thinking on           # Enable AI thinking process
+@marvin thinking off          # Disable AI thinking process
+@marvin thinking format markdown  # Set thinking format
+@marvin thinking format plain     # Set thinking format
+@marvin thinking format collapsed # Set thinking format
+
+# Control tool display
+@marvin tools on             # Show tool invocation details
+@marvin tools off            # Hide tool invocation details
+
+# Control completion messages
+@marvin done on              # Show completion messages
+@marvin done off             # Hide completion messages
+
+# Verbose mode
+@marvin verbose on           # Enable verbose debugging
+@marvin verbose off          # Disable verbose debugging
+
+# View current preferences
+@marvin show preferences
+```
+
+### **Configuration File Display Settings**
+
+Set default preferences in your HCL configuration:
+
+```hcl
+# Display preferences for output formatting
+display {
+  # Whether to show AI thinking process (default: false)
+  show_thinking = true
+  
+  # Format for displaying thinking content: "plain", "markdown", or "collapsed" (default: "plain")
+  thinking_format = "markdown"
+  
+  # Whether to show tool invocation details (default: true)
+  show_tools = true
+  
+  # Format for displaying tool details: "simple" or "detailed" (default: "detailed")
+  tool_format = "detailed"
+  
+  # Whether to show completion messages (default: true)
+  show_done = true
+  
+  # Whether to enable verbose debugging output (default: false)
+  verbose = false
+}
+```
+
+### **Preference Resolution Priority**
+
+Display preferences are resolved in this priority order:
+
+1. **CLI flags** (highest priority - Marvin CLI only)
+2. **User session preferences** (Slack - persistent per user)
+3. **HCL display configuration** (file defaults)
+4. **Hard-coded fallbacks** (lowest priority)
+
+---
+
 ## Prerequisites
 
 - Go 1.25+ (to build from source)

@@ -72,7 +72,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		model = cfg.Model
 	}
 
-	updater := NewCLIStreamingUpdater(false, false, false)
+	updater := NewCLIStreamingUpdater(false, false, false, "plain")
 
 	if err := engine.RunConversation(ctx, model, updater); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)

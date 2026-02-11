@@ -300,3 +300,89 @@ func TestCommandLineOptions_LoadWithEnvVarError(t *testing.T) {
 	_, err := opts.Load()
 	assert.Error(t, err)
 }
+
+func TestLoadConfig_DisplayBlockDefaults(t *testing.T) {
+	hcl := `
+display {}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.NotNil(t, cfg.Display)
+	// Test default values when display block is empty
+	assert.False(t, cfg.ShowThinking())            // default: false
+	assert.True(t, cfg.ShowTools())                // default: true
+	assert.True(t, cfg.ShowDone())                 // default: true
+	assert.False(t, cfg.Verbose())                 // default: false
+	assert.Equal(t, "plain", cfg.ThinkingFormat()) // default: plain
+	assert.Equal(t, "detailed", cfg.ToolFormat())  // default: detailed
+}
+
+func TestLoadConfig_DisplayBlockCustomValues(t *testing.T) {
+	hcl := `
+display {
+  show_thinking = true
+  show_tools = false
+  show_done = false
+  verbose = true
+  thinking_format = "markdown"
+  tool_format = "simple"
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.NotNil(t, cfg.Display)
+	assert.True(t, cfg.ShowThinking())
+	assert.False(t, cfg.ShowTools())
+	assert.False(t, cfg.ShowDone())
+	assert.True(t, cfg.Verbose())
+	assert.Equal(t, "markdown", cfg.ThinkingFormat())
+	assert.Equal(t, "simple", cfg.ToolFormat())
+}
+
+func TestLoadConfig_NoDisplayBlock(t *testing.T) {
+	hcl := `
+local_program "test" {
+  program = "/bin/test"
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Nil(t, cfg.Display)
+	// Should still return defaults when no display block
+	assert.False(t, cfg.ShowThinking())
+	assert.True(t, cfg.ShowTools())
+	assert.True(t, cfg.ShowDone())
+	assert.False(t, cfg.Verbose())
+	assert.Equal(t, "plain", cfg.ThinkingFormat())
+	assert.Equal(t, "detailed", cfg.ToolFormat())
+}
+
+func TestLoadConfig_DisplayBlockPartialValues(t *testing.T) {
+	hcl := `
+display {
+  show_thinking = true
+  thinking_format = "collapsed"
+}
+`
+	parsedContent := parseHCLString(t, hcl, t.Name()+".hcl")
+	cfg, err := interpretConfigFile(parsedContent, "/test/"+t.Name())
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.NotNil(t, cfg.Display)
+	assert.True(t, cfg.ShowThinking())                 // explicitly set
+	assert.True(t, cfg.ShowTools())                    // default
+	assert.True(t, cfg.ShowDone())                     // default
+	assert.False(t, cfg.Verbose())                     // default
+	assert.Equal(t, "collapsed", cfg.ThinkingFormat()) // explicitly set
+	assert.Equal(t, "detailed", cfg.ToolFormat())      // default
+}

@@ -84,11 +84,12 @@ func NewTestEnvironment(t *testing.T) *TestEnvironment {
 	)
 
 	// Create SlackUpdater
+	preferences := DefaultUserPreferences()
 	updater := NewSlackUpdater(mockSlackSink, "test-channel", &captureFormatter{
 		State: sync.Mutex{},
 		Give:  nil,
 		Given: nil,
-	})
+	}, preferences)
 
 	return &TestEnvironment{
 		TempDir:        tempDir,

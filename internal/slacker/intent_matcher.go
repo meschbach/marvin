@@ -100,6 +100,51 @@ func NewIntentProcessor() *IntentProcessor {
 				Action:     "reset_session",
 				Confidence: 0.9,
 			},
+			{
+				Pattern:    `(?i)(?:show|hide|enable|disable) (?:thinking|thoughts?)`,
+				Action:     "toggle_thinking",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)thinking (?:on|off|enabled|disabled)`,
+				Action:     "toggle_thinking",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)thinking format (?:plain|markdown|collapsed)`,
+				Action:     "set_thinking_format",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)(?:show|hide|enable|disable) (?:tools?|tool usage)`,
+				Action:     "toggle_tools",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)tools (?:on|off|enabled|disabled)`,
+				Action:     "toggle_tools",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)(?:show|hide|enable|disable) (?:done|completion) (?:messages?|notices?)`,
+				Action:     "toggle_done",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)done (?:on|off|enabled|disabled)`,
+				Action:     "toggle_done",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)(?:show|list|display|get) (?:my )?(?:preferences|settings|prefs)`,
+				Action:     "show_preferences",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)(?:verbose|debug) (?:on|off|enabled|disabled)`,
+				Action:     "toggle_verbose",
+				Confidence: 0.9,
+			},
 		},
 	}
 }
@@ -166,6 +211,25 @@ func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent
 			}
 			if len(matches) > 2 && matches[2] != "" {
 				intent.Config = strings.TrimSpace(matches[2])
+			}
+		case "toggle_thinking", "set_thinking_format", "toggle_tools", "toggle_done", "toggle_verbose":
+			// Extract the value from the full message for more flexible parsing
+			message = strings.ToLower(message)
+			if strings.Contains(message, "on") || strings.Contains(message, "enable") || strings.Contains(message, "show") {
+				intent.Config = "on"
+			} else if strings.Contains(message, "off") || strings.Contains(message, "disable") || strings.Contains(message, "hide") {
+				intent.Config = "off"
+			}
+
+			// For format setting, extract the format
+			if pattern.Action == "set_thinking_format" {
+				if strings.Contains(message, "plain") {
+					intent.Config = "plain"
+				} else if strings.Contains(message, "markdown") {
+					intent.Config = "markdown"
+				} else if strings.Contains(message, "collapsed") {
+					intent.Config = "collapsed"
+				}
 			}
 		}
 

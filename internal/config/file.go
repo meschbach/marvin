@@ -31,6 +31,22 @@ type ModelOptionsBlock struct {
 	Stop []string `hcl:"stop,optional"`
 }
 
+// DisplayBlock contains configuration for output display preferences
+type DisplayBlock struct {
+	// Show model thinking process
+	ShowThinking *bool `hcl:"show_thinking,optional"`
+	// Show tool invocation details
+	ShowTools *bool `hcl:"show_tools,optional"`
+	// Show completion messages
+	ShowDone *bool `hcl:"show_done,optional"`
+	// Show verbose debugging
+	Verbose *bool `hcl:"verbose,optional"`
+	// Thinking display format ("plain", "markdown", "collapsed")
+	ThinkingFormat *string `hcl:"thinking_format,optional"`
+	// Tool display format ("simple", "detailed", "json")
+	ToolFormat *string `hcl:"tool_format,optional"`
+}
+
 // File represents a parsed configuration file
 type File struct {
 	// Model is the large language model to use
@@ -43,6 +59,8 @@ type File struct {
 	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
 	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
 	MultiTenant    *MultiTenantBlock `hcl:"multi_tenant,block"`
+	// Display preferences for output formatting
+	Display *DisplayBlock `hcl:"display,block"`
 }
 
 func (f *File) resolveWorkingDirectory(marvinFilePath string) (string, error) {
@@ -160,4 +178,52 @@ func (f *File) BuildAPIOptions() map[string]any {
 	}
 
 	return opts
+}
+
+// ShowThinking returns whether thinking should be displayed
+func (f *File) ShowThinking() bool {
+	if f.Display != nil && f.Display.ShowThinking != nil {
+		return *f.Display.ShowThinking
+	}
+	return false // default: disabled for new installations
+}
+
+// ShowTools returns whether tool invocation details should be displayed
+func (f *File) ShowTools() bool {
+	if f.Display != nil && f.Display.ShowTools != nil {
+		return *f.Display.ShowTools
+	}
+	return true // default: enabled
+}
+
+// ShowDone returns whether completion messages should be displayed
+func (f *File) ShowDone() bool {
+	if f.Display != nil && f.Display.ShowDone != nil {
+		return *f.Display.ShowDone
+	}
+	return true // default: enabled
+}
+
+// Verbose returns whether verbose debugging should be displayed
+func (f *File) Verbose() bool {
+	if f.Display != nil && f.Display.Verbose != nil {
+		return *f.Display.Verbose
+	}
+	return false // default: disabled
+}
+
+// ThinkingFormat returns the format for displaying thinking content
+func (f *File) ThinkingFormat() string {
+	if f.Display != nil && f.Display.ThinkingFormat != nil {
+		return *f.Display.ThinkingFormat
+	}
+	return "plain" // default: plain text
+}
+
+// ToolFormat returns the format for displaying tool invocation details
+func (f *File) ToolFormat() string {
+	if f.Display != nil && f.Display.ToolFormat != nil {
+		return *f.Display.ToolFormat
+	}
+	return "detailed" // default: detailed format
 }
