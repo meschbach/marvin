@@ -3,6 +3,7 @@ package slacker
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
@@ -84,7 +85,18 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 		messageCallback,
 	)
 
-	// Run the conversation using the unified engine
+	// Get the requested model and validate access for Slacker operations
 	model := qs.config.LanguageModel()
+	allowed, reason := qs.config.ValidateModelAccess(model, slackCtx.UserID)
+	if !allowed {
+		qs.securityLogger.LogError(slackCtx.UserID, "model_access",
+			fmt.Sprintf("Model access denied: model=%s, reason=%s", model, reason))
+
+		// Fall back to default model if access is denied
+		model = config.DefaultLanguageModel
+		qs.securityLogger.LogInfo(slackCtx.UserID, "model_access",
+			fmt.Sprintf("Model fallback: requested=%s, fallback=%s", qs.config.LanguageModel(), model))
+	}
+
 	return engine.RunConversation(ctx, model, updater)
 }

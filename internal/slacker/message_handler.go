@@ -32,6 +32,7 @@ type MessageHandler struct {
 	sessionManager  *SessionManager
 	securityLogger  *sec.SecurityLogger
 	config          *config.File
+	tenantToolSet   *query.TenantToolSet
 }
 
 // NewMessageHandler creates a new message handler
@@ -43,6 +44,7 @@ func NewMessageHandler(
 	sessionManager *SessionManager,
 	securityLogger *sec.SecurityLogger,
 	config *config.File,
+	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
 	return &MessageHandler{
 		intentProcessor: intentProcessor,
@@ -52,6 +54,7 @@ func NewMessageHandler(
 		sessionManager:  sessionManager,
 		securityLogger:  securityLogger,
 		config:          config,
+		tenantToolSet:   tenantToolSet,
 	}
 }
 
@@ -123,6 +126,11 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 			return mh.handlePreferenceIntent(ctx, slackCtx, session, intent)
 		}
 
+		// Check if this is a model access management intent
+		if strings.HasPrefix(intent.Action, "model_access_") {
+			return mh.handleModelAccessIntent(ctx, slackCtx, session, intent)
+		}
+
 		// Handle tool management request
 		return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
 	}
@@ -150,6 +158,231 @@ func (mh *MessageHandler) handlePreferenceIntent(ctx context.Context, slackCtx *
 		slack.MsgOptionText(response, true),
 	)
 	return err
+}
+
+// handleModelAccessIntent processes model access management commands
+func (mh *MessageHandler) handleModelAccessIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
+	// Check if user is admin
+	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
+		mh.securityLogger.LogError(slackCtx.UserID, "ModelAccess", "Unauthorized model access attempt")
+		response := "❌ Only administrators can manage model access."
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText(response, true),
+		)
+		return err
+	}
+
+	var response string
+	var err error
+
+	switch intent.Action {
+	case "model_access_list":
+		response, err = mh.handleModelAccessList(ctx, slackCtx)
+	case "model_access_allow":
+		response, err = mh.handleModelAccessAllow(ctx, slackCtx, intent.Target)
+	case "model_access_deny":
+		response, err = mh.handleModelAccessDeny(ctx, slackCtx, intent.Target)
+	case "model_access_clear":
+		response, err = mh.handleModelAccessClear(ctx, slackCtx)
+	case "model_access_status":
+		response, err = mh.handleModelAccessStatus(ctx, slackCtx, intent.TargetUser)
+	default:
+		response = "❌ Unknown model access command."
+	}
+
+	if err != nil {
+		mh.securityLogger.LogError(slackCtx.UserID, "ModelAccess", err.Error())
+		response = fmt.Sprintf("❌ Error processing model access command: %v", err)
+	}
+
+	// Send response to user
+	_, _, err = mh.connection.client.PostMessageContext(
+		ctx,
+		slackCtx.ChannelID,
+		slack.MsgOptionText(response, true),
+	)
+	return err
+}
+
+// handleModelAccessList shows current model access configuration
+func (mh *MessageHandler) handleModelAccessList(ctx context.Context, slackCtx *SlackContext) (string, error) {
+	state, err := mh.config.GetEffectiveModelAccess()
+	if err != nil {
+		return "", fmt.Errorf("getting model access config: %w", err)
+	}
+
+	response := "🤖 **Model Access Configuration**\n\n"
+
+	if len(state.AllowedModels) == 0 && len(state.DeniedModels) == 0 {
+		response += "No restrictions in place - all models are allowed.\n"
+	} else {
+		if len(state.AllowedModels) > 0 {
+			response += "✅ **Allowed Models:**\n"
+			for _, model := range state.AllowedModels {
+				response += fmt.Sprintf("  • %s\n", model)
+			}
+		}
+		if len(state.DeniedModels) > 0 {
+			response += "❌ **Denied Models:**\n"
+			for _, model := range state.DeniedModels {
+				response += fmt.Sprintf("  • %s\n", model)
+			}
+		}
+	}
+
+	response += fmt.Sprintf("\n🔧 **Default Model:** %s\n", state.DefaultModel)
+
+	if state.UpdatedBy != "" && state.LastUpdated != "" {
+		response += fmt.Sprintf("📝 **Last Updated:** %s by %s\n", state.LastUpdated, state.UpdatedBy)
+	}
+
+	return response, nil
+}
+
+// handleModelAccessAllow adds a model to the allowed list
+func (mh *MessageHandler) handleModelAccessAllow(ctx context.Context, slackCtx *SlackContext, model string) (string, error) {
+	state, err := mh.config.GetEffectiveModelAccess()
+	if err != nil {
+		return "", fmt.Errorf("getting current model access config: %w", err)
+	}
+
+	// Remove from denied list if present
+	deniedModels := []string{}
+	for _, denied := range state.DeniedModels {
+		if denied != model {
+			deniedModels = append(deniedModels, denied)
+		}
+	}
+
+	// Add to allowed list if not already present
+	allowedModels := state.AllowedModels
+	for _, allowed := range allowedModels {
+		if allowed == model {
+			return fmt.Sprintf("ℹ️ Model '%s' is already allowed.", model), nil
+		}
+	}
+	allowedModels = append(allowedModels, model)
+
+	// Save updated state
+	newState := &config.ModelAccessState{
+		AllowedModels: allowedModels,
+		DeniedModels:  deniedModels,
+		DefaultModel:  state.DefaultModel,
+		LastUpdated:   "", // Will be set by SaveModelAccessState
+		UpdatedBy:     "", // Will be set by SaveModelAccessState
+	}
+
+	err = mh.config.SaveModelAccessState(newState, slackCtx.UserID)
+	if err != nil {
+		return "", fmt.Errorf("saving model access state: %w", err)
+	}
+
+	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access",
+		fmt.Sprintf("Allowed model: %s", model))
+
+	return fmt.Sprintf("✅ Model '%s' has been added to the allowed list.", model), nil
+}
+
+// handleModelAccessDeny adds a model to the denied list
+func (mh *MessageHandler) handleModelAccessDeny(ctx context.Context, slackCtx *SlackContext, model string) (string, error) {
+	state, err := mh.config.GetEffectiveModelAccess()
+	if err != nil {
+		return "", fmt.Errorf("getting current model access config: %w", err)
+	}
+
+	// Remove from allowed list if present
+	allowedModels := []string{}
+	for _, allowed := range state.AllowedModels {
+		if allowed != model {
+			allowedModels = append(allowedModels, allowed)
+		}
+	}
+
+	// Add to denied list if not already present
+	deniedModels := state.DeniedModels
+	for _, denied := range deniedModels {
+		if denied == model {
+			return fmt.Sprintf("ℹ️ Model '%s' is already denied.", model), nil
+		}
+	}
+	deniedModels = append(deniedModels, model)
+
+	// Save updated state
+	newState := &config.ModelAccessState{
+		AllowedModels: allowedModels,
+		DeniedModels:  deniedModels,
+		DefaultModel:  state.DefaultModel,
+		LastUpdated:   "", // Will be set by SaveModelAccessState
+		UpdatedBy:     "", // Will be set by SaveModelAccessState
+	}
+
+	err = mh.config.SaveModelAccessState(newState, slackCtx.UserID)
+	if err != nil {
+		return "", fmt.Errorf("saving model access state: %w", err)
+	}
+
+	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access",
+		fmt.Sprintf("Denied model: %s", model))
+
+	return fmt.Sprintf("❌ Model '%s' has been added to the denied list.", model), nil
+}
+
+// handleModelAccessClear clears all model access restrictions
+func (mh *MessageHandler) handleModelAccessClear(ctx context.Context, slackCtx *SlackContext) (string, error) {
+	// Create empty state (no restrictions)
+	newState := &config.ModelAccessState{
+		AllowedModels: []string{},
+		DeniedModels:  []string{},
+		DefaultModel:  config.DefaultLanguageModel,
+		LastUpdated:   "", // Will be set by SaveModelAccessState
+		UpdatedBy:     "", // Will be set by SaveModelAccessState
+	}
+
+	err := mh.config.SaveModelAccessState(newState, slackCtx.UserID)
+	if err != nil {
+		return "", fmt.Errorf("saving model access state: %w", err)
+	}
+
+	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access", "Cleared all restrictions")
+
+	return "✅ All model access restrictions have been cleared. All models are now allowed.", nil
+}
+
+// handleModelAccessStatus shows model access status for a specific user
+func (mh *MessageHandler) handleModelAccessStatus(ctx context.Context, slackCtx *SlackContext, targetUserID string) (string, error) {
+	// Get target user info
+	user, err := mh.connection.GetClient().GetUserInfo(targetUserID)
+	if err != nil {
+		return "", fmt.Errorf("getting user info: %w", err)
+	}
+
+	// Check if user is admin
+	isAdmin := mh.tenantToolSet.IsAdmin(targetUserID)
+
+	response := fmt.Sprintf("👤 **Model Access Status for @%s**\n\n", user.Name)
+
+	if isAdmin {
+		response += "👑 **Administrator** - Can bypass all model access restrictions.\n"
+	} else {
+		response += "👤 **Regular User** - Subject to model access restrictions.\n"
+	}
+
+	// Show current model configuration
+	model := mh.config.LanguageModel()
+	allowed, reason := mh.config.ValidateModelAccess(model, targetUserID)
+
+	response += fmt.Sprintf("🤖 **Current Model:** %s\n", model)
+
+	if allowed {
+		response += "✅ **Access:** Allowed\n"
+	} else {
+		response += fmt.Sprintf("❌ **Access:** Denied\n📝 **Reason:** %s\n", reason)
+		response += fmt.Sprintf("🔄 **Fallback:** Would use %s\n", config.DefaultLanguageModel)
+	}
+
+	return response, nil
 }
 
 // LogSessionEvent logs a session event

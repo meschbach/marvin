@@ -160,6 +160,48 @@ assert.NotNil(t, cfg)
 - Interactive components and rich event handling
 - Environment variables: `SLACK_BOT_TOKEN` (xoxb-...), `SLACK_APP_TOKEN` (xapp-...)
 
+### Model Access Control
+- **Scope Separation**: Model access control applies to Slack/Slacker operations only
+- **CLI Bypass**: CLI operations use whatever models are in their configuration (no validation)
+- **Admin System**: Uses existing `AdminUsers` from `MultiTenantBlock` (no separate model admins)
+- **State Management**: Dedicated `slacker_state_path` directory with JSON state files
+- **Security Logging**: Integration with existing `SecurityLogFormat` for access violations
+- **Configuration Priority**: State files override HCL configuration for Slacker operations
+- **Default Model**: Always permitted as system fallback (`ministral-3:3b`)
+
+#### State Management Patterns
+- **Dedicated Directory**: `slacker_state_path` in multi-tenant configuration
+- **JSON Format**: `slacker-state/model-access.json` for programmatic access
+- **Atomic Writes**: Use temp-file + rename pattern for data integrity
+- **Admin Commands**: Natural language commands for model access management
+
+#### Integration Points
+- **Validation Location**: `internal/slacker/query_streaming.go:88` - Add model validation before LLM calls
+- **CLI Integration**: `cmd/list_models.go` - Model discovery with access status awareness
+- **Configuration**: `internal/config/file.go` - Core validation logic and state management
+- **Admin Interface**: `internal/slacker/message_handler.go` - Intent processing and response handling
+
+#### Configuration Examples
+```hcl
+multi_tenant {
+    admin_users = ["admin-user-id"]
+    session_store_path = "./sessions"
+    credential_store = "./credentials"
+    slacker_state_path = "./slacker-state"  # Dedicated state directory
+}
+
+model_access {
+    allowed_models = ["llama3.2:latest", "qwen2.5:7b"]
+    denied_models = ["experimental:beta"]
+}
+```
+
+#### CLI vs. Slacker Behavior
+- **CLI Operations**: No model validation - bypass all access restrictions
+- **Slacker Operations**: Full model validation with allow/deny list enforcement
+- **Admin Users**: Bypass all restrictions in Slack (but not in CLI by design)
+- **Security Events**: Logged for denied access and fallback operations
+
 ### CLI Patterns
 - All commands use Cobra framework
 - Global options are handled through `config.CommandLineOptions`

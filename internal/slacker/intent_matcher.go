@@ -145,6 +145,56 @@ func NewIntentProcessor() *IntentProcessor {
 				Action:     "toggle_verbose",
 				Confidence: 0.9,
 			},
+			{
+				Pattern:    `(?i)model access (?:list|show)`,
+				Action:     "model_access_list",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)list model access`,
+				Action:     "model_access_list",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)model access allow (.+)`,
+				Action:     "model_access_allow",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)allow model (.+)`,
+				Action:     "model_access_allow",
+				Confidence: 0.85,
+			},
+			{
+				Pattern:    `(?i)model access deny (.+)`,
+				Action:     "model_access_deny",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)deny model (.+)`,
+				Action:     "model_access_deny",
+				Confidence: 0.85,
+			},
+			{
+				Pattern:    `(?i)model access clear`,
+				Action:     "model_access_clear",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)clear model access`,
+				Action:     "model_access_clear",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)model access status @?([^\s]+)`,
+				Action:     "model_access_status",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)status model access for @?([^\s]+)`,
+				Action:     "model_access_status",
+				Confidence: 0.85,
+			},
 		},
 	}
 }
@@ -211,6 +261,16 @@ func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent
 			}
 			if len(matches) > 2 && matches[2] != "" {
 				intent.Config = strings.TrimSpace(matches[2])
+			}
+		case "model_access_allow", "model_access_deny":
+			if len(matches) > 1 {
+				intent.Target = strings.TrimSpace(matches[1])
+			}
+		case "model_access_status":
+			if len(matches) > 1 {
+				intent.TargetUser = strings.TrimSpace(matches[1])
+				// Remove @ prefix if present
+				intent.TargetUser = strings.TrimPrefix(intent.TargetUser, "@")
 			}
 		case "toggle_thinking", "set_thinking_format", "toggle_tools", "toggle_done", "toggle_verbose":
 			// Extract the value from the full message for more flexible parsing

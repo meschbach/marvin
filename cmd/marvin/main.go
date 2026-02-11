@@ -26,6 +26,7 @@ func main() {
 
 	queryCmd := queryCommand(globalOpts)
 	goalCmd := goalCommand(globalOpts)
+	listModelsCmd := listModelsCommand(globalOpts)
 
 	root := &cobra.Command{
 		Use:   "marvin",
@@ -36,6 +37,7 @@ func main() {
 	root.AddCommand(mcp)
 	root.AddCommand(queryCmd)
 	root.AddCommand(goalCmd)
+	root.AddCommand(listModelsCmd)
 	root.AddCommand(ragCommand(globalOpts))
 
 	if err := root.Execute(); err != nil {

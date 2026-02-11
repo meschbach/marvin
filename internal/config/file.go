@@ -2,8 +2,11 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"time"
 )
 
 const DefaultLanguageModel = "ministral-3:3b"
@@ -59,6 +62,7 @@ type File struct {
 	DockerMCPBlock []*DockerMCPBlock `hcl:"docker_mcp,block"`
 	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
 	MultiTenant    *MultiTenantBlock `hcl:"multi_tenant,block"`
+	ModelAccess    *ModelAccessBlock `hcl:"model_access,block"`
 	// Display preferences for output formatting
 	Display *DisplayBlock `hcl:"display,block"`
 }
@@ -113,8 +117,24 @@ type MultiTenantBlock struct {
 	AdminChannel      string   `hcl:"admin_channel,optional"`
 	SessionStorePath  string   `hcl:"session_store_path,optional"`
 	CredentialStore   string   `hcl:"credential_store,optional"`
+	SlackerStatePath  string   `hcl:"slacker_state_path,optional"`
 	SecurityLogFormat string   `hcl:"security_log_format,optional"`
 	ApprovalTimeout   string   `hcl:"approval_timeout,optional"`
+}
+
+// ModelAccessBlock contains model access control configuration
+type ModelAccessBlock struct {
+	AllowedModels []string `hcl:"allowed_models,optional"`
+	DeniedModels  []string `hcl:"denied_models,optional"`
+}
+
+// ModelAccessState represents the runtime state for model access control
+type ModelAccessState struct {
+	AllowedModels []string `json:"allowed_models"`
+	DeniedModels  []string `json:"denied_models"`
+	DefaultModel  string   `json:"default_model"`
+	LastUpdated   string   `json:"last_updated"`
+	UpdatedBy     string   `json:"updated_by"`
 }
 
 type SharingBlock struct {
@@ -226,4 +246,154 @@ func (f *File) ToolFormat() string {
 		return *f.Display.ToolFormat
 	}
 	return "detailed" // default: detailed format
+}
+
+// LoadModelAccessState loads model access state from the slacker-state directory
+func (f *File) LoadModelAccessState() (*ModelAccessState, error) {
+	if f.MultiTenant == nil || f.MultiTenant.SlackerStatePath == "" {
+		return nil, nil
+	}
+
+	stateFile := filepath.Join(f.MultiTenant.SlackerStatePath, "model-access.json")
+
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil // No state file exists
+		}
+		return nil, err
+	}
+
+	var state ModelAccessState
+	err = json.Unmarshal(data, &state)
+	if err != nil {
+		return nil, err
+	}
+
+	return &state, nil
+}
+
+// SaveModelAccessState saves model access state to the slacker-state directory
+func (f *File) SaveModelAccessState(state *ModelAccessState, updatedBy string) error {
+	if f.MultiTenant == nil || f.MultiTenant.SlackerStatePath == "" {
+		return fmt.Errorf("slacker state path not configured")
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(f.MultiTenant.SlackerStatePath, 0755); err != nil {
+		return err
+	}
+
+	// Update metadata
+	state.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	state.UpdatedBy = updatedBy
+
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	stateFile := filepath.Join(f.MultiTenant.SlackerStatePath, "model-access.json")
+
+	// Write to temporary file first, then rename for atomicity
+	tempFile := stateFile + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFile, stateFile)
+}
+
+// ValidateModelAccess checks if a model is allowed for Slacker operations.
+// For CLI operations, this should not be called.
+func (f *File) ValidateModelAccess(model string, userID string) (bool, string) {
+	// Check if user is admin - admins bypass all restrictions
+	if f.MultiTenant != nil {
+		for _, admin := range f.MultiTenant.AdminUsers {
+			if admin == userID {
+				return true, ""
+			}
+		}
+	}
+
+	// Load state configuration (takes priority over HCL)
+	state, err := f.LoadModelAccessState()
+	if err != nil {
+		return false, fmt.Sprintf("Failed to load model access state: %v", err)
+	}
+
+	// If no state and no HCL config, allow all models
+	if state == nil && f.ModelAccess == nil {
+		return true, ""
+	}
+
+	// Get effective configuration - state overrides HCL
+	var allowedModels, deniedModels []string
+
+	if state != nil {
+		allowedModels = state.AllowedModels
+		deniedModels = state.DeniedModels
+	} else if f.ModelAccess != nil {
+		allowedModels = f.ModelAccess.AllowedModels
+		deniedModels = f.ModelAccess.DeniedModels
+	}
+
+	// Default model is always allowed
+	if model == DefaultLanguageModel {
+		return true, ""
+	}
+
+	// Check deny list first (takes priority)
+	for _, denied := range deniedModels {
+		if denied == model {
+			return false, fmt.Sprintf("Model '%s' is denied by access policy", model)
+		}
+	}
+
+	// If allow list is not empty, model must be in it
+	if len(allowedModels) > 0 {
+		for _, allowed := range allowedModels {
+			if allowed == model {
+				return true, ""
+			}
+		}
+		return false, fmt.Sprintf("Model '%s' is not in allowed list", model)
+	}
+
+	// No restrictions - allow
+	return true, ""
+}
+
+// GetEffectiveModelAccess returns the effective model access configuration
+// (state overrides HCL, with proper fallback)
+func (f *File) GetEffectiveModelAccess() (*ModelAccessState, error) {
+	// Try to load state first
+	state, err := f.LoadModelAccessState()
+	if err != nil {
+		return nil, err
+	}
+
+	if state != nil {
+		return state, nil
+	}
+
+	// Fall back to HCL configuration
+	if f.ModelAccess != nil {
+		return &ModelAccessState{
+			AllowedModels: f.ModelAccess.AllowedModels,
+			DeniedModels:  f.ModelAccess.DeniedModels,
+			DefaultModel:  DefaultLanguageModel,
+			LastUpdated:   "",
+			UpdatedBy:     "",
+		}, nil
+	}
+
+	// No configuration - return empty state (allow all)
+	return &ModelAccessState{
+		AllowedModels: []string{},
+		DeniedModels:  []string{},
+		DefaultModel:  DefaultLanguageModel,
+		LastUpdated:   "",
+		UpdatedBy:     "",
+	}, nil
 }

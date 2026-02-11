@@ -117,3 +117,36 @@ Usage: Always specify location and date range when applicable.
 EOS
   }
 }
+
+# Multi-tenant configuration for Slack/Slacker operations
+multi_tenant {
+    # List of admin user IDs who can bypass all restrictions
+    admin_users = ["U123456789", "U987654321"]
+    
+    # Directory for storing user sessions
+    session_store_path = "./sessions"
+    
+    # Directory for storing user credentials
+    credential_store = "./credentials"
+    
+    # Dedicated directory for Slacker-only state (NEW)
+    slacker_state_path = "./slacker-state"
+    
+    # Optional: Custom security log format
+    # security_log_format = "[SECURITY] %s - %s - User: %s - %s"
+    
+    # Optional: Tool approval timeout
+    # approval_timeout = "24h"
+    
+    # Optional: Admin channel for notifications
+    # admin_channel = "#admin-alerts"
+}
+
+# Model access control for Slack/Slacker operations (NEW)
+model_access {
+    # List of explicitly allowed models (empty = allow all except denied)
+    allowed_models = ["llama3.2:latest", "qwen2.5:7b", "mistral:latest"]
+    
+    # List of explicitly denied models (always blocked)
+    denied_models = ["experimental:beta", "test-model:unstable"]
+}
