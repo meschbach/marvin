@@ -70,7 +70,7 @@ for Slacker operations based on model access control configuration.`,
 						access += " (default)"
 					}
 
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", model.Name, model.Size, status, access)
+					fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", model.Name, model.Size, status, access)
 				}
 			} else {
 				// Simple model list
@@ -78,7 +78,7 @@ for Slacker operations based on model access control configuration.`,
 				fmt.Fprintln(w, "-----\t----")
 
 				for _, model := range models.Models {
-					fmt.Fprintf(w, "%s\t%s\n", model.Name, model.Size)
+					fmt.Fprintf(w, "%s\t%d\n", model.Name, model.Size)
 				}
 			}
 
