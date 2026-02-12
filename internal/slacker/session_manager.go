@@ -51,8 +51,14 @@ func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userConte
 		return userSession
 	}
 
-	// Create new session
-	newSession := NewUserSession(userID, channelID, userContext)
+	// Try to load existing preferences for this user
+	preferences := DefaultUserPreferences()
+	if userPrefs, hasPrefs := sm.GetPreferences(userID); hasPrefs {
+		preferences = userPrefs
+	}
+
+	// Create new session with loaded preferences
+	newSession := NewUserSessionWithPreferences(userID, channelID, userContext, preferences)
 
 	// Store session
 	sm.sessions.Store(sessionKey, newSession)
@@ -147,11 +153,13 @@ func (sm *SessionManager) GetPreferences(userID string) (UserPreferences, bool) 
 // UpdatePreferences updates a user's preferences across all their sessions
 func (sm *SessionManager) UpdatePreferences(userID string, preferences UserPreferences) error {
 	var updateErrors []error
+	foundSession := false
 
 	// Update preferences in all sessions for this user
 	sm.sessions.Range(func(key, value interface{}) bool {
 		userSession := value.(*UserSession)
 		if userSession.UserID == userID {
+			foundSession = true
 			userSession.SetPreferences(preferences)
 			if err := sm.saveSession(userSession); err != nil {
 				updateErrors = append(updateErrors, err)
@@ -159,6 +167,22 @@ func (sm *SessionManager) UpdatePreferences(userID string, preferences UserPrefe
 		}
 		return true
 	})
+
+	// If no session exists for this user, create a temporary one to store preferences
+	if !foundSession {
+		tempSession := &UserSession{
+			UserID:      userID,
+			ChannelID:   "temp-channel",
+			Preferences: preferences,
+		}
+		// Add to in-memory sessions
+		sessionKey := fmt.Sprintf("%s:%s", userID, "temp-channel")
+		sm.sessions.Store(sessionKey, tempSession)
+
+		if err := sm.saveSession(tempSession); err != nil {
+			return fmt.Errorf("failed to save user preferences: %v", err)
+		}
+	}
 
 	if len(updateErrors) > 0 {
 		return fmt.Errorf("failed to update some sessions: %v", updateErrors)
@@ -172,29 +196,25 @@ func (sm *SessionManager) ResolveUserPreferences(userID string, config *config.F
 	// Start with default preferences
 	resolvedPrefs := DefaultUserPreferences()
 
-	// 1. Apply HCL configuration defaults for unset preferences
+	// 1. Apply HCL configuration defaults
 	if config != nil {
-		// Only override defaults if user doesn't have explicit preferences set
-		userPrefs, hasUserPrefs := sm.GetPreferences(userID)
+		resolvedPrefs.ShowThinking = config.ShowThinking()
+		resolvedPrefs.ShowTools = config.ShowTools()
+		resolvedPrefs.ShowDone = config.ShowDone()
+		resolvedPrefs.ThinkingFormat = config.ThinkingFormat()
+		resolvedPrefs.ToolFormat = config.ToolFormat()
+		resolvedPrefs.Verbose = config.Verbose()
+	}
 
-		if !hasUserPrefs {
-			// No user preferences, use HCL config as primary
-			resolvedPrefs.ShowThinking = config.ShowThinking()
-			resolvedPrefs.ShowTools = config.ShowTools()
-			resolvedPrefs.ShowDone = config.ShowDone()
-			resolvedPrefs.ThinkingFormat = config.ThinkingFormat()
-			resolvedPrefs.ToolFormat = config.ToolFormat()
-			resolvedPrefs.Verbose = config.Verbose()
-		} else {
-			// User has preferences, they take priority over HCL config
-			resolvedPrefs = userPrefs
-		}
-	} else {
-		// No config provided, try to get user preferences
-		userPrefs, hasUserPrefs := sm.GetPreferences(userID)
-		if hasUserPrefs {
-			resolvedPrefs = userPrefs
-		}
+	// 2. Apply user preferences (they take priority over HCL config)
+	userPrefs, hasUserPrefs := sm.GetPreferences(userID)
+	if hasUserPrefs {
+		resolvedPrefs.ShowThinking = userPrefs.ShowThinking
+		resolvedPrefs.ShowTools = userPrefs.ShowTools
+		resolvedPrefs.ShowDone = userPrefs.ShowDone
+		resolvedPrefs.ThinkingFormat = userPrefs.ThinkingFormat
+		resolvedPrefs.ToolFormat = userPrefs.ToolFormat
+		resolvedPrefs.Verbose = userPrefs.Verbose
 	}
 
 	return resolvedPrefs
@@ -264,7 +284,7 @@ func (sm *SessionManager) loadAllSessions() error {
 	}
 
 	for _, file := range files {
-		if file.IsDir() || len(file.Name()) < 7 || file.Name()[0:7] != "session-" || filepath.Ext(file.Name()) != ".json" {
+		if file.IsDir() || len(file.Name()) < 8 || file.Name()[0:8] != "session-" || filepath.Ext(file.Name()) != ".json" {
 			continue
 		}
 

@@ -18,7 +18,15 @@ func testContext() context.Context {
 
 func TestSlackUpdater_BasicOperations(t *testing.T) {
 	client := &MockSlackSink{}
-	preferences := DefaultUserPreferences()
+	// Use preferences that enable all features for comprehensive testing
+	preferences := UserPreferences{
+		ShowThinking:   true,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        true,
+	}
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Test basic operations with timeout
@@ -106,7 +114,15 @@ func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 
 func TestSlackUpdater_StateTransitions(t *testing.T) {
 	client := &MockSlackSink{}
-	preferences := DefaultUserPreferences()
+	// Enable thinking to test state transitions
+	preferences := UserPreferences{
+		ShowThinking:   true,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        true,
+	}
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 	ctx := testContext()
 
@@ -204,7 +220,15 @@ func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 
 func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	client := &MockSlackSink{}
-	preferences := DefaultUserPreferences()
+	// Enable thinking to test thinking formatting
+	preferences := UserPreferences{
+		ShowThinking:   true,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        true,
+	}
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add thinking content
@@ -225,7 +249,15 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 	captureFormatter := newCaptureFormatter(nil)
 	client := &MockSlackSink{}
 	timer := &MockTimeProvider{CurrentTime: time.Now()}
-	preferences := DefaultUserPreferences()
+	// Enable thinking to test multiple state transitions
+	preferences := UserPreferences{
+		ShowThinking:   true,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        true,
+	}
 	updater := NewSlackUpdater(client, "test-channel", captureFormatter, preferences, WithTimeProvider(timer))
 
 	// Start with thinking
@@ -252,10 +284,10 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 	err = updater.AddThought(ctx, "Another thought")
 	require.NoError(t, err)
 
-	// The previous content should be posted immediately, then new thought should be captured
+	// Should capture the new thought
 	lastCapture = captureFormatter.Given[len(captureFormatter.Given)-1]
 	assert.Equal(t, ContentThinking, lastCapture.CType, "Most recent should be thinking")
-	assert.Equal(t, "Another thought", lastCapture.Content, "Should capture the exact thought content")
+	assert.Equal(t, "Thinking: Another thought", lastCapture.Content, "Should capture the thought content with prefix")
 }
 
 func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
@@ -344,7 +376,15 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 
 func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 	client := &MockSlackSink{}
-	preferences := DefaultUserPreferences()
+	// Enable thinking to test real world scenario
+	preferences := UserPreferences{
+		ShowThinking:   true,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        true,
+	}
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Simulate real scenario: thinking -> content -> ForceUpdate
@@ -354,7 +394,7 @@ func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 
 	// Should be in thinking state
 	_, thinking := updater.getBufferContent()
-	assert.Equal(t, "Let me analyze this problem", thinking)
+	assert.Equal(t, "Thinking: Let me analyze this problem", thinking)
 
 	// Add content (should trigger transition and flush)
 	err = updater.AddContent(ctx, "Based on my analysis, here's the solution:")
