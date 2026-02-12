@@ -25,14 +25,16 @@ type MessageProcessor interface {
 
 // MessageHandler processes incoming Slack messages and intents
 type MessageHandler struct {
-	intentProcessor *IntentProcessor
-	connection      *SlackConnection
-	queryHandler    QueryHandler
-	toolManager     *ToolManagerImpl
-	sessionManager  *SessionManager
-	securityLogger  *sec.SecurityLogger
-	config          *config.File
-	tenantToolSet   *query.TenantToolSet
+	intentProcessor    *IntentProcessor
+	connection         *SlackConnection
+	queryHandler       QueryHandler
+	toolManager        *ToolManagerImpl
+	sessionManager     *SessionManager
+	securityLogger     *sec.SecurityLogger
+	config             *config.File
+	tenantToolSet      *query.TenantToolSet
+	helpAnalyzer       *HelpAnalyzer       // New: Intelligent help system
+	helpContextBuilder *HelpContextBuilder // New: Help context builder
 }
 
 // NewMessageHandler creates a new message handler
@@ -47,15 +49,27 @@ func NewMessageHandler(
 	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
 	return &MessageHandler{
-		intentProcessor: intentProcessor,
-		connection:      connection,
-		queryHandler:    queryHandler,
-		toolManager:     toolManager,
-		sessionManager:  sessionManager,
-		securityLogger:  securityLogger,
-		config:          config,
-		tenantToolSet:   tenantToolSet,
+		intentProcessor:    intentProcessor,
+		connection:         connection,
+		queryHandler:       queryHandler,
+		toolManager:        toolManager,
+		sessionManager:     sessionManager,
+		securityLogger:     securityLogger,
+		config:             config,
+		tenantToolSet:      tenantToolSet,
+		helpAnalyzer:       nil, // HelpAnalyzer will be added separately
+		helpContextBuilder: nil, // HelpContextBuilder will be added separately
 	}
+}
+
+// SetHelpAnalyzer adds intelligent help analysis to the message handler
+func (mh *MessageHandler) SetHelpAnalyzer(helpAnalyzer *HelpAnalyzer) {
+	mh.helpAnalyzer = helpAnalyzer
+}
+
+// SetHelpContextBuilder adds help context building to the message handler
+func (mh *MessageHandler) SetHelpContextBuilder(helpContextBuilder *HelpContextBuilder) {
+	mh.helpContextBuilder = helpContextBuilder
 }
 
 // ProcessMessage processes incoming Slack messages
@@ -131,11 +145,21 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 			return mh.handleModelAccessIntent(ctx, slackCtx, session, intent)
 		}
 
+		// Check if this is an admin help request
+		if strings.HasPrefix(intent.Action, "admin_") {
+			return mh.handleAdminIntent(ctx, slackCtx, session, intent)
+		}
+
 		// Handle tool management request
 		return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
 	}
 
-	// Handle as a regular query
+	// If intent exists but confidence is too low, provide help
+	if intent != nil && intent.Confidence < 0.7 {
+		return mh.handleIntentFailure(ctx, slackCtx, session, cleanMessage, ev)
+	}
+
+	// Handle as a regular query (intent == nil means no specific intent, not a failure)
 	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
 	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
 	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, cleanMessage, updater)
@@ -383,6 +407,193 @@ func (mh *MessageHandler) handleModelAccessStatus(ctx context.Context, slackCtx 
 	}
 
 	return response, nil
+}
+
+// handleAdminIntent provides admin-specific help and escalation
+func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
+	// Verify admin permissions
+	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText("❌ Only admins can use admin commands.", true),
+		)
+		return err
+	}
+
+	// Create help integrator if available
+	var helpIntegrator *HelpIntegrator
+	if mh.helpAnalyzer != nil && mh.helpContextBuilder != nil {
+		helpIntegrator = NewHelpIntegrator(mh.helpAnalyzer, mh.helpContextBuilder)
+	}
+
+	switch intent.Action {
+	case "admin_help":
+		if helpIntegrator != nil {
+			request, _ := intent.Config.(string)
+			analysis, err := helpIntegrator.HandleAdminRequest(ctx, slackCtx.UserID, slackCtx.ChannelID, request)
+			if err != nil {
+				mh.securityLogger.LogError(slackCtx.UserID, "admin_help", fmt.Sprintf("Failed to analyze admin request: %v", err))
+				_, _, err := mh.connection.client.PostMessageContext(
+					ctx,
+					slackCtx.ChannelID,
+					slack.MsgOptionText("❌ Error processing admin help request.", true),
+				)
+				return err
+			}
+
+			if ShouldShowHelp(analysis) {
+				helpResponse := helpIntegrator.CreateHelpResponse(analysis)
+				_, _, err := mh.connection.client.PostMessageContext(
+					ctx,
+					slackCtx.ChannelID,
+					slack.MsgOptionText(helpResponse.Text, true),
+				)
+				return err
+			}
+		}
+
+		// Fallback admin help
+		fallbackHelp := "👑 **Admin Help**\n\n" +
+			"Here are some admin commands you can use:\n\n" +
+			"• `list pending requests` - See tool approval requests\n" +
+			"• `approve tool <request-id>` - Approve a tool request\n" +
+			"• `reject tool <request-id>` - Reject a tool request\n" +
+			"• `model access list` - Show model access settings\n" +
+			"• `allow model <model-name>` - Allow a model\n" +
+			"• `deny model <model-name>` - Deny a model\n" +
+			"• `admin help <topic>` - Get admin-specific help\n" +
+			"• `escalate <issue>` - Escalate to support"
+
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText(fallbackHelp, true),
+		)
+		return err
+
+	case "admin_escalation":
+		issue, _ := intent.Config.(string)
+		escalationMessage := fmt.Sprintf("🚨 **Admin Escalation**\n\n**User:** @%s\n**Issue:** %s\n\n"+
+			"This escalation has been logged and support will contact you shortly.", slackCtx.UserID, issue)
+
+		mh.securityLogger.LogAdminAction(slackCtx.UserID, "escalation", issue)
+
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText(escalationMessage, true),
+		)
+		return err
+
+	default:
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText("❌ Unknown admin command.", true),
+		)
+		return err
+	}
+}
+
+// handleIntentFailure provides intelligent help when intent recognition fails
+func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, ev *slackevents.MessageEvent) error {
+	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
+	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
+
+	// Check if help system is enabled for this failure type
+	if !mh.config.HelpSystemEnabled() || !mh.config.HelpSystemShouldHelpOnIntentFailure() {
+		// Only send basic help if help system is enabled but intent failure help is disabled
+		if mh.config.HelpSystemEnabled() {
+			mh.sendBasicHelp(ctx, updater, message)
+			return updater.Flush(ctx)
+		}
+		// Help system completely disabled - don't send anything
+		return nil
+	}
+
+	// If HelpAnalyzer and HelpContextBuilder are available, use intelligent analysis
+	if mh.helpAnalyzer != nil && mh.helpContextBuilder != nil {
+		// Build comprehensive help context
+		helpCtx := mh.helpContextBuilder.BuildContext(ctx, slackCtx.UserID, slackCtx.ChannelID, message)
+
+		// Analyze the intent failure
+		analysis, err := mh.helpAnalyzer.AnalyzeIntentFailure(ctx, message, helpCtx)
+		if err != nil {
+			// Fallback to basic help if analysis fails
+			mh.sendBasicHelp(ctx, updater, message)
+			return fmt.Errorf("help analysis failed: %w", err)
+		}
+
+		// Check if analysis confidence meets minimum threshold
+		if analysis.Confidence < float64(mh.config.HelpSystemMinConfidenceThreshold()) {
+			mh.sendBasicHelp(ctx, updater, message)
+			return nil
+		}
+
+		// Format and send the intelligent help response
+		helpMessage := mh.formatHelpMessage(analysis)
+		if err := updater.AddContent(ctx, helpMessage); err != nil {
+			return fmt.Errorf("sending help message: %w", err)
+		}
+	} else {
+		// Fallback to basic help when intelligent help components unavailable
+		mh.sendBasicHelp(ctx, updater, message)
+	}
+
+	if err := updater.Flush(ctx); err != nil {
+		return fmt.Errorf("flushing help message: %w", err)
+	}
+
+	return nil
+}
+
+// sendBasicHelp sends a basic help message when intelligent help is unavailable
+func (mh *MessageHandler) sendBasicHelp(ctx context.Context, updater *SlackUpdater, message string) error {
+	fallbackMessage := "🤖 I'm not sure what you're trying to do. Here are some things you can ask me:\n\n" +
+		"• `list my tools` - See available tools\n" +
+		"• `add http tool at <url>` - Add a new HTTP tool\n" +
+		"• `show preferences` - Display your current settings\n" +
+		"• `thinking on/off` - Toggle thinking display\n" +
+		"• Just ask me anything! - I can help with many tasks\n\n" +
+		"If you were trying a specific command, I can provide more targeted help."
+
+	return updater.AddContent(ctx, fallbackMessage)
+}
+
+// formatHelpMessage formats a help analysis into a user-friendly message
+func (mh *MessageHandler) formatHelpMessage(analysis *HelpAnalysis) string {
+	var builder strings.Builder
+
+	// Main diagnosis with emoji
+	builder.WriteString("🤖 **Intelligent Help**\n\n")
+	builder.WriteString(fmt.Sprintf("**Issue:** %s\n\n", analysis.Diagnosis))
+
+	// Suggestions
+	if len(analysis.Suggestions) > 0 {
+		builder.WriteString("💡 **Suggestions:**\n")
+		for i, suggestion := range analysis.Suggestions {
+			builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Examples
+	if len(analysis.Examples) > 0 {
+		builder.WriteString("📋 **Examples:**\n")
+		for _, example := range analysis.Examples {
+			builder.WriteString(fmt.Sprintf("• `%s`\n", example))
+		}
+		builder.WriteString("\n")
+	}
+
+	// Additional context
+	if analysis.ContextHelp != "" {
+		builder.WriteString("ℹ️ **Additional Help:**\n")
+		builder.WriteString(fmt.Sprintf("%s\n\n", analysis.ContextHelp))
+	}
+
+	return builder.String()
 }
 
 // LogSessionEvent logs a session event

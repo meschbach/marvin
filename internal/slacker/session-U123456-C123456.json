@@ -1,0 +1,16 @@
+{
+  "user_id": "U123456",
+  "channel_id": "C123456",
+  "last_activity": "2026-02-11T15:26:20.651486-08:00",
+  "messages": [],
+  "available_tools": [],
+  "tool_namespace": "user-U123456",
+  "preferences": {
+    "show_thinking": false,
+    "show_tools": true,
+    "show_done": true,
+    "thinking_format": "plain",
+    "tool_format": "detailed",
+    "verbose": false
+  }
+}

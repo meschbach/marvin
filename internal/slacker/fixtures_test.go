@@ -73,6 +73,11 @@ func NewTestEnvironment(t *testing.T) *TestEnvironment {
 	// Create formatter
 	formatter := NewSlackFormatter()
 
+	// Create help integrator for tests
+	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, nil, nil)
+	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, nil)
+	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
+
 	// Create QueryStreamer
 	queryStreamer := NewQueryStreamer(
 		nil, // tenantToolSet not needed for these tests
@@ -81,6 +86,7 @@ func NewTestEnvironment(t *testing.T) *TestEnvironment {
 		securityLogger,
 		formatter,
 		mockLLM,
+		helpIntegrator,
 	)
 
 	// Create SlackUpdater

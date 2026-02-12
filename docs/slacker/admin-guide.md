@@ -175,6 +175,154 @@ env "API_KEY" with value "sk-1234567890abcdef"
 
 ---
 
+## 🤖 **Intelligent Help System Management**
+
+Marvin's intelligent help system provides AI-powered assistance when users encounter issues with commands, tools, or model access. As an admin, you can configure and monitor this system.
+
+### **Help System Configuration**
+
+The help system is configured in your `marvin.slacker.hcl`:
+
+```hcl
+help_system {
+  enabled = true
+  confidence_threshold = 0.7      # Trigger help below this confidence
+  model = "ministral-3:3b"         # Model for help analysis
+  max_context_messages = 5         # Messages to consider for context
+  analysis_timeout = 5             # Timeout in seconds
+  
+  # Control which help types are enabled
+  help_on_intent_failure = true           # Command recognition help
+  help_on_model_access_denied = true      # Model access help  
+  help_on_tool_configuration_error = true # Tool setup help
+  help_on_tool_permission_denied = true   # Permission help
+}
+```
+
+### **Admin-Specific Help Features**
+
+Admin users get enhanced help capabilities:
+- **Model Access Management**: Commands to grant/revoke model access
+- **Bulk Tool Operations**: Mass approval and management workflows
+- **System Configuration Help**: Advanced configuration guidance
+- **User Management Assistance**: Help with user permission issues
+
+### **Monitoring Help System Effectiveness**
+
+Monitor these metrics to evaluate help system performance:
+
+#### **Help Quality Metrics**
+```
+# Help response times (target: < 500ms)
+Help Response Time: avg=342ms, p95=678ms
+
+# User satisfaction indicators  
+Help Suggestions Accepted: 78%
+Follow-up Questions Reduced: 45%
+Command Success After Help: 89%
+```
+
+#### **Common Help Scenarios**
+Track which help types are most frequently used:
+```
+Intent Failure Help: 45% (command corrections)
+Model Access Help: 25% (permission issues)
+Tool Config Help: 20% (setup errors)
+Tool Permission Help: 10% (access denials)
+```
+
+### **Help System Optimization**
+
+#### **Tuning Confidence Thresholds**
+```hcl
+# If users get too much help, increase threshold:
+confidence_threshold = 0.8  # More selective
+
+# If users don't get enough help, decrease threshold:
+confidence_threshold = 0.6  # More sensitive
+```
+
+#### **Context Window Adjustment**
+```hcl
+# For simpler commands, reduce context:
+max_context_messages = 3
+
+# For complex workflows, increase context:
+max_context_messages = 8
+```
+
+### **Advanced Help Features**
+
+#### **Custom Help Examples**
+You can extend help with organization-specific examples:
+```hcl
+help_system {
+  # Custom examples for your tools
+  custom_examples = {
+    "kubectl" = "kubectl get pods -n production"
+    "terraform" = "terraform plan -var-file=prod.tfvars"
+    "ansible" = "ansible-playbook deploy.yml --inventory=hosts"
+  }
+}
+```
+
+#### **Help System Analytics**
+Enable detailed help analytics:
+```hcl
+help_system {
+  enable_analytics = true
+  analytics_retention_days = 30
+  track_user_feedback = true
+}
+```
+
+### **Troubleshooting Help System Issues**
+
+#### **Help Not Appearing**
+1. Check `help_system.enabled = true` in configuration
+2. Verify individual help type is enabled
+3. Review confidence threshold isn't too restrictive
+4. Check LLM model availability and connectivity
+
+#### **Poor Quality Help Suggestions**
+1. Adjust confidence threshold (0.6-0.8 recommended)
+2. Increase context window for more analysis data
+3. Verify help model is appropriate for your use case
+4. Review and enhance custom examples
+
+#### **Help Response Delays**
+1. Check `analysis_timeout` setting
+2. Monitor LLM model performance and load
+3. Consider reducing `max_context_messages`
+4. Ensure network connectivity to Ollama
+
+### **User Feedback Integration**
+
+The help system can collect user feedback to improve quality:
+
+```hcl
+help_system {
+  # Enable feedback collection
+  collect_feedback = true
+  
+  # Feedback prompts
+  feedback_prompts = {
+    helpful = "Was this help helpful? 🤔"
+    not_helpful = "What would have been more helpful? 💭"
+    too_much = "Was this too much information? 📚"
+  }
+}
+```
+
+**Admin Dashboard Commands:**
+```bash
+@marvin-bot help analytics          # Show help system metrics
+@marvin-bot help feedback review    # Review user feedback
+@marvin-bot help optimize           # Suggest configuration improvements
+```
+
+---
+
 ## 📊 **User Support & Management**
 
 ### **User Onboarding**

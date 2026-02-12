@@ -18,6 +18,7 @@ type QueryProcessor struct {
 	securityLogger *sec.SecurityLogger
 	formatter      *SlackFormatter
 	streamer       *QueryStreamer[*api.Client]
+	helpIntegrator *HelpIntegrator
 }
 
 // QueryProcessorImpl maintains backward compatibility
@@ -30,13 +31,14 @@ func NewQueryProcessor(
 	config *config.File,
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
+	helpIntegrator *HelpIntegrator,
 ) *QueryProcessor {
 	ollama, err := api.ClientFromEnvironment()
 	if err != nil {
 		//todo: handle more gracefully
 		panic(err)
 	}
-	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, ollama)
+	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, ollama, helpIntegrator)
 	return &QueryProcessor{
 		tenantToolSet:  tenantToolSet,
 		sessionManager: sessionManager,
@@ -44,6 +46,7 @@ func NewQueryProcessor(
 		securityLogger: securityLogger,
 		formatter:      formatter,
 		streamer:       streamer,
+		helpIntegrator: helpIntegrator,
 	}
 }
 
@@ -63,9 +66,14 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 		IsAdmin:     qp.tenantToolSet.IsAdmin(slackCtx.UserID),
 	}
 
-	userToolSet, err := qp.tenantToolSet.GetUserTools(ctx, userCtx)
+	userToolSet, deniedTools, err := qp.tenantToolSet.GetUserToolsWithDeniedInfo(ctx, userCtx)
 	if err != nil {
 		return fmt.Errorf("getting user tools: %w", err)
+	}
+
+	// Provide help if tools were denied access
+	if len(deniedTools) > 0 && qp.helpIntegrator != nil {
+		go qp.provideToolAccessHelp(ctx, slackCtx, deniedTools)
 	}
 
 	// Start progressive response with specific updater
@@ -87,4 +95,36 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 	}()
 
 	return nil
+}
+
+// provideToolAccessHelp provides intelligent help when tool access is denied
+func (qp *QueryProcessor) provideToolAccessHelp(ctx context.Context, slackCtx *SlackContext, deniedTools []string) {
+	if qp.helpIntegrator == nil {
+		return
+	}
+
+	// Analyze the first denied tool (for simplicity - could enhance to handle multiple)
+	if len(deniedTools) > 0 {
+		toolName := deniedTools[0]
+		reason := "Permission denied - tool not available for your user account"
+
+		analysis, err := qp.helpIntegrator.HandleToolAccessDenied(ctx, slackCtx.UserID, slackCtx.ChannelID, toolName, reason)
+		if err != nil {
+			qp.securityLogger.LogError(slackCtx.UserID, "help_system",
+				fmt.Sprintf("Failed to provide tool access help: %v", err))
+			return
+		}
+
+		// Only show help if confidence is above threshold
+		if !ShouldShowHelp(analysis) {
+			return
+		}
+
+		// Create help response
+		helpResponse := qp.helpIntegrator.CreateHelpResponse(analysis)
+
+		// Log the help for now - in a full implementation we'd send it via the notification system
+		qp.securityLogger.LogInfo(slackCtx.UserID, "help_system",
+			fmt.Sprintf("Tool access help prepared (confidence: %.2f): %s", analysis.Confidence, helpResponse.QuickText))
+	}
 }

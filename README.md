@@ -13,6 +13,7 @@ Marvin is a comprehensive AI agent platform that provides two ways to interact w
 - Enterprise Slack integration with admin approval workflows
 - Multi-user AI assistance with per-user session isolation
 - Natural language tool management and sharing
+- **🆕 Intelligent Help System** - AI-powered assistance when commands fail
 - Ideal for team collaboration and controlled environments
 
 ## 🚀 **Platform Capabilities**
@@ -20,6 +21,7 @@ Marvin is a comprehensive AI agent platform that provides two ways to interact w
 - **AI Reasoning Loop**: Connect to local LLMs with intelligent tool augmentation
 - **MCP Tool Integration**: Extensive support for Model Context Protocol tools
 - **Multi-Tenant Security**: Admin approval workflows and user isolation
+- **🆕 Intelligent Help**: AI-powered contextual assistance when commands fail
 - **Flexible Deployment**: CLI for development, Slack for collaboration
 
 ## What Marvin is not:

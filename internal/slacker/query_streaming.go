@@ -22,6 +22,7 @@ type QueryStreamer[LLM llm] struct {
 	config          *config.File
 	securityLogger  *sec.SecurityLogger
 	languageService LLM
+	helpIntegrator  *HelpIntegrator
 
 	//Deprecated: not used
 	formatter *SlackFormatter
@@ -35,6 +36,7 @@ func NewQueryStreamer[LLM llm](
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
 	languageService LLM,
+	helpIntegrator *HelpIntegrator,
 ) *QueryStreamer[LLM] {
 	return &QueryStreamer[LLM]{
 		tenantToolSet:   tenantToolSet,
@@ -43,6 +45,7 @@ func NewQueryStreamer[LLM llm](
 		securityLogger:  securityLogger,
 		formatter:       formatter,
 		languageService: languageService,
+		helpIntegrator:  helpIntegrator,
 	}
 }
 
@@ -92,6 +95,11 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 		qs.securityLogger.LogError(slackCtx.UserID, "model_access",
 			fmt.Sprintf("Model access denied: model=%s, reason=%s", model, reason))
 
+		// Provide intelligent help for model access denial
+		if qs.helpIntegrator != nil {
+			go qs.provideModelAccessHelp(ctx, slackCtx, model, reason)
+		}
+
 		// Fall back to default model if access is denied
 		model = config.DefaultLanguageModel
 		qs.securityLogger.LogInfo(slackCtx.UserID, "model_access",
@@ -99,4 +107,32 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 	}
 
 	return engine.RunConversation(ctx, model, updater)
+}
+
+// provideModelAccessHelp provides intelligent help when model access is denied
+func (qs *QueryStreamer[LLM]) provideModelAccessHelp(ctx context.Context, slackCtx *SlackContext, model, reason string) {
+	if qs.helpIntegrator == nil {
+		return
+	}
+
+	// Analyze the model access failure
+	analysis, err := qs.helpIntegrator.HandleModelAccessFailure(ctx, slackCtx.UserID, slackCtx.ChannelID, model, reason)
+	if err != nil {
+		qs.securityLogger.LogError(slackCtx.UserID, "help_system",
+			fmt.Sprintf("Failed to provide model access help: %v", err))
+		return
+	}
+
+	// Only show help if confidence is above threshold
+	if !ShouldShowHelp(analysis) {
+		return
+	}
+
+	// Create help response
+	helpResponse := qs.helpIntegrator.CreateHelpResponse(analysis)
+
+	// Send help message using PostMessageContext (similar to message_handler.go)
+	// This is a simplified approach - in a full implementation we'd need access to the Slack client
+	qs.securityLogger.LogInfo(slackCtx.UserID, "help_system",
+		fmt.Sprintf("Model access help prepared (confidence: %.2f): %s", analysis.Confidence, helpResponse.QuickText))
 }

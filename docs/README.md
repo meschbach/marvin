@@ -5,3 +5,4 @@ Marvin is a workbench for using and experimenting with Large Language tool model
 - [Resource Augmented Generation (RAG)](rag.md)
 - [Model Context Protocol (MCP)](mcp.md)
 - [Slack Integration & Tool Approvals](slacker/tools.md)
+- [Intelligent Help System](slacker/intelligent-help.md) - 🆕 AI-powered assistance when commands fail

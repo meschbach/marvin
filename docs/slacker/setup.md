@@ -148,6 +148,21 @@ system_prompt {
 You are a helpful AI assistant integrated with Slack...
 EOS
 }
+
+# Intelligent help system (NEW!)
+help_system {
+  enabled = true
+  confidence_threshold = 0.7      # Trigger help below this confidence
+  model = "ministral-3:3b"         # Model for help analysis
+  max_context_messages = 5         # Messages to consider for context
+  analysis_timeout = 5             # Timeout in seconds
+  
+  # Enable help for specific scenarios
+  help_on_intent_failure = true           # Command recognition help
+  help_on_model_access_denied = true      # Model access help  
+  help_on_tool_configuration_error = true # Tool setup help
+  help_on_tool_permission_denied = true   # Permission help
+}
 ```
 
 **Getting User IDs:**
@@ -353,10 +368,11 @@ Check application logs for:
 
 Once Slacker is running successfully:
 
-1. **[Admin Guide](admin-guide.md)**: Learn about user management and approval workflows
-2. **[Security Guide](security.md)**: Implement security best practices
-3. **[Tool Management Guide](tools-management.md)**: Advanced tool configuration and sharing
-4. **[Kubernetes Deployment](../deployment/kubernetes.md)**: Deploy Slacker in production
+1. **[Intelligent Help System](intelligent-help.md)**: 🆕 Learn about AI-powered help when commands fail
+2. **[Admin Guide](admin-guide.md)**: Learn about user management and approval workflows
+3. **[Security Guide](security.md)**: Implement security best practices
+4. **[Tool Management Guide](tools-management.md)**: Advanced tool configuration and sharing
+5. **[Kubernetes Deployment](../deployment/kubernetes.md)**: Deploy Slacker in production
 
 ## 📚 **Additional Resources**
 

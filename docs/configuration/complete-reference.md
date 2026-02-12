@@ -211,7 +211,102 @@ performance {
 }
 ```
 
-## Environment Variables
+## Intelligent Help System Configuration
+
+### Basic Help System Setup
+```hcl
+help_system {
+  enabled = true
+  confidence_threshold = 0.7      # Trigger help below this confidence
+  model = "ministral-3:3b"         # Model for help analysis
+  max_context_messages = 5         # Messages to consider for context
+  analysis_timeout = 5             # Timeout in seconds
+  
+  # Enable help for specific scenarios
+  help_on_intent_failure = true           # Command recognition help
+  help_on_model_access_denied = true      # Model access help
+  help_on_tool_configuration_error = true # Tool setup help
+  help_on_tool_permission_denied = true   # Permission help
+}
+```
+
+### Advanced Help System Settings
+```hcl
+help_system {
+  # Basic settings
+  enabled = true
+  model = "ministral-3:3b"
+  confidence_threshold = 0.7
+  max_context_messages = 5
+  analysis_timeout = 5
+  
+  # Response customization
+  help_emoji = "🤖"
+  error_emoji = "❌"
+  suggestion_emoji = "💡"
+  max_suggestions = 3
+  
+  # Advanced features
+  enable_analytics = true
+  collect_feedback = true
+  cache_responses = true
+  cache_ttl = "1h"
+  
+  # Custom examples for your organization
+  custom_examples = {
+    "kubectl" = "kubectl get pods -n production"
+    "terraform" = "terraform plan -var-file=prod.tfvars"
+    "docker" = "docker run -d -p 80:80 nginx:latest"
+  }
+  
+  # Help type controls
+  help_on_intent_failure = true
+  help_on_model_access_denied = true
+  help_on_tool_configuration_error = true
+  help_on_tool_permission_denied = true
+  help_on_admin_requests = true
+  
+  # Analytics and monitoring
+  analytics_retention_days = 30
+  track_user_feedback = true
+  log_help_requests = true
+}
+```
+
+### Help System Parameters
+
+#### Core Parameters
+- `enabled`: Enable/disable the entire help system (default: true)
+- `model`: LLM model for help analysis (default: main model)
+- `confidence_threshold`: Trigger help below this confidence (0.0-1.0, default: 0.7)
+- `max_context_messages`: Messages to consider for context (default: 5)
+- `analysis_timeout`: Help analysis timeout in seconds (default: 5)
+
+#### Response Customization
+- `help_emoji`: Emoji for help messages (default: "🤖")
+- `error_emoji`: Emoji for error help (default: "❌")
+- `suggestion_emoji`: Emoji for suggestions (default: "💡")
+- `max_suggestions`: Maximum suggestions to show (default: 3)
+
+#### Feature Controls
+- `help_on_intent_failure`: Enable command recognition help (default: true)
+- `help_on_model_access_denied`: Enable model access help (default: true)
+- `help_on_tool_configuration_error`: Enable tool setup help (default: true)
+- `help_on_tool_permission_denied`: Enable permission help (default: true)
+- `help_on_admin_requests`: Enable admin-specific help (default: true)
+
+#### Advanced Features
+- `enable_analytics`: Track help system metrics (default: false)
+- `collect_feedback`: Collect user feedback (default: false)
+- `cache_responses`: Cache similar help responses (default: false)
+- `cache_ttl`: Cache duration for help responses (default: "1h")
+
+#### Analytics
+- `analytics_retention_days`: Days to retain analytics data (default: 30)
+- `track_user_feedback`: Track user feedback on help (default: true)
+- `log_help_requests`: Log all help requests (default: true)
+
+### Environment Variables
 
 ### Marvin Configuration
 ```bash

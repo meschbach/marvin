@@ -195,6 +195,21 @@ func NewIntentProcessor() *IntentProcessor {
 				Action:     "model_access_status",
 				Confidence: 0.85,
 			},
+			{
+				Pattern:    `(?i)admin (?:help|assist|guidance) (.+)`,
+				Action:     "admin_help",
+				Confidence: 0.9,
+			},
+			{
+				Pattern:    `(?i)(?:help|assist) me with admin (.+)`,
+				Action:     "admin_help",
+				Confidence: 0.85,
+			},
+			{
+				Pattern:    `(?i)(?:escalate|escalation) (.+)`,
+				Action:     "admin_escalation",
+				Confidence: 0.9,
+			},
 		},
 	}
 }
@@ -272,6 +287,14 @@ func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent
 				// Remove @ prefix if present
 				intent.TargetUser = strings.TrimPrefix(intent.TargetUser, "@")
 			}
+		case "admin_help":
+			if len(matches) > 1 {
+				intent.Config = strings.TrimSpace(matches[1])
+			}
+		case "admin_escalation":
+			if len(matches) > 1 {
+				intent.Config = strings.TrimSpace(matches[1])
+			}
 		case "toggle_thinking", "set_thinking_format", "toggle_tools", "toggle_done", "toggle_verbose":
 			// Extract the value from the full message for more flexible parsing
 			message = strings.ToLower(message)
@@ -295,6 +318,12 @@ func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent
 
 		bestMatch = intent
 		highestConfidence = pattern.Confidence
+	}
+
+	// If no confident intent match found, check if we should provide intelligent help
+	if bestMatch == nil {
+		// This will be handled by MessageHandler for intelligent help
+		return nil, nil
 	}
 
 	return bestMatch, nil

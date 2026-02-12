@@ -205,6 +205,59 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 	return userToolSet, nil
 }
 
+// GetUserToolsWithDeniedInfo returns both available tools and information about denied tools
+func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCtx *UserContext) (*ToolSet, []string, error) {
+	tts.mutex.RLock()
+	defer tts.mutex.RUnlock()
+
+	userToolSet := &ToolSet{
+		byName:       make(map[string]Tool),
+		defs:         make(api.Tools, 0),
+		instructions: make([]api.Message, 0),
+		container:    tts.container,
+		gateway:      tts.gateway,
+	}
+
+	var deniedTools []string
+
+	// Always add global HTTP tools (available to everyone)
+	for name, tool := range tts.globalTools {
+		// Check if this is an HTTP tool or if user has access to restricted tools
+		if tts.canUserAccessTool(userCtx.UserID, name) || tts.isHTTPTool(name) {
+			def, err := tool.defineAPI(ctx)
+			if err != nil {
+				continue
+			}
+			userToolSet.byName[name] = tool
+			userToolSet.defs = append(userToolSet.defs, def.tool...)
+			userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+		} else if !tts.isHTTPTool(name) {
+			// Track denied tools (non-HTTP tools that user can't access)
+			deniedTools = append(deniedTools, name)
+		}
+	}
+
+	// Add user-specific tools
+	if userTools, exists := tts.userTools[userCtx.UserID]; exists {
+		for name, tool := range userTools {
+			if tts.canUserAccessTool(userCtx.UserID, name) {
+				def, err := tool.defineAPI(ctx)
+				if err != nil {
+					continue
+				}
+				userToolSet.byName[name] = tool
+				userToolSet.defs = append(userToolSet.defs, def.tool...)
+				userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+			} else {
+				// Track denied user-specific tools
+				deniedTools = append(deniedTools, name)
+			}
+		}
+	}
+
+	return userToolSet, deniedTools, nil
+}
+
 // canUserAccessTool checks if a user has permission to access a tool
 func (tts *TenantToolSet) canUserAccessTool(userID, toolID string) bool {
 	// Admins can access all tools

@@ -29,9 +29,13 @@ func TestMessageFlow_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	// Create a simple test configuration with a model
+	// Create a simple test configuration with a model and disabled help for integration tests
+	helpDisabled := false
 	cfg := &config.File{
 		Model: "test-model", // Set a model name
+		HelpSystem: &config.HelpSystemBlock{
+			Enabled: &helpDisabled, // Disable help system in integration tests
+		},
 	}
 
 	// Create tenant tool set with context
@@ -42,8 +46,14 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create formatter
 	formatter := NewSlackFormatter()
 
+	// Create help integrator for tests
+	mockLLM := &MockLLM{}
+	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
+	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
+	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
+
 	// Create query processor
-	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter)
+	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
 
 	// Create intent processor
 	intentProcessor := NewIntentProcessor()
@@ -55,7 +65,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 	notificationSender := NewMockNotificationSender()
 
 	// Create tool manager
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
 
 	// Create a mock connection (create a real client to avoid panics in GetUserInfo)
 	conn := &SlackConnection{
@@ -63,15 +73,24 @@ func TestMessageFlow_Integration(t *testing.T) {
 		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
 	}
 
-	// Create message handler
-	messageHandler := NewMessageHandler(
+	// Disable help system for integration tests
+	testHelpDisabled := false
+	testConfig := &config.File{
+		HelpSystem: &config.HelpSystemBlock{
+			Enabled: &testHelpDisabled,
+		},
+	}
+
+	// Create message handler with help disabled
+	var messageHandler *MessageHandler
+	messageHandler = NewMessageHandler(
 		intentProcessor,
 		conn,
 		queryProcessor,
 		toolManager,
 		sessionManager,
 		logger,
-		&config.File{}, // Empty config for testing
+		testConfig,
 		tenantToolSet,
 	)
 
@@ -189,19 +208,32 @@ func TestEventRouter_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	cfg := &config.File{Model: "test-model"}
+	helpDisabled := false
+	cfg := &config.File{
+		Model: "test-model",
+		HelpSystem: &config.HelpSystemBlock{
+			Enabled: &helpDisabled, // Disable help system in integration tests
+		},
+	}
 	ctx := context.Background()
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
 	require.NoError(t, err)
 
 	formatter := NewSlackFormatter()
-	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter)
+
+	// Create help integrator for tests
+	mockLLM := &MockLLM{}
+	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
+	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
+	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
+
+	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
 	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
 	// Create mock notification sender to avoid nil pointer issues
 	notificationSender := NewMockNotificationSender()
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
 
 	conn := &SlackConnection{
 		botUserID: "U123456789",
@@ -215,7 +247,7 @@ func TestEventRouter_Integration(t *testing.T) {
 		toolManager,
 		sessionManager,
 		logger,
-		&config.File{}, // Empty config for testing
+		cfg, // Use config with help disabled
 		tenantToolSet,
 	)
 

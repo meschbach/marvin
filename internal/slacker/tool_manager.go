@@ -18,6 +18,7 @@ type ToolManagerImpl struct {
 	securityLogger     *sec.SecurityLogger
 	notificationSender OutgoingMessages
 	sessionManager     *SessionManager
+	helpIntegrator     *HelpIntegrator
 }
 
 // NewToolManager creates a new tool manager
@@ -27,6 +28,7 @@ func NewToolManager(
 	securityLogger *sec.SecurityLogger,
 	notificationSender OutgoingMessages,
 	sessionManager *SessionManager,
+	helpIntegrator *HelpIntegrator,
 ) *ToolManagerImpl {
 	return &ToolManagerImpl{
 		approvalWorkflow:   approvalWorkflow,
@@ -34,6 +36,7 @@ func NewToolManager(
 		securityLogger:     securityLogger,
 		notificationSender: notificationSender,
 		sessionManager:     sessionManager,
+		helpIntegrator:     helpIntegrator,
 	}
 }
 
@@ -64,6 +67,11 @@ func (tm *ToolManagerImpl) handleAddTool(ctx context.Context, slackCtx *SlackCon
 	// Parse tool configuration
 	toolConfig, err := ParseToolConfig(intent.ToolType, intent.Config.(string))
 	if err != nil {
+		// Provide intelligent help for tool configuration errors
+		if tm.helpIntegrator != nil {
+			go tm.provideToolConfigHelp(ctx, slackCtx, intent.ToolType, intent.Config.(string), err)
+		}
+
 		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error parsing tool configuration: %s", err.Error()))
 	}
 
@@ -170,4 +178,31 @@ func (tm *ToolManagerImpl) handleResetSession(ctx context.Context, slackCtx *Sla
 
 	tm.securityLogger.LogSessionEvent(slackCtx.UserID, slackCtx.ChannelID, "Session reset by user")
 	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "✅ Your conversation history has been cleared")
+}
+
+// provideToolConfigHelp provides intelligent help when tool configuration fails
+func (tm *ToolManagerImpl) provideToolConfigHelp(ctx context.Context, slackCtx *SlackContext, toolType, configStr string, err error) {
+	if tm.helpIntegrator == nil {
+		return
+	}
+
+	// Analyze the tool configuration error
+	analysis, err := tm.helpIntegrator.HandleToolConfigError(ctx, slackCtx.UserID, slackCtx.ChannelID, toolType, configStr, err)
+	if err != nil {
+		tm.securityLogger.LogError(slackCtx.UserID, "help_system",
+			fmt.Sprintf("Failed to provide tool config help: %v", err))
+		return
+	}
+
+	// Only show help if confidence is above threshold
+	if !ShouldShowHelp(analysis) {
+		return
+	}
+
+	// Create help response
+	helpResponse := tm.helpIntegrator.CreateHelpResponse(analysis)
+
+	// Log the help for now - in a full implementation we'd send it via the notification system
+	tm.securityLogger.LogInfo(slackCtx.UserID, "help_system",
+		fmt.Sprintf("Tool config help prepared (confidence: %.2f): %s", analysis.Confidence, helpResponse.QuickText))
 }

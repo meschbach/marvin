@@ -34,6 +34,28 @@ type ModelOptionsBlock struct {
 	Stop []string `hcl:"stop,optional"`
 }
 
+// HelpSystemBlock contains configuration for the intelligent help system
+type HelpSystemBlock struct {
+	// Enable the help system (default: true)
+	Enabled *bool `hcl:"enabled,optional"`
+	// Model to use for help analysis (defaults to main model)
+	Model *string `hcl:"model,optional"`
+	// Maximum number of previous messages to analyze for context
+	MaxContextMessages *int `hcl:"max_context_messages,optional"`
+	// Maximum time to wait for help analysis (in seconds)
+	AnalysisTimeout *int `hcl:"analysis_timeout,optional"`
+	// Minimum confidence threshold for offering help (0.0-1.0)
+	MinConfidenceThreshold *float32 `hcl:"min_confidence_threshold,optional"`
+	// Whether to offer help for intent failures
+	HelpOnIntentFailure *bool `hcl:"help_on_intent_failure,optional"`
+	// Whether to offer help for model access denials
+	HelpOnModelAccessDenied *bool `hcl:"help_on_model_access_denied,optional"`
+	// Whether to offer help for tool configuration errors
+	HelpOnToolConfigurationError *bool `hcl:"help_on_tool_configuration_error,optional"`
+	// Whether to offer help for tool permission denials
+	HelpOnToolPermissionDenied *bool `hcl:"help_on_tool_permission_denied,optional"`
+}
+
 // DisplayBlock contains configuration for output display preferences
 type DisplayBlock struct {
 	// Show model thinking process
@@ -63,6 +85,8 @@ type File struct {
 	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
 	MultiTenant    *MultiTenantBlock `hcl:"multi_tenant,block"`
 	ModelAccess    *ModelAccessBlock `hcl:"model_access,block"`
+	// Help system configuration for intelligent assistance
+	HelpSystem *HelpSystemBlock `hcl:"help_system,block"`
 	// Display preferences for output formatting
 	Display *DisplayBlock `hcl:"display,block"`
 }
@@ -246,6 +270,78 @@ func (f *File) ToolFormat() string {
 		return *f.Display.ToolFormat
 	}
 	return "detailed" // default: detailed format
+}
+
+// HelpSystemEnabled returns whether the help system is enabled
+func (f *File) HelpSystemEnabled() bool {
+	if f.HelpSystem != nil && f.HelpSystem.Enabled != nil {
+		return *f.HelpSystem.Enabled
+	}
+	return true // default: enabled
+}
+
+// HelpSystemModel returns the model to use for help analysis
+func (f *File) HelpSystemModel() string {
+	if f.HelpSystem != nil && f.HelpSystem.Model != nil {
+		return *f.HelpSystem.Model
+	}
+	return f.LanguageModel() // default: use main model
+}
+
+// HelpSystemMaxContextMessages returns the maximum number of previous messages to analyze
+func (f *File) HelpSystemMaxContextMessages() int {
+	if f.HelpSystem != nil && f.HelpSystem.MaxContextMessages != nil {
+		return *f.HelpSystem.MaxContextMessages
+	}
+	return 10 // default: analyze last 10 messages
+}
+
+// HelpSystemAnalysisTimeout returns the analysis timeout in seconds
+func (f *File) HelpSystemAnalysisTimeout() time.Duration {
+	if f.HelpSystem != nil && f.HelpSystem.AnalysisTimeout != nil {
+		return time.Duration(*f.HelpSystem.AnalysisTimeout) * time.Second
+	}
+	return 30 * time.Second // default: 30 seconds
+}
+
+// HelpSystemMinConfidenceThreshold returns the minimum confidence threshold
+func (f *File) HelpSystemMinConfidenceThreshold() float32 {
+	if f.HelpSystem != nil && f.HelpSystem.MinConfidenceThreshold != nil {
+		return *f.HelpSystem.MinConfidenceThreshold
+	}
+	return 0.7 // default: 70% confidence
+}
+
+// HelpSystemShouldHelpOnIntentFailure returns whether to help on intent failures
+func (f *File) HelpSystemShouldHelpOnIntentFailure() bool {
+	if f.HelpSystem != nil && f.HelpSystem.HelpOnIntentFailure != nil {
+		return *f.HelpSystem.HelpOnIntentFailure
+	}
+	return true // default: enabled
+}
+
+// HelpSystemShouldHelpOnModelAccessDenied returns whether to help on model access denials
+func (f *File) HelpSystemShouldHelpOnModelAccessDenied() bool {
+	if f.HelpSystem != nil && f.HelpSystem.HelpOnModelAccessDenied != nil {
+		return *f.HelpSystem.HelpOnModelAccessDenied
+	}
+	return true // default: enabled
+}
+
+// HelpSystemShouldHelpOnToolConfigurationError returns whether to help on tool configuration errors
+func (f *File) HelpSystemShouldHelpOnToolConfigurationError() bool {
+	if f.HelpSystem != nil && f.HelpSystem.HelpOnToolConfigurationError != nil {
+		return *f.HelpSystem.HelpOnToolConfigurationError
+	}
+	return true // default: enabled
+}
+
+// HelpSystemShouldHelpOnToolPermissionDenied returns whether to help on tool permission denials
+func (f *File) HelpSystemShouldHelpOnToolPermissionDenied() bool {
+	if f.HelpSystem != nil && f.HelpSystem.HelpOnToolPermissionDenied != nil {
+		return *f.HelpSystem.HelpOnToolPermissionDenied
+	}
+	return true // default: enabled
 }
 
 // LoadModelAccessState loads model access state from the slacker-state directory

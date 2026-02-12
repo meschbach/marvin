@@ -2,6 +2,8 @@
 
 This document describes the tool approval workflow in Marvin's Slack integration, which provides secure tool management with admin oversight for multi-tenant safety.
 
+**🆕 Intelligent Help**: When tool commands fail or access is denied, Marvin's [intelligent help system](intelligent-help.md) provides contextual assistance and guidance.
+
 ## Overview
 
 The tool approval system ensures that potentially dangerous tools (local programs and Docker containers) require admin approval before users can use them in their conversations. This provides security boundaries while maintaining flexibility for legitimate use cases.

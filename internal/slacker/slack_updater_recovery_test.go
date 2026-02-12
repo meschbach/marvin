@@ -39,8 +39,9 @@ func TestSlackUpdater_FormattingErrorRecovery(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	errorFormatter := &MockErrorFormatter{}
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
 	ctx := context.Background()
 
 	// First message should not crash despite formatting error
@@ -60,8 +61,9 @@ func TestSlackUpdater_MultipleFormattingErrorsContinue(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	errorFormatter := &MockErrorFormatter{}
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
 	ctx := context.Background()
 
 	// Add multiple pieces of content - none should crash
@@ -91,8 +93,9 @@ func TestSlackUpdater_FormatterWorksNormally(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	content := "# Test Header\n\nThis is a test message."
@@ -112,8 +115,9 @@ func TestSlackUpdater_ContentIgnoreType(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	errorFormatter := &MockErrorFormatter{}
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
 	ctx := context.Background()
 
 	// Simulate ContentIgnore type by accessing internal method
@@ -138,8 +142,9 @@ func TestSlackUpdater_NotificationFlagBehavior(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	errorFormatter := &MockErrorFormatter{}
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
 	ctx := context.Background()
 
 	// Check initial state
@@ -173,8 +178,9 @@ func TestSlackUpdater_NotificationResetOnStateTransition(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	errorFormatter := &MockErrorFormatter{}
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
 	ctx := context.Background()
 
 	// Start in init state
@@ -217,7 +223,8 @@ func TestSlackUpdater_TimeProviderWorks(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 	timeProvider := &MockTimeProvider{CurrentTime: fixedTime}
 
-	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, WithTimeProvider(timeProvider))
+	preferences := DefaultUserPreferences()
+	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences, WithTimeProvider(timeProvider))
 	ctx := context.Background()
 
 	err := updater.AddContent(ctx, "test message")
@@ -241,8 +248,9 @@ func TestSlackUpdater_WorkingFormatterNoNotification(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	err := updater.AddContent(ctx, "test message")
@@ -293,8 +301,9 @@ func TestSlackUpdater_SlackAPIInvalidBlocksRecovery(t *testing.T) {
 		failureCount:   1,
 	}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	err := updater.AddContent(ctx, "test message")
@@ -317,8 +326,9 @@ func TestSlackUpdater_SlackAPIInvalidBlocksRecoveryUpdate(t *testing.T) {
 		failureCount:     1,
 	}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	// First, post a message to get a timestamp
@@ -350,8 +360,9 @@ func TestSlackUpdater_CharacterLimitEnforcement(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	// Create a very long message that exceeds limits
@@ -375,8 +386,9 @@ func TestSlackUpdater_CharacterLimitEnforcementWithManyBlocks(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	// Create content that would result in many blocks
@@ -442,8 +454,9 @@ func TestEnforceSlackLimitsIntegration(t *testing.T) {
 
 	mockClient := &CapturingSlackSink{}
 	workingFormatter := NewSlackFormatter()
+	preferences := DefaultUserPreferences()
 
-	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter)
+	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
 	ctx := context.Background()
 
 	// Test with extremely long content that should be truncated
