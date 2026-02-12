@@ -20,7 +20,11 @@ func queryCommand(global *globalOptions) *cobra.Command {
 			actualQuery := strings.Join(args, " ")
 			if actualQuery == "" {
 				fmt.Fprintln(os.Stderr, "No query provided")
-				_ = cmd.Help()
+				if err := cmd.Help(); err != nil {
+					if _, pErr := fmt.Fprintf(os.Stderr, "Error displaying help: %v\n", err); pErr != nil {
+						panic(pErr)
+					}
+				}
 				return
 			}
 

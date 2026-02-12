@@ -20,7 +20,11 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create temporary directory for session storage
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	// Create security logger
 	logger := security.NewSecurityLogger()
@@ -82,8 +86,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 	}
 
 	// Create message handler with help disabled
-	var messageHandler *MessageHandler
-	messageHandler = NewMessageHandler(
+	messageHandler := NewMessageHandler(
 		intentProcessor,
 		conn,
 		queryProcessor,
@@ -201,7 +204,11 @@ func TestEventRouter_Integration(t *testing.T) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	// Setup components
 	logger := security.NewSecurityLogger()

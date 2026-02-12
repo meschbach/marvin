@@ -47,6 +47,51 @@ The project uses GitHub Actions with:
 - Unit tests: `go test -count 1 ./internal/...`
 - Integration tests: `./test.sh` (requires Ollama with specific models)
 
+### Pre-commit Hooks
+The project uses pre-commit hooks to ensure code quality standards and provide fast developer feedback:
+
+**Setup:**
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks for this repository
+pre-commit install
+
+# Run hooks on all files (initial setup or verification)
+pre-commit run --all-files
+
+# Update hooks to latest versions
+pre-commit autoupdate
+```
+
+**Hook Configuration:**
+- `go fmt` - Auto-format Go code (auto-fixes)
+- `go mod tidy` - Clean up dependencies (auto-fixes)
+- `go vet` - Static analysis for common issues
+- `golangci-lint` - Comprehensive linting with default settings
+- `go test -count 1 ./internal/...` - Unit tests (fast, matches CI)
+- `go build` - Verify marvin and slacker binaries compile
+
+**Development Workflow:**
+- Hooks run automatically on `git commit`
+- Failed commits will show specific error messages
+- Auto-fix available for formatting and dependency issues
+- Skip if needed: `git commit --no-verify` (use sparingly)
+- Target execution time: < 30 seconds total
+
+**Agent Usage:**
+When implementing changes, ensure all pre-commit hooks pass before considering work complete:
+```bash
+# Verify manually before finishing
+pre-commit run --all-files
+
+# Run specific hook category
+pre-commit run go-fmt go-mod-tidy go-vet
+pre-commit run golangci-lint
+pre-commit run go-test-unit go-build-marvin go-build-slacker
+```
+
 ## Code Style Guidelines
 
 ### File and Package Structure

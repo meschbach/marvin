@@ -1,0 +1,85 @@
+# Pre-commit hooks for Marvin project
+# Ensures code quality standards with fast developer feedback
+
+repos:
+  - repo: local
+    hooks:
+      # Phase 1: Fast Local Checks
+      - id: go-fmt
+        name: go fmt
+        entry: gofmt
+        language: system
+        args: ["-w", "."]
+        files: '\.go$'
+        description: Format Go code according to standard conventions
+
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go
+        language: system
+        args: ["mod", "tidy"]
+        files: '(go\.mod|go\.sum)$'
+        pass_filenames: false
+        description: Clean up go.mod and go.sum dependencies
+
+      - id: go-vet
+        name: go vet
+        entry: go
+        language: system
+        args: ["vet", "./..."]
+        files: '\.go$'
+        pass_filenames: false
+        description: Analyze Go code for potential issues
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: golangci-lint
+        language: system
+        args: ["run", "--timeout=5m"]
+        files: '\.go$'
+        pass_filenames: false
+        description: Comprehensive Go linting with default settings
+
+      # Phase 2: Unit Tests (Fast - matches CI unit tests)
+      - id: go-test-unit
+        name: go test unit
+        entry: go
+        language: system
+        args: ["test", "-count", "1", "./internal/..."]
+        files: '\.go$'
+        pass_filenames: false
+        description: Run unit tests to verify functionality
+
+      # Phase 3: Build Verification
+      - id: go-build-marvin
+        name: go build marvin
+        entry: go
+        language: system
+        args: ["build", "-o", "marvin", "./cmd/marvin"]
+        files: '\.go$'
+        pass_filenames: false
+        description: Verify marvin binary builds successfully
+
+      - id: go-build-slacker
+        name: go build slacker
+        entry: go
+        language: system
+        args: ["build", "-o", "slacker", "./cmd/slacker"]
+        files: '\.go$'
+        pass_filenames: false
+        description: Verify slacker binary builds successfully
+
+# Global configuration
+default_stages: [pre-commit]
+fail_fast: false
+default_language_version:
+  golang: '1.25'
+
+# Skip patterns for generated files or third-party code
+exclude: |
+  (?x)^(
+    vendor/.*|
+    \.git/.*|
+    release/.*|
+    \. Marvin/.*
+  )$

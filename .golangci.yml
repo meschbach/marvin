@@ -1,0 +1,32 @@
+version: "2"
+
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  settings:
+    gocyclo:
+      min-complexity: 8
+    misspell:
+      locale: US
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+      disable-default-exclusions: true
+      exclude-functions:
+        # Exclude fmt.Print family functions from errcheck
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Print
+        - fmt.Printf
+        - fmt.Println
+        - (*strings.Builder).WriteString

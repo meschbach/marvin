@@ -122,7 +122,10 @@ func TestSlackUpdater_ContentIgnoreType(t *testing.T) {
 
 	// Simulate ContentIgnore type by accessing internal method
 	updater.mutex.Lock()
-	updater.switchToType(ctx, updaterStateComplete)
+	if _, err := updater.switchToType(ctx, updaterStateComplete); err != nil {
+		updater.mutex.Unlock()
+		t.Fatalf("Failed to switch to complete state: %v", err)
+	}
 	updater.mutex.Unlock()
 
 	err := updater.ForceUpdate(ctx)

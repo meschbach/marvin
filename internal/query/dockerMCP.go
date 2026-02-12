@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	dockerclient "github.com/docker/docker/client"
@@ -45,9 +46,9 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 	}()
 
 	// 1. Pull image if it does not exist
-	_, _, err = cli.ImageInspectWithRaw(ctx, d.cfg.Image)
+	_, err = cli.ImageInspect(ctx, d.cfg.Image)
 	if err != nil {
-		if dockerclient.IsErrNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			fmt.Printf("Pulling image %s...\n", d.cfg.Image)
 			pullOut, err := cli.ImagePull(ctx, d.cfg.Image, image.PullOptions{})
 			if err != nil {
@@ -144,9 +145,16 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 	stderrReader, stderrWriter := io.Pipe()
 
 	go func() {
-		stdcopy.StdCopy(stdoutWriter, stderrWriter, attach.Reader)
-		stdoutWriter.CloseWithError(io.EOF)
-		stderrWriter.CloseWithError(io.EOF)
+		if _, err := stdcopy.StdCopy(stdoutWriter, stderrWriter, attach.Reader); err != nil {
+			// Log error but continue - stderr pump failure shouldn't stop the container
+			fmt.Printf("Error copying docker output: %v\n", err)
+		}
+		if err := stdoutWriter.CloseWithError(io.EOF); err != nil {
+			panic(err)
+		}
+		if err := stderrWriter.CloseWithError(io.EOF); err != nil {
+			panic(err)
+		}
 	}()
 	startedStderrPump := make(chan struct{})
 
@@ -159,7 +167,10 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 			}
 			//todo: handle errors.
 		} else {
-			io.Copy(io.Discard, stderrReader)
+			if _, err := io.Copy(io.Discard, stderrReader); err != nil {
+				// Log error but continue - stderr pump failure shouldn't stop the container
+				fmt.Printf("Error discarding stderr: %v\n", err)
+			}
 		}
 	}()
 	<-startedStderrPump

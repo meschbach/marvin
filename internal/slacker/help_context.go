@@ -381,9 +381,7 @@ func (hm *HelpMetrics) RecordUserFeedback(failureType string, rating int, commen
 	}
 
 	// Track feedback comments if needed (could be expanded later)
-	if comment != "" {
-		// For now, just log that feedback was received
-	}
+	_ = comment // Placeholder for future comment tracking functionality
 }
 
 // GetPerformanceReport returns a formatted performance report

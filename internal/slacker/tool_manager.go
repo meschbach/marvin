@@ -2,6 +2,7 @@ package slacker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -65,11 +66,15 @@ func (tm *ToolManagerImpl) HandleToolIntent(ctx context.Context, slackCtx *Slack
 // handleAddTool handles adding new tools
 func (tm *ToolManagerImpl) handleAddTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
 	// Parse tool configuration
-	toolConfig, err := ParseToolConfig(intent.ToolType, intent.Config.(string))
+	configString, convertible := intent.Config.(string)
+	if !convertible {
+		return errors.New("config is not a string")
+	}
+	toolConfig, err := ParseToolConfig(intent.ToolType, configString)
 	if err != nil {
 		// Provide intelligent help for tool configuration errors
 		if tm.helpIntegrator != nil {
-			go tm.provideToolConfigHelp(ctx, slackCtx, intent.ToolType, intent.Config.(string), err)
+			go tm.provideToolConfigHelp(ctx, slackCtx, intent.ToolType, configString, err)
 		}
 
 		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error parsing tool configuration: %s", err.Error()))
@@ -112,7 +117,7 @@ func (tm *ToolManagerImpl) handleAddTool(ctx context.Context, slackCtx *SlackCon
 func (tm *ToolManagerImpl) handleShareTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
 	// TODO: Implement tool sharing logic
 	tm.securityLogger.LogToolShare(slackCtx.UserID, intent.TargetUser, intent.Target)
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("🔄 Tool sharing requested. Feature coming soon!"))
+	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "🔄 Tool sharing requested. Feature coming soon!")
 }
 
 // handleListTools lists available tools for the user
@@ -136,7 +141,7 @@ func (tm *ToolManagerImpl) handleListTools(ctx context.Context, slackCtx *SlackC
 // handleRemoveTool handles removing tools
 func (tm *ToolManagerImpl) handleRemoveTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
 	// TODO: Implement tool removal logic
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("🗑️ Tool removal requested. Feature coming soon!"))
+	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "🗑️ Tool removal requested. Feature coming soon!")
 }
 
 // handleApprovalCommand handles approve/reject commands via natural language
@@ -160,7 +165,9 @@ func (tm *ToolManagerImpl) handleApprovalCommand(ctx context.Context, slackCtx *
 	} else {
 		reason := "No reason provided"
 		if intent.Config != nil {
-			reason = intent.Config.(string)
+			if configString, convertible := intent.Config.(string); convertible {
+				reason = configString
+			}
 		}
 		if err := tm.approvalWorkflow.RejectTool(slackCtx.UserID, requestID, reason); err != nil {
 			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error rejecting request: %s", err.Error()))

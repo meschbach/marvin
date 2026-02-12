@@ -52,8 +52,14 @@ for Slacker operations based on model access control configuration.`,
 
 			if showAccess && cfg.MultiTenant != nil {
 				// Show access information for Slacker operations
-				fmt.Fprintln(w, "MODEL\tSIZE\tSTATUS\tACCESS")
-				fmt.Fprintln(w, "-----\t----\t------\t------")
+				if _, err := fmt.Fprintln(w, "MODEL\tSIZE\tSTATUS\tACCESS"); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing header: %v\n", err)
+					return
+				}
+				if _, err := fmt.Fprintln(w, "-----\t----\t------\t------"); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing separator: %v\n", err)
+					return
+				}
 
 				for _, model := range models.Models {
 					// Check access for a regular user (empty userID)
@@ -70,19 +76,33 @@ for Slacker operations based on model access control configuration.`,
 						access += " (default)"
 					}
 
-					fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", model.Name, model.Size, status, access)
+					if _, err := fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", model.Name, model.Size, status, access); err != nil {
+						fmt.Fprintf(os.Stderr, "Error writing model info: %v\n", err)
+						return
+					}
 				}
 			} else {
 				// Simple model list
-				fmt.Fprintln(w, "MODEL\tSIZE")
-				fmt.Fprintln(w, "-----\t----")
+				if _, err := fmt.Fprintln(w, "MODEL\tSIZE"); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing header: %v\n", err)
+					return
+				}
+				if _, err := fmt.Fprintln(w, "-----\t----"); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing separator: %v\n", err)
+					return
+				}
 
 				for _, model := range models.Models {
-					fmt.Fprintf(w, "%s\t%d\n", model.Name, model.Size)
+					if _, err := fmt.Fprintf(w, "%s\t%d\n", model.Name, model.Size); err != nil {
+						fmt.Fprintf(os.Stderr, "Error writing model info: %v\n", err)
+						return
+					}
 				}
 			}
 
-			w.Flush()
+			if err := w.Flush(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error flushing output: %v\n", err)
+			}
 
 			// Show current model configuration
 			currentModel := cfg.LanguageModel()

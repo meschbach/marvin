@@ -23,14 +23,22 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
 		return
 	}
-	defer realToolSet.Shutdown(ctx)
+	defer func() {
+		if err := realToolSet.Shutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error shutting down real tool set: %v\n", err)
+		}
+	}()
 
 	reasoningToolset, err := NewToolSet(ctx, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
 	}
-	defer reasoningToolset.Shutdown(ctx)
+	defer func() {
+		if err := reasoningToolset.Shutdown(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error shutting down reasoning tool set: %v\n", err)
+		}
+	}()
 	//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
 	//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
 	//	return err
@@ -78,44 +86,6 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
 		return
 	}
-}
-
-type reasoningStep struct {
-	steps []string
-}
-
-func (r reasoningStep) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	fmt.Printf("invoked reasoning step with %s\n", call.Function.Arguments.String())
-	return []api.Message{
-		{
-			Role:       RoleToolResult,
-			Content:    call.Function.Arguments.String(),
-			ToolName:   call.Function.Name,
-			ToolCallID: call.ID,
-		},
-	}, nil
-}
-
-func (r reasoningStep) defineAPI(ctx context.Context) (tool api.Tools, problem error) {
-	props := api.NewToolPropertiesMap()
-	props.Set("step", api.ToolProperty{
-		Type:        []string{"string"},
-		Description: "Defines the step to be taken",
-	})
-	return api.Tools{
-		{
-			Type: "function",
-			Function: api.ToolFunction{
-				Name:        "reasoning_step",
-				Description: "Defines a small and finite step to approach the problem",
-				Parameters: api.ToolFunctionParameters{
-					Type:       "object",
-					Required:   []string{"step"},
-					Properties: props,
-				},
-			},
-		},
-	}, nil
 }
 
 type questionForUser struct {

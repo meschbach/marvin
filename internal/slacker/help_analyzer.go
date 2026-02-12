@@ -399,7 +399,7 @@ func (h *HelpAnalyzer) extractJSON(response string) string {
 	}
 
 	// Try to find JSON-like content with braces
-	bracePattern := regexp.MustCompile("\\{[\\s\\S]*\\}")
+	bracePattern := regexp.MustCompile(`\{[\s\S]*\}`)
 	matches = bracePattern.FindStringSubmatch(response)
 
 	if len(matches) > 0 {

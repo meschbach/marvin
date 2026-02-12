@@ -89,9 +89,7 @@ func (eia *EnhancedIntentAnalyzer) enhanceIntentAnalysis(baseAnalysis *HelpAnaly
 	}
 
 	// Add contextual suggestions
-	for _, ctx := range contextual {
-		allSuggestions = append(allSuggestions, ctx)
-	}
+	allSuggestions = append(allSuggestions, contextual...)
 
 	// Enhance examples
 	allExamples := make([]string, 0, len(baseAnalysis.Examples))

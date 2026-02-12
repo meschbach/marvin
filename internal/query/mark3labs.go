@@ -116,7 +116,7 @@ func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinit
 			return definitions, &operationalError{"list resource templates", err}
 		}
 		for _, rt := range resourceTemplates.ResourceTemplates {
-			content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Template.Raw(), rt.Description)
+			content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Template.Raw(), rt.Description) //nolint:staticcheck
 			m.resourceInstructions = append(m.resourceInstructions, api.Message{
 				Role:    RoleSystem,
 				Content: content,
@@ -250,7 +250,7 @@ func (m *Mark3labsTool) readResource(ctx context.Context, invocation api.ToolCal
 		case mcp.BlobResourceContents:
 			output = append(output, toolResponseMessage(invocation, fmt.Sprintf("URI: %s\nContent-type: %s\n\n%s", content.URI, content.MIMEType, string(content.Blob))))
 		default:
-			output = append(output, toolResponseMessage(invocation, fmt.Sprintf("Error: agent system could not interpret result")))
+			output = append(output, toolResponseMessage(invocation, "Error: agent system could not interpret result"))
 		}
 	}
 	return output, nil

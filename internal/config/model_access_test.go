@@ -161,7 +161,11 @@ func TestModelAccessState_SaveLoad(t *testing.T) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	// Create config with slacker state path
 	config := &File{
@@ -231,7 +235,11 @@ func TestGetEffectiveModelAccess(t *testing.T) {
 	// Create temporary directory for state
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	t.Run("StateOverridesHCL", func(t *testing.T) {
 		config := &File{
@@ -308,7 +316,11 @@ func TestModelAccessConfig_AtomicSave(t *testing.T) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	config := &File{
 		MultiTenant: &MultiTenantBlock{

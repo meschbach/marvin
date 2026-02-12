@@ -124,7 +124,7 @@ func (sc *SlackConnection) ValidateSetup() error {
 func (sc *SlackConnection) StartSocketMode(ctx context.Context) error {
 	// Validate Slack setup first
 	if err := sc.ValidateSetup(); err != nil {
-		return fmt.Errorf("Slack setup validation failed: %w", err)
+		return fmt.Errorf("slack setup validation failed: %w", err)
 	}
 
 	return sc.socketClient.RunContext(ctx)

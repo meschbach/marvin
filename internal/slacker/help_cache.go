@@ -199,7 +199,7 @@ func (cha *CachedHelpAnalyzer) AnalyzeIntentFailureCached(ctx context.Context, m
 	}
 
 	// Cache miss - call the actual analyzer
-	analysis, err := cha.HelpAnalyzer.AnalyzeIntentFailure(ctx, message, helpCtx)
+	analysis, err := cha.AnalyzeIntentFailure(ctx, message, helpCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +223,7 @@ func (cha *CachedHelpAnalyzer) AnalyzeModelAccessCached(ctx context.Context, mod
 	}
 
 	// Cache miss - call the actual analyzer
-	analysis, err := cha.HelpAnalyzer.AnalyzeModelAccess(ctx, model, reason, helpCtx)
+	analysis, err := cha.AnalyzeModelAccess(ctx, model, reason, helpCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (cha *CachedHelpAnalyzer) AnalyzeToolConfigCached(ctx context.Context, tool
 	}
 
 	// Cache miss - call the actual analyzer
-	analysis, err := cha.HelpAnalyzer.AnalyzeToolConfig(ctx, toolType, configStr, err, helpCtx)
+	analysis, err := cha.AnalyzeToolConfig(ctx, toolType, configStr, err, helpCtx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +271,7 @@ func (cha *CachedHelpAnalyzer) AnalyzeToolAccessCached(ctx context.Context, tool
 	}
 
 	// Cache miss - call the actual analyzer
-	analysis, err := cha.HelpAnalyzer.AnalyzeToolAccess(ctx, toolName, reason, helpCtx)
+	analysis, err := cha.AnalyzeToolAccess(ctx, toolName, reason, helpCtx)
 	if err != nil {
 		return nil, err
 	}

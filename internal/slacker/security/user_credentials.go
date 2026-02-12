@@ -53,7 +53,10 @@ func (ucs *UserCredentialStore) SetUserCredentials(userID string, creds map[stri
 
 	// Rename to final file
 	if err := os.Rename(tempFile, filename); err != nil {
-		os.Remove(tempFile) // Clean up temp file
+		if removeErr := os.Remove(tempFile); removeErr != nil {
+			// Log cleanup error but don't overwrite the main error
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file %s: %v\n", tempFile, removeErr)
+		} // Clean up temp file
 		return fmt.Errorf("renaming credential file: %w", err)
 	}
 

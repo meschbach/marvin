@@ -301,6 +301,35 @@ Apache-2.0
 
 ## Development
 
+### Pre-commit Hooks Setup
+
+This project uses pre-commit hooks to ensure code quality standards and provide fast developer feedback:
+
+**Installation:**
+```bash
+# Install pre-commit (if not already installed)
+pip install pre-commit
+
+# Install the hooks for this repository
+pre-commit install
+
+# Run hooks on all files (initial setup)
+pre-commit run --all-files
+```
+
+**What the hooks do:**
+- `go fmt` - Auto-format Go code
+- `go mod tidy` - Clean up dependencies  
+- `go vet` - Static analysis for common issues
+- `golangci-lint` - Comprehensive linting with default settings
+- `go test ./internal/...` - Run unit tests (fast, matches CI)
+- `go build` - Verify marvin and slacker binaries compile
+
+**Usage:**
+- Hooks run automatically on `git commit`
+- Skip if needed: `git commit --no-verify`
+- Update hooks: `pre-commit autoupdate`
+
 ### Code Organization
 
 This project follows specific code organization standards to maintain quality and readability:

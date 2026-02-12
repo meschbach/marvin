@@ -222,7 +222,7 @@ func NewFeedbackCollectorEnhanced(integrator *HelpIntegrator, metrics *HelpMetri
 // HandleIntentFailureWithFeedback provides help and collects feedback
 func (fce *FeedbackCollectorEnhanced) HandleIntentFailureWithFeedback(ctx context.Context, userID, channelID, message string) (*HelpAnalysis, error) {
 	// Get the help analysis
-	analysis, err := fce.HelpIntegrator.HandleIntentFailure(ctx, userID, channelID, message)
+	analysis, err := fce.HandleIntentFailure(ctx, userID, channelID, message)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (fce *FeedbackCollectorEnhanced) HandleIntentFailureWithFeedback(ctx contex
 
 // createFeedbackResponse creates a help response that includes feedback collection
 func (fce *FeedbackCollectorEnhanced) createFeedbackResponse(analysis *HelpAnalysis, helpType, userID string) *HelpResponse {
-	helpResponse := fce.HelpIntegrator.CreateHelpResponse(analysis)
+	helpResponse := fce.CreateHelpResponse(analysis)
 
 	// Add feedback collection to the response
 	helpResponse.Text += "\n\n📝 **Was this helpful?**\n" +

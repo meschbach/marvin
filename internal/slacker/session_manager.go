@@ -45,10 +45,11 @@ func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userConte
 
 	// Try to get existing session
 	if session, exists := sm.sessions.Load(sessionKey); exists {
-		userSession := session.(*UserSession)
-		userSession.LastActivity = time.Now()
-		userSession.UserContext = userContext
-		return userSession
+		if userSession, convertible := session.(*UserSession); convertible {
+			userSession.LastActivity = time.Now()
+			userSession.UserContext = userContext
+			return userSession
+		}
 	}
 
 	// Try to load existing preferences for this user
@@ -76,7 +77,8 @@ func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userConte
 func (sm *SessionManager) GetSession(userID, channelID string) (*UserSession, bool) {
 	sessionKey := fmt.Sprintf("%s:%s", userID, channelID)
 	if session, exists := sm.sessions.Load(sessionKey); exists {
-		return session.(*UserSession), true
+		userSession, convertible := session.(*UserSession)
+		return userSession, convertible
 	}
 	return nil, false
 }
@@ -138,11 +140,12 @@ func (sm *SessionManager) GetPreferences(userID string) (UserPreferences, bool) 
 
 	// Look through all sessions for this user to find their preferences
 	sm.sessions.Range(func(key, value interface{}) bool {
-		userSession := value.(*UserSession)
-		if userSession.UserID == userID {
-			foundPrefs = userSession.Preferences
-			found = true
-			return false // Found what we need, stop iteration
+		if userSession, convertible := value.(*UserSession); convertible {
+			if userSession.UserID == userID {
+				foundPrefs = userSession.Preferences
+				found = true
+				return false // Found what we need, stop iteration
+			}
 		}
 		return true
 	})
@@ -157,12 +160,13 @@ func (sm *SessionManager) UpdatePreferences(userID string, preferences UserPrefe
 
 	// Update preferences in all sessions for this user
 	sm.sessions.Range(func(key, value interface{}) bool {
-		userSession := value.(*UserSession)
-		if userSession.UserID == userID {
-			foundSession = true
-			userSession.SetPreferences(preferences)
-			if err := sm.saveSession(userSession); err != nil {
-				updateErrors = append(updateErrors, err)
+		if userSession, convertible := value.(*UserSession); convertible {
+			if userSession.UserID == userID {
+				foundSession = true
+				userSession.SetPreferences(preferences)
+				if err := sm.saveSession(userSession); err != nil {
+					updateErrors = append(updateErrors, err)
+				}
 			}
 		}
 		return true
@@ -237,13 +241,17 @@ func (sm *SessionManager) CleanupOldSessions(maxAge time.Duration) {
 	cutoff := time.Now().Add(-maxAge)
 
 	sm.sessions.Range(func(key, value interface{}) bool {
-		userSession := value.(*UserSession)
-		if userSession.LastActivity.Before(cutoff) {
-			sm.sessions.Delete(key)
+		if userSession, convertible := value.(*UserSession); convertible {
+			if userSession.LastActivity.Before(cutoff) {
+				sm.sessions.Delete(key)
 
-			// Remove session file
-			filename := filepath.Join(sm.storePath, fmt.Sprintf("session-%s-%s.json", userSession.UserID, userSession.ChannelID))
-			os.Remove(filename) // Ignore errors
+				// Remove session file
+				filename := filepath.Join(sm.storePath, fmt.Sprintf("session-%s-%s.json", userSession.UserID, userSession.ChannelID))
+				if removeErr := os.Remove(filename); removeErr != nil {
+					// Log cleanup error but don't stop cleanup process
+					fmt.Fprintf(os.Stderr, "Warning: failed to remove session file %s: %v\n", filename, removeErr)
+				} // Ignore errors
+			}
 		}
 		return true
 	})
@@ -266,7 +274,10 @@ func (sm *SessionManager) saveSession(session *UserSession) error {
 
 	// Rename to final file
 	if err := os.Rename(tempFile, filename); err != nil {
-		os.Remove(tempFile) // Clean up temp file
+		if removeErr := os.Remove(tempFile); removeErr != nil {
+			// Log cleanup error but don't overwrite the main error
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file %s: %v\n", tempFile, removeErr)
+		} // Clean up temp file
 		return fmt.Errorf("renaming session file: %w", err)
 	}
 

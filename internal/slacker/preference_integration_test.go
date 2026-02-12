@@ -15,7 +15,11 @@ func TestPreferenceResolution_Integration(t *testing.T) {
 	// Create temporary directory for session storage
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	// Create session manager
 	sessionManager, err := NewSessionManager(tempDir)
@@ -129,7 +133,11 @@ func TestPreferenceIntentHandling_Integration(t *testing.T) {
 	// Create temporary directory for session storage
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	// Create session manager
 	sessionManager, err := NewSessionManager(tempDir)
@@ -211,7 +219,11 @@ func TestSessionManager_Persistence(t *testing.T) {
 	// Create temporary directory for session storage
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	}()
 
 	userID := "test-user-persistence"
 

@@ -221,13 +221,14 @@ func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *Sessio
 		if !ok {
 			return "🤖 Invalid option specified.", nil
 		}
-		if configStr == "on" {
+		switch configStr {
+		case "on":
 			updatedPrefs.ShowThinking = true
 			responseMessage = "🤖 Thinking display enabled. Use `/marvin thinking off` to disable."
-		} else if configStr == "off" {
+		case "off":
 			updatedPrefs.ShowThinking = false
 			responseMessage = "🤖 Thinking display disabled. Use `/marvin thinking on` to re-enable."
-		} else {
+		default:
 			return "🤖 Please specify `on` or `off` for thinking display.", nil
 		}
 
@@ -248,13 +249,14 @@ func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *Sessio
 		if !ok {
 			return "🔧 Invalid option specified.", nil
 		}
-		if configStr == "on" {
+		switch configStr {
+		case "on":
 			updatedPrefs.ShowTools = true
 			responseMessage = "🔧 Tool display enabled. Use `/marvin tools off` to disable."
-		} else if configStr == "off" {
+		case "off":
 			updatedPrefs.ShowTools = false
 			responseMessage = "🔧 Tool display disabled. Use `/marvin tools on` to re-enable."
-		} else {
+		default:
 			return "🔧 Please specify `on` or `off` for tool display.", nil
 		}
 
@@ -263,13 +265,14 @@ func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *Sessio
 		if !ok {
 			return "✅ Invalid option specified.", nil
 		}
-		if configStr == "on" {
+		switch configStr {
+		case "on":
 			updatedPrefs.ShowDone = true
 			responseMessage = "✅ Completion messages enabled. Use `/marvin done off` to disable."
-		} else if configStr == "off" {
+		case "off":
 			updatedPrefs.ShowDone = false
 			responseMessage = "✅ Completion messages disabled. Use `/marvin done on` to re-enable."
-		} else {
+		default:
 			return "✅ Please specify `on` or `off` for completion messages.", nil
 		}
 
@@ -278,13 +281,14 @@ func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *Sessio
 		if !ok {
 			return "🔍 Invalid option specified.", nil
 		}
-		if configStr == "on" {
+		switch configStr {
+		case "on":
 			updatedPrefs.Verbose = true
 			responseMessage = "🔍 Verbose mode enabled. Use `/marvin verbose off` to disable."
-		} else if configStr == "off" {
+		case "off":
 			updatedPrefs.Verbose = false
 			responseMessage = "🔍 Verbose mode disabled. Use `/marvin verbose on` to re-enable."
-		} else {
+		default:
 			return "🔍 Please specify `on` or `off` for verbose mode.", nil
 		}
 

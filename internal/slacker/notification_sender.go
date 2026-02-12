@@ -111,7 +111,7 @@ func (ns *NotificationSender) formatApprovalForSlack(request *ToolApprovalReques
 	}
 
 	message.WriteString("\n")
-	message.WriteString(fmt.Sprintf("👉 Please review and approve/reject this request.\n\n"))
+	message.WriteString("👉 Please review and approve/reject this request.\n\n")
 	message.WriteString(fmt.Sprintf("**To approve:** Reply with \"Approve %s\"\n", requestID))
 	message.WriteString(fmt.Sprintf("**To reject:** Reply with \"Reject %s because [reason]\"", requestID))
 

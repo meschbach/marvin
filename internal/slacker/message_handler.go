@@ -430,7 +430,10 @@ func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *Slack
 	switch intent.Action {
 	case "admin_help":
 		if helpIntegrator != nil {
-			request, _ := intent.Config.(string)
+			request, convertable := intent.Config.(string)
+			if !convertable {
+				return errors.New("config not convertable to string")
+			}
 			analysis, err := helpIntegrator.HandleAdminRequest(ctx, slackCtx.UserID, slackCtx.ChannelID, request)
 			if err != nil {
 				mh.securityLogger.LogError(slackCtx.UserID, "admin_help", fmt.Sprintf("Failed to analyze admin request: %v", err))
@@ -473,7 +476,10 @@ func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *Slack
 		return err
 
 	case "admin_escalation":
-		issue, _ := intent.Config.(string)
+		issue, convertible := intent.Config.(string)
+		if !convertible {
+			return errors.New("config is not a string")
+		}
 		escalationMessage := fmt.Sprintf("🚨 **Admin Escalation**\n\n**User:** @%s\n**Issue:** %s\n\n"+
 			"This escalation has been logged and support will contact you shortly.", slackCtx.UserID, issue)
 
@@ -505,7 +511,9 @@ func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *Sla
 	if !mh.config.HelpSystemEnabled() || !mh.config.HelpSystemShouldHelpOnIntentFailure() {
 		// Only send basic help if help system is enabled but intent failure help is disabled
 		if mh.config.HelpSystemEnabled() {
-			mh.sendBasicHelp(ctx, updater, message)
+			if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
+				return fmt.Errorf("failed to send basic help: %w", err)
+			}
 			return updater.Flush(ctx)
 		}
 		// Help system completely disabled - don't send anything
@@ -521,13 +529,17 @@ func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *Sla
 		analysis, err := mh.helpAnalyzer.AnalyzeIntentFailure(ctx, message, helpCtx)
 		if err != nil {
 			// Fallback to basic help if analysis fails
-			mh.sendBasicHelp(ctx, updater, message)
+			if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
+				return fmt.Errorf("failed to send basic help: %w", err)
+			}
 			return fmt.Errorf("help analysis failed: %w", err)
 		}
 
 		// Check if analysis confidence meets minimum threshold
 		if analysis.Confidence < float64(mh.config.HelpSystemMinConfidenceThreshold()) {
-			mh.sendBasicHelp(ctx, updater, message)
+			if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
+				return fmt.Errorf("failed to send basic help: %w", err)
+			}
 			return nil
 		}
 
@@ -538,7 +550,9 @@ func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *Sla
 		}
 	} else {
 		// Fallback to basic help when intelligent help components unavailable
-		mh.sendBasicHelp(ctx, updater, message)
+		if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
+			return fmt.Errorf("failed to send basic help: %w", err)
+		}
 	}
 
 	if err := updater.Flush(ctx); err != nil {

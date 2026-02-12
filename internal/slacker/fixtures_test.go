@@ -57,7 +57,11 @@ func NewTestEnvironment(t *testing.T) *TestEnvironment {
 	// Create temporary directory for sessions
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
-	t.Cleanup(func() { os.RemoveAll(tempDir) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Warning: failed to cleanup temp directory %s: %v", tempDir, err)
+		}
+	})
 
 	// Create components
 	sessionManager, err := NewSessionManager(tempDir)

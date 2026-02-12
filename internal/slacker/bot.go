@@ -126,7 +126,7 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 func (sb *SlackBot) ValidateSlackSetup() error {
 	// Validate that all required components are initialized
 	if sb.connection == nil {
-		return fmt.Errorf("Slack connection not initialized")
+		return fmt.Errorf("slack connection not initialized")
 	}
 	if sb.eventRouter == nil {
 		return fmt.Errorf("event router not initialized")
@@ -147,7 +147,7 @@ func (sb *SlackBot) ValidateSlackSetup() error {
 	// Validate connection details
 	client := sb.connection.GetClient()
 	if client == nil {
-		return fmt.Errorf("Slack client not available")
+		return fmt.Errorf("slack client not available")
 	}
 
 	// Test connection by attempting to get bot info

@@ -131,11 +131,15 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 	assert.Len(t, client.UpdatedMessages, 0, "Should start with no updated messages")
 
 	// Add thought - should buffer content, no immediate post with new time-based behavior
-	updater.AddThought(ctx, "Let me think about this")
+	if err := updater.AddThought(ctx, "Let me think about this"); err != nil {
+		t.Fatalf("Failed to add thought: %v", err)
+	}
 	// With time-based buffering, thought content stays in buffer until time threshold or type change
 
 	// Transition to content by adding content - should immediately post the thought and start buffering content
-	updater.AddContent(ctx, "Here's the answer")
+	if err := updater.AddContent(ctx, "Here's the answer"); err != nil {
+		t.Fatalf("Failed to add content: %v", err)
+	}
 
 	// With new behavior: type change triggers immediate post of previous content
 	assert.Len(t, client.PostedMessages, 2, "Should post message for thought (type change)")
@@ -312,10 +316,7 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 	assert.Greater(t, len(client.PostedMessages), 0, "Should have posted messages")
 
 	// Get final buffer should show current state
-	if assert.GreaterOrEqual(t, len(client.PostedMessages), 1, "Should have posted at least one message") {
-		// The actual content verification would need more sophisticated mock testing
-		// For now, we verify that messages are being posted as expected
-	}
+	assert.GreaterOrEqual(t, len(client.PostedMessages), 1, "Should have posted at least one message")
 }
 
 func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
@@ -331,10 +332,7 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 	assert.NoError(t, err, "Complete should not error")
 
 	// Buffer should be reset after complete
-	if assert.GreaterOrEqual(t, len(client.PostedMessages), 1, "Should have posted at least one message") {
-		// The actual content verification would need more sophisticated mock testing
-		// For now, we verify that messages are being posted as expected
-	}
+	assert.GreaterOrEqual(t, len(client.PostedMessages), 1, "Should have posted at least one message")
 }
 
 func TestSlackUpdater_UserReportedScenario(t *testing.T) {
