@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
@@ -125,6 +126,54 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 
 	// Get or create user session
 	session := mh.sessionManager.GetOrCreateSession(ev.User, ev.Channel, userCtx)
+
+	// Lazy initialize tools on first user interaction
+	if !mh.tenantToolSet.IsInitialized() {
+		// Notify user that tools are initializing
+		_, _, err = mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText("🔧 Initializing tools for first use, please wait...", true),
+		)
+		if err != nil {
+			mh.securityLogger.LogError(ev.User, "ToolInit", fmt.Sprintf("Failed to send init notification: %v", err))
+		}
+
+		// Initialize with 4-second timeout
+		initCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		defer cancel()
+
+		initErr := mh.tenantToolSet.Initialize(initCtx)
+		if initErr != nil {
+			var initErrMsg string
+			if errors.Is(initErr, context.DeadlineExceeded) {
+				initErrMsg = "❌ Tool initialization timed out (4s). Please try again."
+			} else {
+				initErrMsg = fmt.Sprintf("❌ Tool initialization failed: %v", initErr)
+			}
+
+			mh.securityLogger.LogError(ev.User, "ToolInit", initErrMsg)
+			_, _, err = mh.connection.client.PostMessageContext(
+				ctx,
+				slackCtx.ChannelID,
+				slack.MsgOptionText(initErrMsg, true),
+			)
+			if err != nil {
+				mh.securityLogger.LogError(ev.User, "ToolInit", fmt.Sprintf("Failed to send error notification: %v", err))
+			}
+			return fmt.Errorf("tool initialization failed: %w", initErr)
+		}
+
+		// Success notification
+		_, _, err = mh.connection.client.PostMessageContext(
+			ctx,
+			slackCtx.ChannelID,
+			slack.MsgOptionText("✅ Tools ready!", true),
+		)
+		if err != nil {
+			mh.securityLogger.LogError(ev.User, "ToolInit", fmt.Sprintf("Failed to send success notification: %v", err))
+		}
+	}
 
 	// Check if this is a tool management request
 	intent, err := mh.intentProcessor.ProcessMessage(cleanMessage)

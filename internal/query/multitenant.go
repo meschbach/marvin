@@ -10,6 +10,20 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+// ToolInitializationError represents an error during tool initialization
+type ToolInitializationError struct {
+	ToolName string
+	Cause    error
+}
+
+func (e ToolInitializationError) Error() string {
+	return fmt.Sprintf("initializing tool %s: %v", e.ToolName, e.Cause)
+}
+
+func (e ToolInitializationError) Unwrap() error {
+	return e.Cause
+}
+
 // UserContext represents the context for a specific user in the multi-tenant system
 type UserContext struct {
 	UserID      string
@@ -62,18 +76,28 @@ type TenantToolSet struct {
 	container *Container
 	gateway   *mcpResourceGateway
 	mutex     sync.RWMutex
+
+	// Lazy initialization
+	initOnce      sync.Once
+	initError     error
+	httpConfigs   []*config.HttpMCPBlock
+	localConfigs  []config.LocalProgramBlock
+	dockerConfigs []*config.DockerMCPBlock
 }
 
-// NewTenantToolSet creates a new multi-tenant tool set
+// NewTenantToolSet creates a new multi-tenant tool set with lazy initialization
 func NewTenantToolSet(ctx context.Context, cfg *config.File) (*TenantToolSet, error) {
 	tts := &TenantToolSet{
-		globalTools: make(map[string]Tool),
-		userTools:   make(map[string]map[string]Tool),
-		approvals:   make(map[string]*ToolApproval),
-		permissions: make(map[string]*ToolPermission),
-		adminUsers:  make(map[string]bool),
-		container:   &Container{name: "tenant container", state: sync.Mutex{}},
-		gateway:     newMCPResourceGateway(),
+		globalTools:   make(map[string]Tool),
+		userTools:     make(map[string]map[string]Tool),
+		approvals:     make(map[string]*ToolApproval),
+		permissions:   make(map[string]*ToolPermission),
+		adminUsers:    make(map[string]bool),
+		container:     &Container{name: "tenant container", state: sync.Mutex{}},
+		gateway:       newMCPResourceGateway(),
+		httpConfigs:   cfg.HttpMCPBlock,
+		localConfigs:  cfg.LocalPrograms,
+		dockerConfigs: cfg.DockerMCPBlock,
 	}
 
 	// Set admin users
@@ -83,26 +107,48 @@ func NewTenantToolSet(ctx context.Context, cfg *config.File) (*TenantToolSet, er
 		}
 	}
 
-	// Load global HTTP tools (no approval needed)
-	if err := tts.loadGlobalHTTPTools(ctx, cfg); err != nil {
-		return nil, fmt.Errorf("loading global HTTP tools: %w", err)
-	}
-
-	// Load approved local/docker tools from config
-	if err := tts.loadApprovedRestrictedTools(ctx, cfg); err != nil {
-		return nil, fmt.Errorf("loading approved restricted tools: %w", err)
-	}
+	// Tools are loaded lazily on first use via Initialize()
 
 	return tts, nil
 }
 
+// IsInitialized returns true if tools have been initialized
+func (tts *TenantToolSet) IsInitialized() bool {
+	tts.mutex.RLock()
+	defer tts.mutex.RUnlock()
+	return tts.initError == nil && len(tts.globalTools) > 0
+}
+
+// Initialize loads all tools with a timeout. Safe to call multiple times.
+func (tts *TenantToolSet) Initialize(ctx context.Context) error {
+	tts.initOnce.Do(func() {
+		tts.initError = tts.doInitialize(ctx)
+	})
+	return tts.initError
+}
+
+// doInitialize performs the actual tool initialization
+func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
+	// Load global HTTP tools (no approval needed)
+	if err := tts.loadGlobalHTTPTools(ctx); err != nil {
+		return err
+	}
+
+	// Load approved local/docker tools from config
+	if err := tts.loadApprovedRestrictedTools(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // loadGlobalHTTPTools loads HTTP MCP tools that don't require approval
-func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context, cfg *config.File) error {
-	for _, httpCfg := range cfg.HttpMCPBlock {
+func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) error {
+	for _, httpCfg := range tts.httpConfigs {
 		tool := FromHTTPMCPService(httpCfg)
 		definition, err := tool.defineAPI(ctx)
 		if err != nil {
-			return fmt.Errorf("defining HTTP tool %s: %w", httpCfg.Name, err)
+			return ToolInitializationError{ToolName: httpCfg.Name, Cause: err}
 		}
 
 		// Register global tool with namespaced name
@@ -114,13 +160,13 @@ func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context, cfg *config.F
 }
 
 // loadApprovedRestrictedTools loads local and docker tools that are pre-approved in config
-func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context, cfg *config.File) error {
+func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error {
 	// Load approved local programs
-	for _, localCfg := range cfg.LocalPrograms {
+	for _, localCfg := range tts.localConfigs {
 		tool := FromLocalProgram(localCfg)
 		definition, err := tool.defineAPI(ctx)
 		if err != nil {
-			return fmt.Errorf("defining local tool %s: %w", localCfg.Name, err)
+			return ToolInitializationError{ToolName: localCfg.Name, Cause: err}
 		}
 
 		// Register as global tool (these are pre-approved)
@@ -137,11 +183,11 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context, cfg *
 	}
 
 	// Load approved docker tools
-	for _, dockerCfg := range cfg.DockerMCPBlock {
+	for _, dockerCfg := range tts.dockerConfigs {
 		tool := FromDockerSpec(dockerCfg)
 		definition, err := tool.defineAPI(ctx)
 		if err != nil {
-			return fmt.Errorf("defining docker tool %s: %w", dockerCfg.Name, err)
+			return ToolInitializationError{ToolName: dockerCfg.Name, Cause: err}
 		}
 
 		// Register as global tool (these are pre-approved)
