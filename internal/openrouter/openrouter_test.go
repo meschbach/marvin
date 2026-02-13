@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ollama/ollama/api"
+	"github.com/revrost/go-openrouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,13 +33,17 @@ data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt
 data: [DONE]
 `
 
-	mockClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
 
 	llm := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "openai/gpt-4o-mini",
-		httpClient: mockClient,
+		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
 	req := &api.ChatRequest{
@@ -75,13 +80,17 @@ data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt
 data: [DONE]
 `
 
-	mockClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
 
 	llm := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "openai/gpt-4o-mini",
-		httpClient: mockClient,
+		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
 	req := &api.ChatRequest{
@@ -108,13 +117,17 @@ func TestOpenRouterLLM_Chat_UsageInSameChunkAsFinishReason(t *testing.T) {
 data: [DONE]
 `
 
-	mockClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
 
 	llm := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "openai/gpt-4o-mini",
-		httpClient: mockClient,
+		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
 	req := &api.ChatRequest{
@@ -151,13 +164,17 @@ data: {"id":"gen-1770951369-sKYcTnzlyj6HvxZfXXkd","provider":"Nvidia","model":"n
 data: [DONE]
 `
 
-	mockClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
 
 	llm := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "nvidia/nemotron-3-nano-30b-a3b:free",
-		httpClient: mockClient,
+		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
 	req := &api.ChatRequest{
@@ -180,4 +197,82 @@ data: [DONE]
 	assert.Equal(t, 47, lastResponse.EvalCount, "completion tokens should be 47")
 	assert.Equal(t, 18, lastResponse.PromptEvalCount, "prompt tokens should be 18")
 	assert.Equal(t, "", lastResponse.Message.Content, "last chunk should have empty content (engine accumulates)")
+}
+
+func TestOpenRouterLLM_Chat_ToolCallWithEmptyArguments(t *testing.T) {
+	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"noop\",\"arguments\":\"\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
+		"data: [DONE]\n"
+
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
+
+	llm := &LLM{
+		apiKey:     "test-key",
+		baseURL:    "https://openrouter.ai/api/v1",
+		model:      "openai/gpt-4o-mini",
+		httpClient: openrouter.NewClientWithConfig(*config),
+	}
+
+	req := &api.ChatRequest{
+		Messages: []api.Message{
+			{Role: "user", Content: "Do nothing"},
+		},
+	}
+
+	var toolCallResp *api.ChatResponse
+	err := llm.Chat(context.Background(), req, func(resp api.ChatResponse) error {
+		if len(resp.Message.ToolCalls) > 0 {
+			toolCallResp = &resp
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, toolCallResp, "should receive a response with tool calls")
+	require.Len(t, toolCallResp.Message.ToolCalls, 1, "tool call should be preserved even with empty arguments")
+
+	assert.Equal(t, "call_empty", toolCallResp.Message.ToolCalls[0].ID, "ID should be preserved")
+	assert.Equal(t, "noop", toolCallResp.Message.ToolCalls[0].Function.Name, "Name should NOT be empty - this is the bug!")
+}
+
+func TestOpenRouterLLM_Chat_ToolCallWithMalformedArguments(t *testing.T) {
+	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_bad\",\"type\":\"function\",\"function\":{\"name\":\"bad_tool\",\"arguments\":\"not valid json\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
+		"data: [DONE]\n"
+
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = mockHTTPClient
+
+	llm := &LLM{
+		apiKey:     "test-key",
+		baseURL:    "https://openrouter.ai/api/v1",
+		model:      "openai/gpt-4o-mini",
+		httpClient: openrouter.NewClientWithConfig(*config),
+	}
+
+	req := &api.ChatRequest{
+		Messages: []api.Message{
+			{Role: "user", Content: "Test"},
+		},
+	}
+
+	var toolCallResp *api.ChatResponse
+	err := llm.Chat(context.Background(), req, func(resp api.ChatResponse) error {
+		if len(resp.Message.ToolCalls) > 0 {
+			toolCallResp = &resp
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, toolCallResp, "should receive a response with tool calls even if args are malformed")
+	require.Len(t, toolCallResp.Message.ToolCalls, 1, "tool call should be preserved")
+
+	assert.Equal(t, "call_bad", toolCallResp.Message.ToolCalls[0].ID, "ID should be preserved")
+	assert.Equal(t, "bad_tool", toolCallResp.Message.ToolCalls[0].Function.Name, "Name should be preserved even if args are bad")
 }

@@ -9,6 +9,7 @@ require (
 	github.com/mark3labs/mcp-go v0.44.0-beta.2
 	github.com/ollama/ollama v0.15.2
 	github.com/philippgille/chromem-go v0.7.0
+	github.com/revrost/go-openrouter v1.1.5
 	github.com/slack-go/slack v0.17.3
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
