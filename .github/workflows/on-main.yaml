@@ -29,19 +29,14 @@ jobs:
           go test -count 1 ./internal/...
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v1
-#      - name: Restore Ollama cache
-#        uses: actions/cache@v4
-#        with:
-#          path: ~/.ollama
-#          key: ${{ runner.os }}-ollama-${{ hashFiles('**/ollama_model.txt') }}
-#          restore-keys: |
-#            ${{ runner.os }}-ollama-
       - name: Set up Docker
         uses: docker/setup-docker-action@v4
       - name: Run integration tests
         run: |
           ollama pull mxbai-embed-large:latest
-          ollama pull ministral-3:3b
+          ollama pull qwen3:0.6b
+          sed -i '' 's/3b/0.6b/g' ./marvin.test.hcl
+          sed -i 's/ministral/qwen3/g' ./marvin.test.hcl
           ./test.sh
   release:
     runs-on: ubuntu-latest
