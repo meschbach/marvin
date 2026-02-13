@@ -35,7 +35,7 @@ jobs:
         run: |
           ollama pull mxbai-embed-large:latest
           ollama pull qwen3:0.6b
-          sed -i '' 's/3b/0.6b/g' ./marvin.test.hcl
+          sed -i 's/3b/0.6b/g' ./marvin.test.hcl
           sed -i 's/ministral/qwen3/g' ./marvin.test.hcl
           ./test.sh
   release:
