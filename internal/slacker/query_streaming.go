@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
@@ -49,8 +50,8 @@ func NewQueryStreamer[LLM llm](
 	}
 }
 
-// ProcessQueryWithUpdater handles AI processing with a specific Slack updater using the unified ConversationEngine
-func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *query.ToolSet, updater *SlackUpdater) error {
+// ProcessQueryWithUpdater handles AI processing with a specific Slack updater using the unified Engine
+func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *conversation.ToolSet, updater *SlackUpdater) error {
 	qs.securityLogger.LogDebug(slackCtx.UserID, "query_streaming", "Starting message streaming")
 	if updater == nil { //catch here to avoid costly
 		return errors.New("updater is required")
@@ -79,7 +80,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 	}
 
 	// Create the conversation engine with callback
-	engine := query.NewConversationEngineWithCallback(
+	engine := conversation.NewEngineWithCallback(
 		llmAdapter,
 		qs.config,
 		loggerAdapter,

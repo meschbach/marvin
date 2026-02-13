@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 )
 
@@ -19,7 +20,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 	ctx, done := context.WithCancel(context.Background())
 	defer done()
 
-	realToolSet, err := NewToolSet(ctx, cfg)
+	realToolSet, err := loadToolsFromConfig(context.Background(), cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
 		return
@@ -30,7 +31,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		}
 	}()
 
-	reasoningToolset, err := NewToolSet(ctx, nil)
+	reasoningToolset, err := loadToolsFromConfig(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
@@ -44,7 +45,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 	//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
 	//	return err
 	//}
-	if err := reasoningToolset.registerTool(ctx, &questionForUser{}); err != nil {
+	if err := reasoningToolset.RegisterTool(ctx, &questionForUser{}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
 		return
 	}
@@ -60,21 +61,21 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 
 	//generate a message of available MCP tools
 	availableTools := "These are tools available for the instructed AI:\n"
-	for _, tool := range realToolSet.defs {
+	for _, tool := range realToolSet.Defs {
 		availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 	}
 
 	// QueryRAGDocuments the AI model for the steps required to complete the goal
 	messages := []api.Message{
 		{
-			Role:    RoleSystem,
+			Role:    conversation.RoleSystem,
 			Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
 		},
-		{Role: RoleSystem, Content: availableTools},
-		{Role: RoleUser, Content: goal},
+		{Role: conversation.RoleSystem, Content: availableTools},
+		{Role: conversation.RoleUser, Content: goal},
 	}
 
-	engine := NewConversationEngine(client, cfg, &NullLogger{}, reasoningToolset, messages)
+	engine := conversation.NewEngine(client, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
 
 	model := "ministral-3:3b"
 	if cfg != nil && cfg.Model != "" {
@@ -92,7 +93,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 type questionForUser struct {
 }
 
-func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (q questionForUser) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	args := call.Function.Arguments
 	prompt, hasPrompt := args.Get("prompt")
 	if !hasPrompt {
@@ -108,26 +109,26 @@ func (q questionForUser) invoke(ctx context.Context, call api.ToolCall) (out []a
 	trimmedInput := strings.TrimSpace(input)
 	return []api.Message{
 		{
-			Role:       RoleToolResult,
+			Role:       conversation.RoleToolResult,
 			Content:    "",
 			ToolName:   call.Function.Name,
 			ToolCallID: call.ID,
 		},
 		{
-			Role:    RoleUser,
+			Role:    conversation.RoleUser,
 			Content: trimmedInput,
 		},
 	}, nil
 }
 
-func (q questionForUser) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
+func (q questionForUser) DefineAPI(ctx context.Context) (definition *conversation.ToolDefinition, problem error) {
 	props := api.NewToolPropertiesMap()
 	props.Set("prompt", api.ToolProperty{
 		Type:        []string{mcpParameterTypeString},
 		Description: "The prompt to ask the user",
 	})
-	definitions := &toolDefinition{}
-	definitions.tool = api.Tools{
+	definitions := conversation.NewToolDefinition()
+	definitions.Tool = api.Tools{
 		{
 			Type: "function",
 			Function: api.ToolFunction{
@@ -141,9 +142,6 @@ func (q questionForUser) defineAPI(ctx context.Context) (definition *toolDefinit
 			},
 		},
 	}
-	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    RoleSystem,
-		Content: "Use the tool reasoning_clairifying_question to ask the user for additional details when you are unsure, need more information, or are otherwise not certain.",
-	})
+	definitions.AppendInstruction("Use the tool reasoning_clairifying_question to ask the user for additional details when you are unsure, need more information, or are otherwise not certain.")
 	return definitions, nil
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 )
 
@@ -50,16 +51,16 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		fmt.Printf("user search:\t%s\n", actualQuery)
 	}
 
-	// search Ollama for a response
-	client, err := api.ClientFromEnvironment()
+	// Create LLM client based on configuration (supports Ollama and OpenRouter)
+	llm, err := NewLLM(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating LLM client: %v\n", err)
 		return
 	}
 
 	// Build tools from configuration (if provided)
 	ctx := context.Background()
-	toolset, tsErr := NewToolSet(ctx, cfg)
+	toolset, tsErr := loadToolsFromConfig(ctx, cfg)
 	if tsErr != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing tools: %v\n", tsErr)
 		return
@@ -72,7 +73,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}()
 	for _, rag := range cfg.Documents {
 		tool := &chromemTool{config: rag, showInvocations: false}
-		if err := toolset.registerTool(ctx, tool); err != nil {
+		if err := toolset.RegisterTool(ctx, tool); err != nil {
 			fmt.Fprintf(os.Stderr, "Error registering RAG tool: %v\n", err)
 			return
 		}
@@ -94,7 +95,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}
 
 	systemMessage := api.Message{
-		Role: RoleSystem, Content: systemMessageContent,
+		Role: conversation.RoleSystem, Content: systemMessageContent,
 	}
 
 	// Maintain the rolling chat messages to support tool-call loops
@@ -103,11 +104,11 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		if opts.DumpTooling {
 			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 		}
-		toolset.instructions = append(toolset.instructions, api.Message{Role: RoleAssistant, Content: fmt.Sprintf("Tool %s does %s", tool.Function.Name, tool.Function.Description)})
+		toolset.Instructions = append(toolset.Instructions, api.Message{Role: conversation.RoleAssistant, Content: fmt.Sprintf("Function %s : %s", tool.Function.Name, tool.Function.Description)})
 	}
-	messages := append(toolset.instructions,
+	messages := append(toolset.Instructions,
 		systemMessage,
-		api.Message{Role: RoleUser, Content: actualQuery},
+		api.Message{Role: conversation.RoleUser, Content: actualQuery},
 	)
 
 	if opts.ShowTools {
@@ -118,18 +119,17 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}
 
 	// Create the new conversation engine
-	ollamaLLM := NewOllamaLLM(client)
 	updater := NewCLIStreamingUpdater(opts.ShowThinking, opts.ShowTools, opts.ShowDone, opts.ThinkingFormat)
 
-	var logger Logger
+	var logger conversation.Logger
 	if opts.Verbose {
-		logger = &VerboseLogger{}
+		logger = &conversation.VerboseLogger{}
 	} else {
-		logger = &NullLogger{}
+		logger = &conversation.NullLogger{}
 	}
 
-	engine := NewConversationEngine(
-		ollamaLLM,
+	engine := conversation.NewEngine(
+		llm,
 		cfg,
 		logger,
 		toolset,

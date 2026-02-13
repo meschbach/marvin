@@ -9,13 +9,13 @@ import (
 	"strings"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/meschbach/marvin/internal/query"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 )
 
 // HelpAnalyzer provides intelligent help analysis using LLM capabilities
 type HelpAnalyzer struct {
-	llm            query.LLM
+	llm            conversation.LLM
 	config         *config.File
 	sessionManager *SessionManager
 	toolManager    interface{} // ToolManager interface
@@ -84,7 +84,7 @@ type llmHelpResponse struct {
 }
 
 // NewHelpAnalyzer creates a new help analyzer
-func NewHelpAnalyzer(llm query.LLM, config *config.File, sessionManager *SessionManager, toolManager interface{}, tenantToolSet interface{}) *HelpAnalyzer {
+func NewHelpAnalyzer(llm conversation.LLM, config *config.File, sessionManager *SessionManager, toolManager interface{}, tenantToolSet interface{}) *HelpAnalyzer {
 	return &HelpAnalyzer{
 		llm:            llm,
 		config:         config,

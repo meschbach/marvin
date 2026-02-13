@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 )
 
@@ -33,24 +34,24 @@ The tool combines facts, reasoning, and context to provide efficient, accurate i
 
 This integration streamlines information retrieval for real-time decision-making. Let me know if further details are needed!`
 
-func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition, problem error) {
-	definitions := &toolDefinition{}
-	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    RoleSystem,
+func (c *chromemTool) DefineAPI(ctx context.Context) (definition *conversation.ToolDefinition, problem error) {
+	definitions := &conversation.ToolDefinition{}
+	definitions.Instructions = append(definitions.Instructions, api.Message{
+		Role:    conversation.RoleSystem,
 		Content: fmt.Sprintf(chromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
 	})
 	searchProps := api.NewToolPropertiesMap()
 	searchProps.Set(ChromemSearchQueryParameter, api.ToolProperty{
-		Type:        ToolPropTypeString,
+		Type:        conversation.ToolPropTypeString,
 		Description: "query terms of interest to search for",
 	})
-	definitions.tool = append(definitions.tool, api.Tool{
-		Type: ToolTypeFunction,
+	definitions.Tool = append(definitions.Tool, api.Tool{
+		Type: conversation.ToolTypeFunction,
 		Function: api.ToolFunction{
 			Name:        "search",
 			Description: fmt.Sprintf("Searches the document repository %q for a document matching the given query", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
-				Type:       ToolTypeFunction,
+				Type:       conversation.ToolTypeFunction,
 				Required:   []string{"query"},
 				Properties: searchProps,
 			},
@@ -58,29 +59,29 @@ func (c *chromemTool) defineAPI(ctx context.Context) (definition *toolDefinition
 	})
 	readProps := api.NewToolPropertiesMap()
 	readProps.Set(ChromemDocumentPathParameter, api.ToolProperty{
-		Type:        ToolPropTypeString,
+		Type:        conversation.ToolPropTypeString,
 		Description: "path name to read",
 	})
-	definitions.tool = append(definitions.tool, api.Tool{
-		Type: ToolTypeFunction,
+	definitions.Tool = append(definitions.Tool, api.Tool{
+		Type: conversation.ToolTypeFunction,
 		Function: api.ToolFunction{
 			Name:        "read_document",
 			Description: fmt.Sprintf("Retrieves a specific document from the repository %q", c.config.Description),
 			Parameters: api.ToolFunctionParameters{
-				Type:       ToolTypeFunction,
+				Type:       conversation.ToolTypeFunction,
 				Required:   []string{ChromemDocumentPathParameter},
 				Properties: readProps,
 			},
 		},
 	})
-	definitions.instructions = append(definitions.instructions, api.Message{
-		Role:    RoleSystem,
+	definitions.Instructions = append(definitions.Instructions, api.Message{
+		Role:    conversation.RoleSystem,
 		Content: fmt.Sprintf("Use the tools `search` and `read_document` to search and read documents from the repository %q", c.config.Name),
 	})
 	return definitions, nil
 }
 
-func (c *chromemTool) invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (c *chromemTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	if c.showInvocations {
 		fmt.Printf("rag> invoked chromem tool %s\n", call.Function.Name)
 	}
@@ -93,7 +94,7 @@ func (c *chromemTool) invoke(ctx context.Context, call api.ToolCall) (out []api.
 		return c.readDocument(ctx, call)
 	default:
 		return []api.Message{
-			toolResponseMessage(call, "no such function"+functionName),
+			conversation.ToolResponseMessage(call, "no such function"+functionName),
 		}, nil
 	}
 }
@@ -102,13 +103,13 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 	query, has := call.Function.Arguments.Get(ChromemSearchQueryParameter)
 	if !has {
 		return []api.Message{
-			toolResponseMessage(call, "required parameter query is missing"),
+			conversation.ToolResponseMessage(call, "required parameter query is missing"),
 		}, nil
 	}
 	unwrappedQuery, ok := query.(string)
 	if !ok {
 		return []api.Message{
-			toolResponseMessage(call, "required parameter query must be a string"),
+			conversation.ToolResponseMessage(call, "required parameter query must be a string"),
 		}, nil
 	}
 
@@ -119,12 +120,12 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 
 	if len(matches) == 0 {
 		return []api.Message{
-			toolResponseMessage(call, fmt.Sprintf("no matches for %q found", unwrappedQuery)),
+			conversation.ToolResponseMessage(call, fmt.Sprintf("no Matches for %q found", unwrappedQuery)),
 		}, nil
 	}
 	var output []api.Message
 	for _, match := range matches {
-		output = append(output, toolResponseMessage(call, fmt.Sprintf("the file %q matched the query %q", match.Path, unwrappedQuery)))
+		output = append(output, conversation.ToolResponseMessage(call, fmt.Sprintf("the file %q matched the query %q", match.Path, unwrappedQuery)))
 	}
 	return output, nil
 }
@@ -150,7 +151,7 @@ func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out 
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []api.Message{
-				toolResponseMessage(call, fmt.Sprintf("file %q does not exist", unwrappedPath)),
+				conversation.ToolResponseMessage(call, fmt.Sprintf("file %q does not exist", unwrappedPath)),
 			}, nil
 		}
 		return nil, err
@@ -158,6 +159,6 @@ func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out 
 	fileContents := string(wholeFile)
 
 	return []api.Message{
-		toolResponseMessage(call, fileContents),
+		conversation.ToolResponseMessage(call, fileContents),
 	}, nil
 }

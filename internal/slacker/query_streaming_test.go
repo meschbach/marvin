@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 	}
 
 	// Create a basic ToolSet
-	toolSet := &query.ToolSet{}
+	toolSet := conversation.NewToolSet()
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
@@ -124,7 +125,7 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 	}
 
 	// Create a basic ToolSet that returns a response
-	toolSet := &query.ToolSet{}
+	toolSet := conversation.NewToolSet()
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
@@ -228,7 +229,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 	}
 
 	// Create a basic ToolSet that returns different responses for different tools
-	toolSet := &query.ToolSet{}
+	toolSet := conversation.NewToolSet()
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
@@ -292,7 +293,7 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 	}
 
 	// Create a basic ToolSet
-	toolSet := &query.ToolSet{}
+	toolSet := conversation.NewToolSet()
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
@@ -390,7 +391,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 	}
 
 	// Create a basic ToolSet
-	toolSet := &query.ToolSet{}
+	toolSet := conversation.NewToolSet()
 
 	// Create test context and session
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}

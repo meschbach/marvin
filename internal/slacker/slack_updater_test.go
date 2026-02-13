@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/meschbach/marvin/internal/query"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -183,7 +183,7 @@ func TestSlackUpdater_ToolResults(t *testing.T) {
 
 	// Test successful tool result
 	result := []api.Message{
-		{Role: query.RoleToolResult, Content: "Success!"},
+		{Role: conversation.RoleToolResult, Content: "Success!"},
 	}
 	require.NoError(t, updater.AddToolResult(ctx, toolCall, result, nil))
 

@@ -6,11 +6,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
 const DefaultLanguageModel = "ministral-3:3b"
 const DefaultEmbeddingModel = "mxbai-embed-large:latest"
+
+// ProviderType defines the type of LLM provider
+type ProviderType string
+
+const (
+	ProviderOllama     ProviderType = "ollama"
+	ProviderOpenRouter ProviderType = "openrouter"
+)
+
+// OpenRouterBlock contains configuration for OpenRouter provider
+type OpenRouterBlock struct {
+	// APIKey is the OpenRouter API key
+	APIKey string `hcl:"api_key,optional"`
+	// APIKeyFile is a path to a file containing the OpenRouter API key
+	APIKeyFile string `hcl:"api_key_file,optional"`
+	// BaseURL allows overriding the default OpenRouter endpoint
+	BaseURL string `hcl:"base_url,optional"`
+}
 
 // ModelOptionsBlock contains advanced model configuration options
 type ModelOptionsBlock struct {
@@ -75,7 +94,11 @@ type DisplayBlock struct {
 // File represents a parsed configuration file
 type File struct {
 	// Model is the large language model to use
-	Model         string              `hcl:"model,optional"`
+	Model string `hcl:"model,optional"`
+	// ProviderName specifies which LLM provider to use (ollama or openrouter)
+	ProviderName string `hcl:"provider,optional"`
+	// OpenRouter contains OpenRouter-specific configuration
+	OpenRouter    *OpenRouterBlock    `hcl:"openrouter,block"`
 	Options       *ModelOptionsBlock  `hcl:"options,block"`
 	LocalPrograms []LocalProgramBlock `hcl:"local_program,block"`
 	SystemPrompt  *SystemPromptBlock  `hcl:"system_prompt,block"`
@@ -110,6 +133,38 @@ func (f *File) LanguageModel() string {
 		return model
 	}
 	return DefaultLanguageModel
+}
+
+// Provider returns the LLM provider type (defaults to "ollama")
+func (f *File) Provider() ProviderType {
+	if f.ProviderName == "" {
+		return ProviderOllama
+	}
+	return ProviderType(f.ProviderName)
+}
+
+// ResolveOpenRouterAPIKey resolves the OpenRouter API key from config, file, or environment
+func (f *File) ResolveOpenRouterAPIKey() (string, error) {
+	// Priority: config API key > file > environment variable
+	if f.OpenRouter != nil && f.OpenRouter.APIKey != "" {
+		return f.OpenRouter.APIKey, nil
+	}
+
+	if f.OpenRouter != nil && f.OpenRouter.APIKeyFile != "" {
+		data, err := os.ReadFile(f.OpenRouter.APIKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read OpenRouter API key file: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	// Fall back to environment variable
+	envKey := os.Getenv("OPENROUTER_API_KEY")
+	if envKey != "" {
+		return envKey, nil
+	}
+
+	return "", nil
 }
 
 func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) ([]QueryResult, error) {

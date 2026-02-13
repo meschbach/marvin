@@ -12,7 +12,7 @@ import (
 
 //nolint:gocyclo
 func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
-	tools, err := NewToolSet(ctx, cfg)
+	tools, err := loadToolsFromConfig(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading tools: %v\n", err)
 		return
@@ -23,15 +23,15 @@ func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 		}
 	}()
 
-	for _, instruction := range tools.instructions {
+	for _, instruction := range tools.Instructions {
 		fmt.Printf("Instruction: %s\n=== End instruction ===\n", instruction.Content)
 	}
-	if len(tools.instructions) == 0 {
+	if len(tools.Instructions) == 0 {
 		fmt.Println("No instructions found")
 	}
 	fmt.Println()
 
-	for _, tool := range tools.defs {
+	for _, tool := range tools.Defs {
 		fmt.Printf("%s: %s\n", tool.Function.Name, tool.Function.Description)
 		dumpLayer := func(prefix string, p api.ToolFunctionParameters) {
 			prefix = prefix + "\t"

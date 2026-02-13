@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 )
 
@@ -13,7 +14,7 @@ import (
 // Example:
 //
 //	updater := NewCLIStreamingUpdater(true, false, true)
-//	engine := NewConversationEngine(client, config, logger, tools, messages)
+//	engine := NewEngine(client, config, logger, tools, messages)
 //	err := engine.RunConversation(ctx, model, updater)
 //
 // The updater will display thinking, tool calls, and final statistics
@@ -42,7 +43,7 @@ type CLIStreamingUpdater struct {
 // Example:
 //
 //	updater := NewCLIStreamingUpdater(true, false, true, "markdown")
-//	engine := NewConversationEngine(client, config, logger, tools, messages)
+//	engine := NewEngine(client, config, logger, tools, messages)
 //	err := engine.RunConversation(ctx, model, updater)
 //
 // The updater will display thinking, tool calls, and final statistics
@@ -112,7 +113,7 @@ func (c *CLIStreamingUpdater) AddToolResult(ctx context.Context, toolCall api.To
 }
 
 // UpdateStats tracks real-time statistics from the LLM
-func (c *CLIStreamingUpdater) UpdateStats(ctx context.Context, stats ConversationStats) error {
+func (c *CLIStreamingUpdater) UpdateStats(ctx context.Context, stats conversation.ConversationStats) error {
 	// Update cumulative statistics
 	c.promptTokens = stats.PromptTokens
 	c.responseTokens = stats.ResponseTokens

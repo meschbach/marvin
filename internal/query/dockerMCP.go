@@ -16,6 +16,8 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/junk"
 )
 
 func FromDockerSpec(cfg *config.DockerMCPBlock) *Mark3labsTool {
@@ -36,12 +38,12 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 	verbose := d.cfg.ResolveVerbose()
 	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, &operationalError{"failed to create docker client", err}
+		return nil, &junk.OperationalError{Description: "failed to create docker client", Underlying: err}
 	}
 	defer func() {
 		if problem != nil && cli != nil {
 			if err := cli.Close(); err != nil {
-				problem = errors.Join(problem, &operationalError{"failed to close docker client", err})
+				problem = errors.Join(problem, &junk.OperationalError{Description: "failed to close docker client", Underlying: err})
 			}
 		}
 	}()
@@ -53,18 +55,18 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 			fmt.Printf("Pulling image %s...\n", d.cfg.Image)
 			pullOut, err := cli.ImagePull(ctx, d.cfg.Image, image.PullOptions{})
 			if err != nil {
-				return nil, &operationalError{"failed to pull docker image", err}
+				return nil, &junk.OperationalError{Description: "failed to pull docker image", Underlying: err}
 			}
 			defer func() {
 				if err := pullOut.Close(); err != nil {
-					problem = errors.Join(problem, &operationalError{"failed to close docker pull output", err})
+					problem = errors.Join(problem, &junk.OperationalError{Description: "failed to close docker pull output", Underlying: err})
 				}
 			}()
 			if _, err := io.Copy(io.Discard, pullOut); err != nil {
-				problem = errors.Join(problem, &operationalError{"failed to discard docker pull output", err})
+				problem = errors.Join(problem, &junk.OperationalError{Description: "failed to discard docker pull output", Underlying: err})
 			}
 		} else {
-			return nil, &operationalError{"failed to inspect docker image", err}
+			return nil, &junk.OperationalError{Description: "failed to inspect docker image", Underlying: err}
 		}
 	}
 
@@ -73,9 +75,9 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 	for _, e := range d.cfg.Env {
 		key, value, err := e.ResolveValue()
 		if err != nil {
-			return nil, &operationalError{
-				description: fmt.Sprintf("failed to resolve %s", key),
-				underlying:  err,
+			return nil, &junk.OperationalError{
+				Description: fmt.Sprintf("failed to resolve %s", key),
+				Underlying:  err,
 			}
 		}
 
@@ -90,7 +92,7 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 	for _, m := range d.cfg.Mount {
 		source, err := m.ResolveSourcePath(d.cfg.WorkingDirectory)
 		if err != nil {
-			return nil, &operationalError{fmt.Sprintf("failed to resolve mount target %s:%s", m.Source, m.Target), err}
+			return nil, &junk.OperationalError{Description: fmt.Sprintf("failed to resolve mount target %s:%s", m.Source, m.Target), Underlying: err}
 		}
 		mountStr := fmt.Sprintf("%s:%s", source, m.Target)
 		if m.Options != "" {
@@ -121,7 +123,7 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 		AutoRemove: true,
 	}, nil, nil, "")
 	if err != nil {
-		return nil, &operationalError{"failed to create docker container", err}
+		return nil, &junk.OperationalError{Description: "failed to create docker container", Underlying: err}
 	}
 
 	// 3. Attach to container
@@ -132,13 +134,13 @@ func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, 
 		Stderr: true,
 	})
 	if err != nil {
-		return nil, &operationalError{"failed to attach to docker container", err}
+		return nil, &junk.OperationalError{Description: "failed to attach to docker container", Underlying: err}
 	}
 
 	// 4. Start container
 	if err := cli.ContainerStart(ctx, createContainerReply.ID, container.StartOptions{}); err != nil {
 		attach.Close()
-		return nil, &operationalError{"failed to start docker container", err}
+		return nil, &junk.OperationalError{Description: "failed to start docker container", Underlying: err}
 	}
 
 	// 5. Setup MCP client
@@ -222,7 +224,7 @@ func (d dockerContainer) stop(ctx context.Context) (problem error) {
 		fmt.Printf("docker-%s > Stopping container...\n", d.name)
 	}
 	if err := d.dockerClient.ContainerStop(stopCtx, d.containerID, container.StopOptions{Timeout: &stopTimeout}); err != nil {
-		problem = errors.Join(problem, &operationalError{"failed to stop container", err})
+		problem = errors.Join(problem, &junk.OperationalError{Description: "failed to stop container", Underlying: err})
 	}
 
 	//Ensure the container is removed.
@@ -231,7 +233,7 @@ func (d dockerContainer) stop(ctx context.Context) (problem error) {
 	}
 	containers, err := d.dockerClient.ContainerList(stopCtx, container.ListOptions{})
 	if err != nil {
-		problem = errors.Join(problem, &operationalError{"failed to list containers", err})
+		problem = errors.Join(problem, &junk.OperationalError{Description: "failed to list containers", Underlying: err})
 	} else {
 		for _, c := range containers {
 			if c.ID == d.containerID {
@@ -244,19 +246,19 @@ func (d dockerContainer) stop(ctx context.Context) (problem error) {
 		}
 	}
 	if err := d.dockerClient.Close(); err != nil {
-		problem = errors.Join(problem, &operationalError{"filed to cleanly close docker client", err})
+		problem = errors.Join(problem, &junk.OperationalError{Description: "filed to cleanly close docker client", Underlying: err})
 	}
 	return nil
 }
 
-func (ts *ToolSet) loadToolsFromDocker(ctx context.Context, cfg *config.File) (problem error) {
+func loadToolsFromDocker(ctx context.Context, ts *conversation.ToolSet, cfg *config.File) (problem error) {
 	for _, mcpCfg := range cfg.DockerMCPBlock {
 		tool := FromDockerSpec(mcpCfg)
-		ts.container.Register(tool)
-		if err := ts.registerTool(ctx, tool); err != nil {
-			return &operationalError{
-				description: fmt.Sprintf("failed to register %s", mcpCfg.Name),
-				underlying:  err,
+		ts.Container.Register(tool)
+		if err := ts.RegisterTool(ctx, tool); err != nil {
+			return &junk.OperationalError{
+				Description: fmt.Sprintf("failed to Register %s", mcpCfg.Name),
+				Underlying:  err,
 			}
 		}
 	}

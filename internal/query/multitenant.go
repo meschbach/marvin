@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/junk"
 )
 
 // ToolInitializationError represents an error during tool initialization
@@ -64,8 +65,8 @@ type ToolPermission struct {
 // TenantToolSet manages multi-tenant tool access and isolation
 type TenantToolSet struct {
 	// Isolation
-	globalTools map[string]Tool            // admin-approved shared tools
-	userTools   map[string]map[string]Tool // userID -> tools
+	globalTools map[string]conversation.Tool            // admin-approved shared tools
+	userTools   map[string]map[string]conversation.Tool // userID -> tools
 
 	// Security
 	approvals   map[string]*ToolApproval   // toolID -> approval
@@ -73,8 +74,8 @@ type TenantToolSet struct {
 	adminUsers  map[string]bool
 
 	// Base functionality from Marvin
-	container *Container
-	gateway   *mcpResourceGateway
+	container *junk.Container
+	gateway   *conversation.McpResourceGateway
 	mutex     sync.RWMutex
 
 	// Lazy initialization
@@ -88,13 +89,13 @@ type TenantToolSet struct {
 // NewTenantToolSet creates a new multi-tenant tool set with lazy initialization
 func NewTenantToolSet(ctx context.Context, cfg *config.File) (*TenantToolSet, error) {
 	tts := &TenantToolSet{
-		globalTools:   make(map[string]Tool),
-		userTools:     make(map[string]map[string]Tool),
+		globalTools:   make(map[string]conversation.Tool),
+		userTools:     make(map[string]map[string]conversation.Tool),
 		approvals:     make(map[string]*ToolApproval),
 		permissions:   make(map[string]*ToolPermission),
 		adminUsers:    make(map[string]bool),
-		container:     &Container{name: "tenant container", state: sync.Mutex{}},
-		gateway:       newMCPResourceGateway(),
+		container:     junk.NewContainer("tenant container"),
+		gateway:       conversation.NewMCPResourceGateway(),
 		httpConfigs:   cfg.HttpMCPBlock,
 		localConfigs:  cfg.LocalPrograms,
 		dockerConfigs: cfg.DockerMCPBlock,
@@ -146,13 +147,13 @@ func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
 func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) error {
 	for _, httpCfg := range tts.httpConfigs {
 		tool := FromHTTPMCPService(httpCfg)
-		definition, err := tool.defineAPI(ctx)
+		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
 			return ToolInitializationError{ToolName: httpCfg.Name, Cause: err}
 		}
 
 		// Register global tool with namespaced name
-		for _, toolDef := range definition.tool {
+		for _, toolDef := range definition.Tool {
 			tts.globalTools[toolDef.Function.Name] = tool
 		}
 	}
@@ -166,13 +167,13 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 	// Load approved local programs
 	for _, localCfg := range tts.localConfigs {
 		tool := FromLocalProgram(localCfg)
-		definition, err := tool.defineAPI(ctx)
+		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
 			return ToolInitializationError{ToolName: localCfg.Name, Cause: err}
 		}
 
 		// Register as global tool (these are pre-approved)
-		for _, toolDef := range definition.tool {
+		for _, toolDef := range definition.Tool {
 			tts.globalTools[toolDef.Function.Name] = tool
 
 			// Set up sharing if configured
@@ -187,13 +188,13 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 	// Load approved docker tools
 	for _, dockerCfg := range tts.dockerConfigs {
 		tool := FromDockerSpec(dockerCfg)
-		definition, err := tool.defineAPI(ctx)
+		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
 			return ToolInitializationError{ToolName: dockerCfg.Name, Cause: err}
 		}
 
 		// Register as global tool (these are pre-approved)
-		for _, toolDef := range definition.tool {
+		for _, toolDef := range definition.Tool {
 			tts.globalTools[toolDef.Function.Name] = tool
 
 			// Set up sharing if configured
@@ -211,29 +212,23 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 // GetUserTools creates a ToolSet for a specific user based on their permissions
 //
 //nolint:gocyclo
-func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext) (*ToolSet, error) {
+func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext) (*conversation.ToolSet, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
 
-	userToolSet := &ToolSet{
-		byName:       make(map[string]Tool),
-		defs:         make(api.Tools, 0),
-		instructions: make([]api.Message, 0),
-		container:    tts.container,
-		gateway:      tts.gateway,
-	}
+	userToolSet := conversation.NewToolSet()
 
 	// Always add global HTTP tools (available to everyone)
 	for name, tool := range tts.globalTools {
 		// Check if this is an HTTP tool or if user has access to restricted tools
 		if tts.canUserAccessTool(userCtx.UserID, name) || tts.isHTTPTool(name) {
-			def, err := tool.defineAPI(ctx)
+			def, err := tool.DefineAPI(ctx)
 			if err != nil {
 				continue
 			}
-			userToolSet.byName[name] = tool
-			userToolSet.defs = append(userToolSet.defs, def.tool...)
-			userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+			userToolSet.ByName[name] = tool
+			userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
+			userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
 		}
 	}
 
@@ -241,13 +236,13 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 	if userTools, exists := tts.userTools[userCtx.UserID]; exists {
 		for name, tool := range userTools {
 			if tts.canUserAccessTool(userCtx.UserID, name) {
-				def, err := tool.defineAPI(ctx)
+				def, err := tool.DefineAPI(ctx)
 				if err != nil {
 					continue
 				}
-				userToolSet.byName[name] = tool
-				userToolSet.defs = append(userToolSet.defs, def.tool...)
-				userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+				userToolSet.ByName[name] = tool
+				userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
+				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
 			}
 		}
 	}
@@ -258,17 +253,11 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 // GetUserToolsWithDeniedInfo returns both available tools and information about denied tools
 //
 //nolint:gocyclo
-func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCtx *UserContext) (*ToolSet, []string, error) {
+func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCtx *UserContext) (*conversation.ToolSet, []string, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
 
-	userToolSet := &ToolSet{
-		byName:       make(map[string]Tool),
-		defs:         make(api.Tools, 0),
-		instructions: make([]api.Message, 0),
-		container:    tts.container,
-		gateway:      tts.gateway,
-	}
+	userToolSet := conversation.NewToolSet()
 
 	var deniedTools []string
 
@@ -276,13 +265,13 @@ func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCt
 	for name, tool := range tts.globalTools {
 		// Check if this is an HTTP tool or if user has access to restricted tools
 		if tts.canUserAccessTool(userCtx.UserID, name) || tts.isHTTPTool(name) {
-			def, err := tool.defineAPI(ctx)
+			def, err := tool.DefineAPI(ctx)
 			if err != nil {
 				continue
 			}
-			userToolSet.byName[name] = tool
-			userToolSet.defs = append(userToolSet.defs, def.tool...)
-			userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+			userToolSet.ByName[name] = tool
+			userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
+			userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
 		} else if !tts.isHTTPTool(name) {
 			// Track denied tools (non-HTTP tools that user can't access)
 			deniedTools = append(deniedTools, name)
@@ -293,13 +282,13 @@ func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCt
 	if userTools, exists := tts.userTools[userCtx.UserID]; exists {
 		for name, tool := range userTools {
 			if tts.canUserAccessTool(userCtx.UserID, name) {
-				def, err := tool.defineAPI(ctx)
+				def, err := tool.DefineAPI(ctx)
 				if err != nil {
 					continue
 				}
-				userToolSet.byName[name] = tool
-				userToolSet.defs = append(userToolSet.defs, def.tool...)
-				userToolSet.instructions = append(userToolSet.instructions, def.instructions...)
+				userToolSet.ByName[name] = tool
+				userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
+				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
 			} else {
 				// Track denied user-specific tools
 				deniedTools = append(deniedTools, name)

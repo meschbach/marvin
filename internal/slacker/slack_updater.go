@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/meschbach/marvin/internal/query"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
 )
@@ -417,7 +417,7 @@ func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall
 }
 
 // UpdateStats handles statistics updates (no-op for Slack UI)
-func (su *SlackUpdater) UpdateStats(ctx context.Context, stats query.ConversationStats) error {
+func (su *SlackUpdater) UpdateStats(ctx context.Context, stats conversation.ConversationStats) error {
 	// Slack UI doesn't currently display statistics
 	// This provides a hook for future statistics display if needed
 	return nil

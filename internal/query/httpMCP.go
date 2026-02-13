@@ -6,6 +6,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/junk"
 )
 
 // FromHTTPMCPService connects to a remote HTTP API
@@ -49,14 +51,14 @@ func (h *httpMCPEndpoint) stop(ctx context.Context) error {
 	return h.connection.Close()
 }
 
-func (ts *ToolSet) loadToolsFromHTTP(ctx context.Context, cfg *config.File) (problem error) {
+func loadToolsFromHTTP(ctx context.Context, ts *conversation.ToolSet, cfg *config.File) (problem error) {
 	for _, mcpCfg := range cfg.HttpMCPBlock {
 		tool := FromHTTPMCPService(mcpCfg)
-		ts.container.Register(tool)
-		if err := ts.registerTool(ctx, tool); err != nil {
-			return &operationalError{
-				description: fmt.Sprintf("failed to register %s", mcpCfg.Name),
-				underlying:  err,
+		ts.Container.Register(tool)
+		if err := ts.RegisterTool(ctx, tool); err != nil {
+			return &junk.OperationalError{
+				Description: fmt.Sprintf("failed to Register %s", mcpCfg.Name),
+				Underlying:  err,
 			}
 		}
 	}

@@ -1,4 +1,4 @@
-package query
+package junk
 
 import (
 	"context"
@@ -18,6 +18,14 @@ type Container struct {
 	components []Component
 }
 
+func NewContainer(name string) *Container {
+	return &Container{
+		name:       name,
+		state:      sync.Mutex{},
+		components: nil,
+	}
+}
+
 func (c *Container) Register(comp Component) {
 	c.state.Lock()
 	defer c.state.Unlock()
@@ -33,7 +41,7 @@ func (c *Container) Shutdown(ctx context.Context) (problem error) {
 	defer c.state.Unlock()
 	for _, comp := range c.components {
 		if err := comp.Shutdown(ctx); err != nil {
-			problem = errors.Join(problem, &operationalError{fmt.Sprintf("failed to shutdown %s", comp.Describe()), err})
+			problem = errors.Join(problem, &OperationalError{fmt.Sprintf("failed to shutdown %s", comp.Describe()), err})
 		}
 	}
 	c.components = nil

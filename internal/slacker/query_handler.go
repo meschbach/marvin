@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
@@ -17,7 +18,7 @@ type QueryProcessor struct {
 	config         *config.File
 	securityLogger *sec.SecurityLogger
 	formatter      *SlackFormatter
-	streamer       *QueryStreamer[*api.Client]
+	streamer       *QueryStreamer[conversation.LLM]
 	helpIntegrator *HelpIntegrator
 }
 
@@ -33,12 +34,12 @@ func NewQueryProcessor(
 	formatter *SlackFormatter,
 	helpIntegrator *HelpIntegrator,
 ) *QueryProcessor {
-	ollama, err := api.ClientFromEnvironment()
+	llm, err := query.NewLLM(config)
 	if err != nil {
 		//todo: handle more gracefully
 		panic(err)
 	}
-	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, ollama, helpIntegrator)
+	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, llm, helpIntegrator)
 	return &QueryProcessor{
 		tenantToolSet:  tenantToolSet,
 		sessionManager: sessionManager,

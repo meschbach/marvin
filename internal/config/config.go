@@ -12,7 +12,8 @@ import (
 )
 
 type CommandLineOptions struct {
-	ConfigFile string
+	ConfigFile        string
+	OpenRouterKeyFile string
 }
 
 func NewCommandLineOptions() *CommandLineOptions {
@@ -28,12 +29,20 @@ func NewCommandLineOptions() *CommandLineOptions {
 func (c *CommandLineOptions) PersistentFlags(forCommand *cobra.Command) {
 	pflags := forCommand.PersistentFlags()
 	pflags.StringVarP(&c.ConfigFile, "config", "c", c.ConfigFile, "path to the configuration file")
+	pflags.StringVar(&c.OpenRouterKeyFile, "openrouter-key-file", "", "path to a file containing the OpenRouter API key")
 }
 
 func (c *CommandLineOptions) Load() (*File, error) {
 	file, err := loadConfig(c.ConfigFile)
 	if err != nil {
 		return nil, err
+	}
+	// Apply CLI flag for OpenRouter key file (takes priority over config file)
+	if c.OpenRouterKeyFile != "" {
+		if file.OpenRouter == nil {
+			file.OpenRouter = &OpenRouterBlock{}
+		}
+		file.OpenRouter.APIKeyFile = c.OpenRouterKeyFile
 	}
 	return file, nil
 }

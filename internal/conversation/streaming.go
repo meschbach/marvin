@@ -1,8 +1,7 @@
-package query
+package conversation
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ollama/ollama/api"
 )
@@ -24,13 +23,13 @@ type ConversationStats struct {
 	// DoneReason indicates why the conversation turn completed
 	DoneReason string
 
-	// IsDone indicates if this is the final response (no more tool calls expected)
+	// IsDone indicates if this is the final response (no more Tool calls expected)
 	IsDone bool
 }
 
 // StreamingUpdater handles real-time output updates during conversations.
 // It provides a unified interface for different backends (CLI, Slack, web UI) to receive
-// content, thoughts, tool calls, statistics, and flush notifications.
+// content, thoughts, Tool calls, statistics, and flush notifications.
 type StreamingUpdater interface {
 	// AddContent streams regular conversation content to the output.
 	// The content should be displayed immediately to provide real-time feedback.
@@ -40,12 +39,12 @@ type StreamingUpdater interface {
 	// This helps users understand the AI's decision-making process.
 	AddThought(ctx context.Context, thought string) error
 
-	// AddToolCall notifies when the AI invokes a tool.
-	// Provides transparency into tool usage and execution.
+	// AddToolCall notifies when the AI invokes a Tool.
+	// Provides transparency into Tool usage and execution.
 	AddToolCall(ctx context.Context, toolCall api.ToolCall) error
 
-	// AddToolResult notifies when a tool execution completes with its result.
-	// Provides visibility into tool execution outcomes for debugging and user feedback.
+	// AddToolResult notifies when a Tool execution completes with its result.
+	// Provides visibility into Tool execution outcomes for debugging and user feedback.
 	AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error
 
 	// UpdateStats provides real-time statistics about token usage and completion.
@@ -55,29 +54,6 @@ type StreamingUpdater interface {
 	// Flush signals completion of a conversation turn.
 	// Allows backends to perform final cleanup and display.
 	Flush(ctx context.Context) error
-}
-
-// Logger provides optional logging with null object pattern
-type Logger interface {
-	Debug(userID, component, message string)
-	Error(userID, component, message string)
-}
-
-// NullLogger provides no-op implementation for optional logging
-type NullLogger struct{}
-
-func (n *NullLogger) Debug(_, _, _ string) {}
-
-func (n *NullLogger) Error(_, _, _ string) {}
-
-type VerboseLogger struct{}
-
-func (v *VerboseLogger) Debug(userID, component, message string) {
-	fmt.Printf("[DEBUG] {user: %s, component: %s}: %s\n", userID, component, message)
-}
-
-func (v *VerboseLogger) Error(userID, component, message string) {
-	fmt.Printf("[ERROR] {user: %s, component: %s}: %s\n", userID, component, message)
 }
 
 // OptionalStatisticsUpdater provides a default no-op implementation for UpdateStats

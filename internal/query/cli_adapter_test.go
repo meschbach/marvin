@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test UpdateStats
-	stats := ConversationStats{
+	stats := conversation.ConversationStats{
 		PromptTokens:   10,
 		ResponseTokens: 20,
 		TotalTokens:    30,
@@ -44,7 +45,7 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 
 	// Test AddToolResult - success case
 	toolResult := []api.Message{
-		{Role: RoleToolResult, Content: "42"},
+		{Role: conversation.RoleToolResult, Content: "42"},
 	}
 	err = updater.AddToolResult(ctx, toolCall, toolResult, nil)
 	require.NoError(t, err)
@@ -91,7 +92,7 @@ func TestCLIStreamingUpdater_StatisticsTracking(t *testing.T) {
 	assert.Equal(t, 0, updater.totalTokens)
 
 	// Update statistics
-	stats1 := ConversationStats{
+	stats1 := conversation.ConversationStats{
 		PromptTokens:   5,
 		ResponseTokens: 10,
 		TotalTokens:    15,
@@ -106,7 +107,7 @@ func TestCLIStreamingUpdater_StatisticsTracking(t *testing.T) {
 	assert.Equal(t, 15, updater.totalTokens)
 
 	// Update with cumulative stats
-	stats2 := ConversationStats{
+	stats2 := conversation.ConversationStats{
 		PromptTokens:   8,
 		ResponseTokens: 15,
 		TotalTokens:    23,

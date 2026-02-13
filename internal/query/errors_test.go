@@ -4,12 +4,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLLMConnectionError(t *testing.T) {
 	t.Run("Error message formatting", func(t *testing.T) {
-		err := &LLMConnectionError{
+		err := &conversation.LLMConnectionError{
 			Message: "connection refused",
 			Cause:   errors.New("network error"),
 		}
@@ -18,37 +19,37 @@ func TestLLMConnectionError(t *testing.T) {
 
 	t.Run("Unwrap returns cause", func(t *testing.T) {
 		cause := errors.New("network error")
-		err := &LLMConnectionError{
+		err := &conversation.LLMConnectionError{
 			Message: "connection refused",
 			Cause:   cause,
 		}
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
-		err := &LLMConnectionError{Message: "test"}
-		assert.True(t, errors.Is(err, &LLMConnectionError{}))
+	t.Run("Is Matches same type", func(t *testing.T) {
+		err := &conversation.LLMConnectionError{Message: "test"}
+		assert.True(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
-		err := &LLMConnectionError{Message: "test"}
-		assert.False(t, errors.Is(err, &ToolInvocationError{}))
-		assert.False(t, errors.Is(err, &MessageCallbackError{}))
+		err := &conversation.LLMConnectionError{Message: "test"}
+		assert.False(t, errors.Is(err, &conversation.ToolInvocationError{}))
+		assert.False(t, errors.Is(err, &conversation.MessageCallbackError{}))
 		assert.False(t, errors.Is(err, &ConfigurationError{}))
 		assert.False(t, errors.Is(err, &ContextCancellationError{}))
-		assert.False(t, errors.Is(err, &StreamingUpdateError{}))
+		assert.False(t, errors.Is(err, &conversation.StreamingUpdateError{}))
 	})
 
 	t.Run("Is works with wrapped errors", func(t *testing.T) {
-		inner := &LLMConnectionError{Message: "inner"}
-		wrapped := &LLMConnectionError{Message: "outer", Cause: inner}
-		assert.True(t, errors.Is(wrapped, &LLMConnectionError{}))
+		inner := &conversation.LLMConnectionError{Message: "inner"}
+		wrapped := &conversation.LLMConnectionError{Message: "outer", Cause: inner}
+		assert.True(t, errors.Is(wrapped, &conversation.LLMConnectionError{}))
 	})
 }
 
 func TestToolInvocationError(t *testing.T) {
 	t.Run("Error message formatting", func(t *testing.T) {
-		err := &ToolInvocationError{
+		err := &conversation.ToolInvocationError{
 			ToolName: "calculator",
 			Message:  "division by zero",
 			Cause:    errors.New("runtime error"),
@@ -58,27 +59,27 @@ func TestToolInvocationError(t *testing.T) {
 
 	t.Run("Unwrap returns cause", func(t *testing.T) {
 		cause := errors.New("runtime error")
-		err := &ToolInvocationError{
+		err := &conversation.ToolInvocationError{
 			ToolName: "test-tool",
 			Cause:    cause,
 		}
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
-		err := &ToolInvocationError{ToolName: "test"}
-		assert.True(t, errors.Is(err, &ToolInvocationError{}))
+	t.Run("Is Matches same type", func(t *testing.T) {
+		err := &conversation.ToolInvocationError{ToolName: "test"}
+		assert.True(t, errors.Is(err, &conversation.ToolInvocationError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
-		err := &ToolInvocationError{ToolName: "test"}
-		assert.False(t, errors.Is(err, &LLMConnectionError{}))
+		err := &conversation.ToolInvocationError{ToolName: "test"}
+		assert.False(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 }
 
 func TestMessageCallbackError(t *testing.T) {
 	t.Run("Error message formatting", func(t *testing.T) {
-		err := &MessageCallbackError{
+		err := &conversation.MessageCallbackError{
 			Operation: "persist",
 			Message:   "database unavailable",
 			Cause:     errors.New("connection timeout"),
@@ -88,21 +89,21 @@ func TestMessageCallbackError(t *testing.T) {
 
 	t.Run("Unwrap returns cause", func(t *testing.T) {
 		cause := errors.New("connection timeout")
-		err := &MessageCallbackError{
+		err := &conversation.MessageCallbackError{
 			Operation: "save",
 			Cause:     cause,
 		}
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
-		err := &MessageCallbackError{Operation: "test"}
-		assert.True(t, errors.Is(err, &MessageCallbackError{}))
+	t.Run("Is Matches same type", func(t *testing.T) {
+		err := &conversation.MessageCallbackError{Operation: "test"}
+		assert.True(t, errors.Is(err, &conversation.MessageCallbackError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
-		err := &MessageCallbackError{Operation: "test"}
-		assert.False(t, errors.Is(err, &LLMConnectionError{}))
+		err := &conversation.MessageCallbackError{Operation: "test"}
+		assert.False(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 }
 
@@ -125,14 +126,14 @@ func TestConfigurationError(t *testing.T) {
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
+	t.Run("Is Matches same type", func(t *testing.T) {
 		err := &ConfigurationError{Component: "test"}
 		assert.True(t, errors.Is(err, &ConfigurationError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
 		err := &ConfigurationError{Component: "test"}
-		assert.False(t, errors.Is(err, &LLMConnectionError{}))
+		assert.False(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 }
 
@@ -149,20 +150,20 @@ func TestContextCancellationError(t *testing.T) {
 		assert.Nil(t, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
+	t.Run("Is Matches same type", func(t *testing.T) {
 		err := &ContextCancellationError{Message: "test"}
 		assert.True(t, errors.Is(err, &ContextCancellationError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
 		err := &ContextCancellationError{Message: "test"}
-		assert.False(t, errors.Is(err, &LLMConnectionError{}))
+		assert.False(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 }
 
 func TestStreamingUpdateError(t *testing.T) {
 	t.Run("Error message formatting", func(t *testing.T) {
-		err := &StreamingUpdateError{
+		err := &conversation.StreamingUpdateError{
 			Component: "CLIStreamingUpdater",
 			Message:   "write failed",
 			Cause:     errors.New("broken pipe"),
@@ -172,33 +173,33 @@ func TestStreamingUpdateError(t *testing.T) {
 
 	t.Run("Unwrap returns cause", func(t *testing.T) {
 		cause := errors.New("broken pipe")
-		err := &StreamingUpdateError{
+		err := &conversation.StreamingUpdateError{
 			Component: "SlackUpdater",
 			Cause:     cause,
 		}
 		assert.Equal(t, cause, err.Unwrap())
 	})
 
-	t.Run("Is matches same type", func(t *testing.T) {
-		err := &StreamingUpdateError{Component: "test"}
-		assert.True(t, errors.Is(err, &StreamingUpdateError{}))
+	t.Run("Is Matches same type", func(t *testing.T) {
+		err := &conversation.StreamingUpdateError{Component: "test"}
+		assert.True(t, errors.Is(err, &conversation.StreamingUpdateError{}))
 	})
 
 	t.Run("Is does not match different type", func(t *testing.T) {
-		err := &StreamingUpdateError{Component: "test"}
-		assert.False(t, errors.Is(err, &LLMConnectionError{}))
+		err := &conversation.StreamingUpdateError{Component: "test"}
+		assert.False(t, errors.Is(err, &conversation.LLMConnectionError{}))
 	})
 }
 
 func TestErrorTypeUniqueness(t *testing.T) {
 	// Ensure all error types are distinct and don't match each other
 	errorTypes := []error{
-		&LLMConnectionError{},
-		&ToolInvocationError{},
-		&MessageCallbackError{},
+		&conversation.LLMConnectionError{},
+		&conversation.ToolInvocationError{},
+		&conversation.MessageCallbackError{},
 		&ConfigurationError{},
 		&ContextCancellationError{},
-		&StreamingUpdateError{},
+		&conversation.StreamingUpdateError{},
 	}
 
 	for i, err1 := range errorTypes {

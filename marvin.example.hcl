@@ -1,5 +1,31 @@
 model = "llama3.2:latest"
 
+# LLM Provider: "ollama" (default) or "openrouter"
+# provider = "ollama"
+
+# OpenRouter configuration (when provider = "openrouter")
+# The API key can be provided via:
+#   1. openrouter block (api_key)
+#   2. --openrouter-key-file CLI flag
+#   3. OPENROUTER_API_KEY environment variable
+#
+# openrouter {
+#   # API key directly (not recommended for production)
+#   # api_key = "sk-or-v1-..."
+#   
+#   # Path to file containing API key (recommended)
+#   # api_key_file = "/path/to/openrouter-api-key.txt"
+#   
+#   # Optional: Override default OpenRouter endpoint
+#   # base_url = "https://openrouter.ai/api/v1"
+# }
+
+# Example OpenRouter models:
+# provider = "openrouter"
+# model = "qwen2.5:7b"
+# or
+# model = "openrouter/qwen2.5:7b"
+
 # Advanced model options for fine-tuning responses
 options {
   # Context window size (tokens) - default: 2048
