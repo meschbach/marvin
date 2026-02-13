@@ -36,3 +36,7 @@ release/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+examples/google-workspace-mcp
+wip.md
+improvements.md
