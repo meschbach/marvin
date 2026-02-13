@@ -10,6 +10,7 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+//nolint:gocyclo
 func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 	tools, err := NewToolSet(ctx, cfg)
 	if err != nil {

@@ -33,6 +33,8 @@ type ToolManagementIntent struct {
 }
 
 // NewIntentProcessor creates a new intent processor with default patterns
+//
+//nolint:funlen
 func NewIntentProcessor() *IntentProcessor {
 	return &IntentProcessor{
 		threshold: 0.7,
@@ -215,6 +217,8 @@ func NewIntentProcessor() *IntentProcessor {
 }
 
 // ProcessMessage analyzes a message and returns the detected intent
+//
+//nolint:gocyclo,funlen
 func (ip *IntentProcessor) ProcessMessage(message string) (*ToolManagementIntent, error) {
 	message = strings.TrimSpace(message)
 

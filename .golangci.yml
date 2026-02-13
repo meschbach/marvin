@@ -5,7 +5,13 @@ run:
   tests: true
 
 linters:
+  enable:
+    - funlen
+    - gocyclo
   settings:
+    funlen:
+      lines: 100
+      statements: 100
     gocyclo:
       min-complexity: 8
     misspell:

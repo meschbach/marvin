@@ -172,6 +172,8 @@ type SharingBlock struct {
 // BuildAPIOptions constructs a map for api.ChatRequest.Options from the configuration.
 // Only includes options that are explicitly set (non-nil), allowing
 // Ollama to use its built-in defaults for unspecified options.
+//
+//nolint:gocyclo
 func (f *File) BuildAPIOptions() map[string]any {
 	if f.Options == nil {
 		return nil
@@ -402,6 +404,8 @@ func (f *File) SaveModelAccessState(state *ModelAccessState, updatedBy string) e
 
 // ValidateModelAccess checks if a model is allowed for Slacker operations.
 // For CLI operations, this should not be called.
+//
+//nolint:gocyclo
 func (f *File) ValidateModelAccess(model string, userID string) (bool, string) {
 	// Check if user is admin - admins bypass all restrictions
 	if f.MultiTenant != nil {

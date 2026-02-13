@@ -67,6 +67,7 @@ func (d *DocumentsBlock) EmbeddingModel() string {
 	return embedModel
 }
 
+//nolint:gocyclo
 func (d *DocumentsBlock) Index(ctx context.Context) error {
 	if d.DocumentPath == "" {
 		return fmt.Errorf("documents.DocumentPath is empty")

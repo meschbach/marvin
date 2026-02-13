@@ -106,6 +106,8 @@ func NewConversationEngineWithCallback(
 
 // RunConversation executes the AI chat loop with tool-call handling until
 // the assistant produces a final answer (no further tool calls) or an error occurs.
+//
+//nolint:gocyclo,funlen
 func (e *ConversationEngine) RunConversation(
 	ctx context.Context,
 	model string,

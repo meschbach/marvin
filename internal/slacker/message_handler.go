@@ -74,6 +74,8 @@ func (mh *MessageHandler) SetHelpContextBuilder(helpContextBuilder *HelpContextB
 }
 
 // ProcessMessage processes incoming Slack messages
+//
+//nolint:gocyclo,funlen
 func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.MessageEvent) error {
 	// Ignore messages from bots or messages without text
 	if ev.BotID != "" || ev.SubType != "" || ev.Text == "" {
@@ -280,6 +282,8 @@ func (mh *MessageHandler) handleModelAccessIntent(ctx context.Context, slackCtx 
 }
 
 // handleModelAccessList shows current model access configuration
+//
+//nolint:gocyclo
 func (mh *MessageHandler) handleModelAccessList(ctx context.Context, slackCtx *SlackContext) (string, error) {
 	state, err := mh.config.GetEffectiveModelAccess()
 	if err != nil {
@@ -459,6 +463,8 @@ func (mh *MessageHandler) handleModelAccessStatus(ctx context.Context, slackCtx 
 }
 
 // handleAdminIntent provides admin-specific help and escalation
+//
+//nolint:gocyclo
 func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
 	// Verify admin permissions
 	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
@@ -552,6 +558,8 @@ func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *Slack
 }
 
 // handleIntentFailure provides intelligent help when intent recognition fails
+//
+//nolint:gocyclo
 func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, ev *slackevents.MessageEvent) error {
 	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
 	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)

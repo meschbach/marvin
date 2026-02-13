@@ -160,6 +160,8 @@ func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) error {
 }
 
 // loadApprovedRestrictedTools loads local and docker tools that are pre-approved in config
+//
+//nolint:gocyclo
 func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error {
 	// Load approved local programs
 	for _, localCfg := range tts.localConfigs {
@@ -207,6 +209,8 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 }
 
 // GetUserTools creates a ToolSet for a specific user based on their permissions
+//
+//nolint:gocyclo
 func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext) (*ToolSet, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
@@ -252,6 +256,8 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 }
 
 // GetUserToolsWithDeniedInfo returns both available tools and information about denied tools
+//
+//nolint:gocyclo
 func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCtx *UserContext) (*ToolSet, []string, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()

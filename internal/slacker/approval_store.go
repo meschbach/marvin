@@ -92,6 +92,8 @@ func (as *ApprovalStore) GetUserApprovals(userID string) []*query.ToolApproval {
 }
 
 // RemoveOldApprovals removes approvals older than the specified duration
+//
+//nolint:gocyclo
 func (as *ApprovalStore) RemoveOldApprovals(cutoffTime int64) []string {
 	as.mutex.Lock()
 	defer as.mutex.Unlock()

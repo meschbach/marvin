@@ -12,6 +12,8 @@ import (
 )
 
 // TestModelAccessConfig_Validation tests the model access validation logic
+//
+//nolint:funlen
 func TestModelAccessConfig_Validation(t *testing.T) {
 	tests := []struct {
 		name           string

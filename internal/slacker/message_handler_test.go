@@ -75,6 +75,8 @@ func TestMessageHandler_MessageFiltering(t *testing.T) {
 }
 
 // TestIntentProcessor_ProcessMessage tests intent recognition
+//
+//nolint:funlen
 func TestIntentProcessor_ProcessMessage(t *testing.T) {
 	processor := NewIntentProcessor()
 

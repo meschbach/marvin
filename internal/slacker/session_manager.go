@@ -285,6 +285,8 @@ func (sm *SessionManager) saveSession(session *UserSession) error {
 }
 
 // loadAllSessions loads all existing sessions from disk
+//
+//nolint:gocyclo
 func (sm *SessionManager) loadAllSessions() error {
 	files, err := os.ReadDir(sm.storePath)
 	if err != nil {

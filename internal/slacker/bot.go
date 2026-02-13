@@ -123,6 +123,8 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 }
 
 // ValidateSlackSetup validates the Slack bot configuration and connections
+//
+//nolint:gocyclo
 func (sb *SlackBot) ValidateSlackSetup() error {
 	// Validate that all required components are initialized
 	if sb.connection == nil {

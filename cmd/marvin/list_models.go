@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+//nolint:funlen,gocyclo
 func listModelsCommand(global *globalOptions) *cobra.Command {
 	var showAccess bool
 

@@ -8,6 +8,8 @@ import (
 )
 
 // TestMessageHandler_FilteringLogic tests the filtering logic in isolation
+//
+//nolint:gocyclo
 func TestMessageHandler_FilteringLogic(t *testing.T) {
 
 	t.Run("BotMessageFiltering", func(t *testing.T) {

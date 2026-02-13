@@ -14,6 +14,7 @@ import (
 const mcpParameterTypeObject = "object"
 const mcpParameterTypeString = "string"
 
+//nolint:gocyclo
 func PerformGoalWithConfig(cfg *config.File, goal string) {
 	ctx, done := context.WithCancel(context.Background())
 	defer done()

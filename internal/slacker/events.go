@@ -32,6 +32,8 @@ func NewEventRouter(
 }
 
 // RouteEvent processes Socket Mode events and routes them to appropriate handlers
+//
+//nolint:gocyclo
 func (er *EventRouter) RouteEvent(ctx context.Context, event socketmode.Event) error {
 	switch event.Type {
 	case socketmode.EventTypeHello:

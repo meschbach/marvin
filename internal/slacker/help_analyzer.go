@@ -486,6 +486,8 @@ func (h *HelpAnalyzer) generateHelpActions(failureType string, resp llmHelpRespo
 }
 
 // fallbackHelpResponse provides basic help when LLM parsing fails
+//
+//nolint:gocyclo
 func (h *HelpAnalyzer) fallbackHelpResponse(failureType, rawResponse string) *HelpAnalysis {
 	// Try to extract some useful information from the raw response
 	var diagnosis string

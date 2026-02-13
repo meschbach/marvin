@@ -24,6 +24,8 @@ type ChatOptions struct {
 }
 
 // PerformWithConfig executes the search using the optional parsed configuration.
+//
+//nolint:gocyclo,funlen
 func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) {
 	// Apply configuration defaults if CLI flags not set
 	if cfg != nil {

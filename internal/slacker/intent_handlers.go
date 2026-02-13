@@ -96,6 +96,8 @@ func parseLocalProgramConfig(configStr string) (*config.LocalProgramBlock, error
 }
 
 // parseDockerConfig parses Docker tool configuration
+//
+//nolint:gocyclo
 func parseDockerConfig(configStr string) (*config.DockerMCPBlock, error) {
 	// Format could be: "image:tag" or "name using image:tag" or "image image:tag with args"
 
@@ -204,6 +206,8 @@ func generateNameFromImage(image string) string {
 }
 
 // HandlePreferenceIntent processes preference management commands
+//
+//nolint:gocyclo,funlen
 func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *SessionManager, userID string) (string, error) {
 	// Get current preferences
 	currentPrefs, hasPrefs := sessionManager.GetPreferences(userID)

@@ -101,6 +101,8 @@ func truncateText(text string, maxLength int) string {
 }
 
 // enforceSlackLimits ensures blocks and content respect Slack's limits
+//
+//nolint:gocyclo
 func enforceSlackLimits(blocks []slack.Block, message string) ([]slack.Block, string) {
 	// If we have many blocks, combine them into fewer blocks
 	if len(blocks) > MaxBlocksTotal {
@@ -263,6 +265,8 @@ func (su *SlackUpdater) addContentInternal(
 
 // updateMessage posts or updates the current buffer content
 // NOTE: caller is expected to hold the mutex
+//
+//nolint:gocyclo
 func (su *SlackUpdater) updateMessage(ctx context.Context) error {
 	message := su.buffer.String()
 	if message == "" {

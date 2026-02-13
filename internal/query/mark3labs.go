@@ -67,6 +67,8 @@ func (m *Mark3labsTool) Shutdown(shutdownContext context.Context) (problem error
 
 // defineAPI queries the MCP server for available operations and returns Ollama tool
 // definitions using namespaced names: "<toolName>.<operationName>".
+//
+//nolint:gocyclo
 func (m *Mark3labsTool) defineAPI(ctx context.Context) (definitions *toolDefinition, problem error) {
 	if err := m.ensureRunning(ctx); err != nil {
 		return nil, err

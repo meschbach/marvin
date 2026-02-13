@@ -24,6 +24,8 @@ func (sf *SlackFormatter) Format(ctx context.Context, content string, contentTyp
 }
 
 // ParseMessageToBlocks converts markdown message to Slack blocks with proper header handling
+//
+//nolint:gocyclo
 func (sf *SlackFormatter) ParseMessageToBlocks(message string) []slack.Block {
 	// Normalize markdown for Slack compatibility
 	message = sf.NormalizeMarkdown(message)

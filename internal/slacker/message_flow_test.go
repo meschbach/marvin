@@ -16,6 +16,8 @@ import (
 )
 
 // TestMessageFlow_Integration tests the complete message flow from Slack to Ollama
+//
+//nolint:funlen
 func TestMessageFlow_Integration(t *testing.T) {
 	// Create temporary directory for session storage
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
@@ -200,6 +202,8 @@ func TestMessageFlow_Integration(t *testing.T) {
 }
 
 // TestEventRouter_Integration tests the flow from Socket Mode event to message handler
+//
+//nolint:funlen
 func TestEventRouter_Integration(t *testing.T) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
