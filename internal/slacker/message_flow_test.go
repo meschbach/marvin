@@ -59,7 +59,8 @@ func TestMessageFlow_Integration(t *testing.T) {
 	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
 
 	// Create query processor
-	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	require.NoError(t, err)
 
 	// Create intent processor
 	intentProcessor := NewIntentProcessor()
@@ -238,7 +239,8 @@ func TestEventRouter_Integration(t *testing.T) {
 	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
 	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
 
-	queryProcessor := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	require.NoError(t, err)
 	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 

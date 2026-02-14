@@ -33,11 +33,10 @@ func NewQueryProcessor(
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
 	helpIntegrator *HelpIntegrator,
-) *QueryProcessor {
+) (*QueryProcessor, error) {
 	llm, err := query.NewLLM(config)
 	if err != nil {
-		//todo: handle more gracefully
-		panic(err)
+		return nil, fmt.Errorf("failed to initialize LLM: %w", err)
 	}
 	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, llm, helpIntegrator)
 	return &QueryProcessor{
@@ -48,7 +47,7 @@ func NewQueryProcessor(
 		formatter:      formatter,
 		streamer:       streamer,
 		helpIntegrator: helpIntegrator,
-	}
+	}, nil
 }
 
 // HandleQueryWithUpdater processes queries with a specific Slack updater

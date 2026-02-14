@@ -19,7 +19,16 @@ type ProviderType string
 const (
 	ProviderOllama     ProviderType = "ollama"
 	ProviderOpenRouter ProviderType = "openrouter"
+	ProviderGemini     ProviderType = "gemini"
 )
+
+// GeminiBlock contains configuration for Google Gemini provider
+type GeminiBlock struct {
+	// APIKey is the Google Gemini API key
+	APIKey string `hcl:"api_key,optional"`
+	// APIKeyFile is a path to a file containing the Gemini API key
+	APIKeyFile string `hcl:"api_key_file,optional"`
+}
 
 // OpenRouterBlock contains configuration for OpenRouter provider
 type OpenRouterBlock struct {
@@ -95,10 +104,12 @@ type DisplayBlock struct {
 type File struct {
 	// Model is the large language model to use
 	Model string `hcl:"model,optional"`
-	// ProviderName specifies which LLM provider to use (ollama or openrouter)
+	// ProviderName specifies which LLM provider to use (ollama, openrouter, or gemini)
 	ProviderName string `hcl:"provider,optional"`
 	// OpenRouter contains OpenRouter-specific configuration
-	OpenRouter    *OpenRouterBlock    `hcl:"openrouter,block"`
+	OpenRouter *OpenRouterBlock `hcl:"openrouter,block"`
+	// Gemini contains Google Gemini-specific configuration
+	Gemini        *GeminiBlock        `hcl:"gemini,block"`
 	Options       *ModelOptionsBlock  `hcl:"options,block"`
 	LocalPrograms []LocalProgramBlock `hcl:"local_program,block"`
 	SystemPrompt  *SystemPromptBlock  `hcl:"system_prompt,block"`
@@ -160,6 +171,30 @@ func (f *File) ResolveOpenRouterAPIKey() (string, error) {
 
 	// Fall back to environment variable
 	envKey := os.Getenv("OPENROUTER_API_KEY")
+	if envKey != "" {
+		return envKey, nil
+	}
+
+	return "", nil
+}
+
+// ResolveGeminiAPIKey resolves the Gemini API key from config, file, or environment
+func (f *File) ResolveGeminiAPIKey() (string, error) {
+	// Priority: config API key > file > environment variable
+	if f.Gemini != nil && f.Gemini.APIKey != "" {
+		return f.Gemini.APIKey, nil
+	}
+
+	if f.Gemini != nil && f.Gemini.APIKeyFile != "" {
+		data, err := os.ReadFile(f.Gemini.APIKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read Gemini API key file: %w", err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	// Fall back to environment variable
+	envKey := os.Getenv("GEMINI_API_KEY")
 	if envKey != "" {
 		return envKey, nil
 	}

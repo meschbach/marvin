@@ -1,6 +1,6 @@
 model = "llama3.2:latest"
 
-# LLM Provider: "ollama" (default) or "openrouter"
+# LLM Provider: "ollama" (default), "openrouter", or "gemini"
 # provider = "ollama"
 
 # OpenRouter configuration (when provider = "openrouter")
@@ -25,6 +25,26 @@ model = "llama3.2:latest"
 # model = "qwen2.5:7b"
 # or
 # model = "openrouter/qwen2.5:7b"
+
+# Gemini configuration (when provider = "gemini")
+# The API key can be provided via:
+#   1. gemini block (api_key)
+#   2. gemini block (api_key_file)
+#   3. GEMINI_API_KEY environment variable
+#
+# gemini {
+#   # API key directly (not recommended for production)
+#   # api_key = "AIza..."
+#   
+#   # Path to file containing API key (recommended)
+#   # api_key_file = "/path/to/gemini-api-key.txt"
+# }
+
+# Example Gemini models:
+# provider = "gemini"
+# model = "gemini-2.0-flash"
+# or
+# model = "gemini-1.5-pro"
 
 # Advanced model options for fine-tuning responses
 options {
