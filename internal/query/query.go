@@ -104,7 +104,7 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 		if opts.DumpTooling {
 			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 		}
-		toolset.Instructions = append(toolset.Instructions, api.Message{Role: conversation.RoleAssistant, Content: fmt.Sprintf("Function %s : %s", tool.Function.Name, tool.Function.Description)})
+		toolset.Instructions = append(toolset.Instructions, api.Message{Role: conversation.RoleAssistant, Content: fmt.Sprintf("Function %s %s", tool.Function.Name, tool.Function.Description)})
 	}
 	messages := append(toolset.Instructions,
 		systemMessage,

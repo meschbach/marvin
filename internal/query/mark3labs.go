@@ -68,7 +68,7 @@ func (m *Mark3labsTool) Shutdown(shutdownContext context.Context) (problem error
 }
 
 // DefineAPI queries the MCP server for available operations and returns Ollama tool
-// definitions using namespaced names: "<toolName>.<operationName>".
+// definitions using namespaced names: "<toolName>_<operationName>".
 //
 //nolint:gocyclo
 func (m *Mark3labsTool) DefineAPI(ctx context.Context) (definitions *conversation.ToolDefinition, problem error) {
@@ -158,11 +158,11 @@ func (m *Mark3labsTool) DefineAPI(ctx context.Context) (definitions *conversatio
 	return definitions, nil
 }
 
-func (m *Mark3labsTool) namespaced(op string) string { return m.Name + "." + op }
+func (m *Mark3labsTool) namespaced(op string) string { return m.Name + "_" + op }
 
 // Invoke executes the MCP tool operation based on a ToolCall and returns the
 // corresponding tool message. The call.Function.Describe is expected to be
-// "<toolName>.<operationName>".
+// "<toolName>_<operationName>".
 func (m *Mark3labsTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	c := m.mcpClient
 	invocationContext, done := context.WithTimeout(ctx, 15*time.Second)
@@ -173,7 +173,7 @@ func (m *Mark3labsTool) Invoke(ctx context.Context, call api.ToolCall) (out []ap
 	}
 	// Extract the operation name from the namespaced function name
 	opName := call.Function.Name
-	if idx := strings.IndexByte(opName, '.'); idx >= 0 {
+	if idx := strings.IndexByte(opName, '_'); idx >= 0 {
 		opName = opName[idx+1:]
 	}
 	if opName == "" {

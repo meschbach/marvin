@@ -19,7 +19,7 @@ const (
 	RoleAssistant = "assistant"
 
 	// RoleToolResult represents Tool execution results
-	RoleToolResult = "Tool"
+	RoleToolResult = "tool"
 )
 
 // MessageCallback is called when a new message should be added to the conversation.

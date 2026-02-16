@@ -87,7 +87,7 @@ func (c *CLIStreamingUpdater) AddThought(ctx context.Context, thought string) er
 func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
 	if c.showTools {
 		// Note: Detailed tool call info will be logged by the engine
-		fmt.Printf("🔧 Tool call: %s\n", toolCall.Function.Name)
+		fmt.Printf("🔧 Tool call: %s: %#v\n", toolCall.Function.Name, toolCall.Function.Arguments.All())
 		for key, value := range toolCall.Function.Arguments.All() {
 			fmt.Printf("\t-\t%s: %#v\n", key, value)
 		}
