@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -22,24 +21,32 @@ const (
 	ProviderGemini     ProviderType = "gemini"
 )
 
-type APIKeyBlock struct {
-	// APIKey is the Google Gemini API key
-	//nolint
-	APIKey string `hcl:"api_key,optional"`
-	// APIKeyFile is a path to a file containing the Gemini API key
-	APIKeyFile string `hcl:"api_key_file,optional"`
-}
-
 // GeminiBlock contains configuration for Google Gemini provider
 type GeminiBlock struct {
-	APIKeyBlock
+	APIKeyBlock `hcl:",remain"`
+}
+
+func (g *GeminiBlock) ResolveKey() (value string, has bool, problem error) {
+	var keyBlock *APIKeyBlock
+	if g != nil {
+		keyBlock = &g.APIKeyBlock
+	}
+	return keyBlock.Resolve("GEMINI_API_KEY")
 }
 
 // OpenRouterBlock contains configuration for OpenRouter provider
 type OpenRouterBlock struct {
-	APIKeyBlock
+	APIKeyBlock `hcl:",remain"`
 	// BaseURL allows overriding the default OpenRouter endpoint
 	BaseURL string `hcl:"base_url,optional"`
+}
+
+func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
+	var keyBlock *APIKeyBlock
+	if o != nil {
+		keyBlock = &o.APIKeyBlock
+	}
+	return keyBlock.Resolve("OPENROUTER_API_KEY")
 }
 
 // ModelOptionsBlock contains advanced model configuration options
@@ -154,16 +161,6 @@ func (f *File) Provider() ProviderType {
 		return ProviderOllama
 	}
 	return ProviderType(f.ProviderName)
-}
-
-// ResolveOpenRouterAPIKey resolves the OpenRouter API key from config, file, or environment
-func (f *File) ResolveOpenRouterAPIKey() (string, error) {
-	return resolveAPIKey(&f.OpenRouter.APIKeyBlock, "OPENROUTER_API_KEY", "failed to resolve OpenRouter API key")
-}
-
-// ResolveGeminiAPIKey resolves the Gemini API key from config, file, or environment
-func (f *File) ResolveGeminiAPIKey() (string, error) {
-	return resolveAPIKey(&f.Gemini.APIKeyBlock, "GEMINI_API_KEY", "failed to resolve Gemini API key")
 }
 
 func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) ([]QueryResult, error) {
@@ -551,22 +548,4 @@ func (f *File) GetEffectiveModelAccess() (*ModelAccessState, error) {
 		LastUpdated:   "",
 		UpdatedBy:     "",
 	}, nil
-}
-
-// resolveAPIKey resolves an API key from config, file, or environment variable.
-func resolveAPIKey(block *APIKeyBlock, envVarName, errorPrefix string) (string, error) {
-	if block != nil && block.APIKey != "" {
-		return block.APIKey, nil
-	}
-	if block != nil && block.APIKeyFile != "" {
-		data, err := os.ReadFile(block.APIKeyFile)
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", errorPrefix, err)
-		}
-		return strings.TrimSpace(string(data)), nil
-	}
-	if envKey := os.Getenv(envVarName); envKey != "" {
-		return envKey, nil
-	}
-	return "", nil
 }

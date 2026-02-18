@@ -37,11 +37,11 @@ func NewLLM(cfg *config.File) (conversation.LLM, error) {
 }
 
 func newGeminiLLM(cfg *config.File) (conversation.LLM, error) {
-	apiKey, err := cfg.ResolveGeminiAPIKey()
+	apiKey, has, err := cfg.Gemini.ResolveKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve Gemini API key: %w", err)
 	}
-	if apiKey == "" {
+	if !has {
 		return nil, fmt.Errorf("gemini API key is required. Set it via config, file, or GEMINI_API_KEY env var")
 	}
 
@@ -49,11 +49,11 @@ func newGeminiLLM(cfg *config.File) (conversation.LLM, error) {
 }
 
 func newOpenRouterLLM(cfg *config.File) (conversation.LLM, error) {
-	apiKey, err := cfg.ResolveOpenRouterAPIKey()
+	apiKey, has, err := cfg.OpenRouter.ResolveKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve OpenRouter API key: %w", err)
 	}
-	if apiKey == "" {
+	if !has {
 		return nil, fmt.Errorf("openrouter API key is required. Set it via config, file (--openrouter-key-file), or OPENROUTER_API_KEY env var")
 	}
 
