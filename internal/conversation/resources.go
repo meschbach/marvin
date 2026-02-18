@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ollama/ollama/api"
 	"github.com/yosida95/uritemplate/v3"
@@ -28,7 +27,6 @@ func (m *McpResourceGateway) Register(gateway McpResource) {
 }
 
 func (m *McpResourceGateway) DefineAPI(ctx context.Context) (definition *ToolDefinition, problem error) {
-	fmt.Printf("gateway\t\t> defining API with %d services\n", len(m.ResourceServices))
 	props := api.NewToolPropertiesMap()
 	props.Set("uri", api.ToolProperty{
 		Type:        ToolPropTypeString,
@@ -52,13 +50,10 @@ func (m *McpResourceGateway) DefineAPI(ctx context.Context) (definition *ToolDef
 		Content: "Use the Tool read_resource to access resources identified by a URI.",
 	})
 
-	fmt.Printf("gateway\t\t> defining API with %d services\n", len(m.ResourceServices))
 	for _, rs := range m.ResourceServices {
 		msg := rs.DescribeMessages()
-		fmt.Printf("gateway\t\t> adding %d Instructions\n", len(msg))
 		definition.Instructions = append(definition.Instructions, msg...)
 	}
-	fmt.Printf("gateway\t\t> done defining API with %d Instructions\n\n", len(definition.Instructions))
 	return definition, nil
 }
 

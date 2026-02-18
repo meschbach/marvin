@@ -2,7 +2,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -14,8 +13,8 @@ type DockerMCPBlock struct {
 	Mount   []DockerMCPMount    `hcl:"mount,block"`
 	Env     []DockerMCPBlockEnv `hcl:"env,block"`
 	Verbose *bool               `hcl:"verbose,optional"`
-	//WorkingDirectory is an optionally overridable path.  By default, working directory is the directory containing
-	//the enclosing configuration.
+	// WorkingDirectory is an optionally overridable path.  By default, the working directory is the directory containing
+	// the enclosing configuration.
 	WorkingDirectory string                `hcl:"working_directory,optional"`
 	Sharing          *SharingBlock         `hcl:"sharing,block"`
 	AssistantPrompt  *AssistantPromptBlock `hcl:"assistant_prompt,block"`
@@ -33,9 +32,6 @@ func (d *DockerMCPBlock) EnsureWorkingDirectory(marvinWorkingDirectory string) s
 		return d.WorkingDirectory
 	}
 	d.WorkingDirectory = filepath.Join(marvinWorkingDirectory, d.WorkingDirectory)
-	if d.ResolveVerbose() {
-		fmt.Printf("docker-%s >{cfg} Using working directory: %s\n", d.Name, d.WorkingDirectory)
-	}
 	return d.WorkingDirectory
 }
 
@@ -45,7 +41,7 @@ type DockerMCPBlockEnv struct {
 	Passthrough *bool  `hcl:"pass_through,optional"`
 }
 
-func (d *DockerMCPBlockEnv) ResolveValue() (string, string, error) {
+func (d *DockerMCPBlockEnv) ResolveValue() (key, value string, err error) {
 	if d.Value != "" {
 		if d.Passthrough != nil && *d.Passthrough {
 			return "", "", errors.New("only value or pass_through can be set, not both")

@@ -100,57 +100,63 @@ func truncateText(text string, maxLength int) string {
 	return truncated + "..."
 }
 
-// enforceSlackLimits ensures blocks and content respect Slack's limits
-//
-//nolint:gocyclo
-func enforceSlackLimits(blocks []slack.Block, message string) ([]slack.Block, string) {
-	// If we have many blocks, combine them into fewer blocks
-	if len(blocks) > MaxBlocksTotal {
-		// Combine all text content
-		var combinedText strings.Builder
-		for i, block := range blocks {
-			if i < MaxBlocksTotal-1 {
-				if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
-					combinedText.WriteString(section.Text.Text)
-					combinedText.WriteString("\n\n")
-				}
-			}
-		}
-
-		// Create single section block with combined content
-		combinedContent := truncateText(combinedText.String(), MaxSectionTextLength)
-		blocks = []slack.Block{
-			slack.NewSectionBlock(&slack.TextBlockObject{
-				Type: slack.PlainTextType,
-				Text: combinedContent,
-			}, nil, nil),
-		}
+// combineBlocks creates a single block from multiple blocks if there are too many
+func combineBlocks(blocks []slack.Block) []slack.Block {
+	if len(blocks) <= MaxBlocksTotal {
+		return blocks
 	}
 
-	// Truncate section block text content
+	var combinedText strings.Builder
 	for i, block := range blocks {
-		if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
-			textObj := section.Text
-			var truncatedText string
-			if textObj.Type == slack.PlainTextType && len(textObj.Text) > MaxPlainTextLength {
-				truncatedText = truncateText(textObj.Text, MaxPlainTextLength)
-			} else if len(textObj.Text) > MaxSectionTextLength {
-				truncatedText = truncateText(textObj.Text, MaxSectionTextLength)
-			} else {
-				truncatedText = textObj.Text
+		if i < MaxBlocksTotal-1 {
+			if section, ok := block.(*slack.SectionBlock); ok && section.Text != nil {
+				combinedText.WriteString(section.Text.Text)
+				combinedText.WriteString("\n\n")
 			}
-
-			// Create new section with truncated text
-			blocks[i] = slack.NewSectionBlock(&slack.TextBlockObject{
-				Type: textObj.Type,
-				Text: truncatedText,
-			}, nil, nil)
 		}
 	}
 
-	// Also truncate the fallback message text
-	truncatedMessage := truncateText(message, MaxPlainTextLength)
+	combinedContent := truncateText(combinedText.String(), MaxSectionTextLength)
+	return []slack.Block{
+		slack.NewSectionBlock(&slack.TextBlockObject{
+			Type: slack.PlainTextType,
+			Text: combinedContent,
+		}, nil, nil),
+	}
+}
 
+// truncateBlockText truncates text in a section block if it exceeds limits
+func truncateBlockText(block slack.Block, i int) slack.Block {
+	section, ok := block.(*slack.SectionBlock)
+	if !ok || section.Text == nil {
+		return block
+	}
+
+	textObj := section.Text
+	var truncatedText string
+	if textObj.Type == slack.PlainTextType && len(textObj.Text) > MaxPlainTextLength {
+		truncatedText = truncateText(textObj.Text, MaxPlainTextLength)
+	} else if len(textObj.Text) > MaxSectionTextLength {
+		truncatedText = truncateText(textObj.Text, MaxSectionTextLength)
+	} else {
+		return block
+	}
+
+	return slack.NewSectionBlock(&slack.TextBlockObject{
+		Type: textObj.Type,
+		Text: truncatedText,
+	}, nil, nil)
+}
+
+// enforceSlackLimits ensures blocks and content respect Slack's limits
+func enforceSlackLimits(blocks []slack.Block, message string) ([]slack.Block, string) {
+	blocks = combineBlocks(blocks)
+
+	for i, block := range blocks {
+		blocks[i] = truncateBlockText(block, i)
+	}
+
+	truncatedMessage := truncateText(message, MaxPlainTextLength)
 	return blocks, truncatedMessage
 }
 

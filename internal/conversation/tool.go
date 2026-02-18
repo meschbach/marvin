@@ -65,6 +65,7 @@ func (ts *ToolSet) RegisterTool(ctx context.Context, t Tool) error {
 	if err != nil {
 		return err
 	}
+	//nolint:gocritic
 	for _, d := range definition.Tool {
 		ts.ByName[d.Function.Name] = t
 	}

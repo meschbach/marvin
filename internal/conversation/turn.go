@@ -34,7 +34,7 @@ func (e *Engine) buildChatRequest(model string) *api.ChatRequest {
 	}
 }
 
-func (e *Engine) handleContent(state *responseHandlerState, resp api.ChatResponse, updater StreamingUpdater) error {
+func (e *Engine) handleContent(state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
 	if s := resp.Message.Content; s != "" {
 		state.thisLine.WriteString(s)
 		if strings.Contains(s, "\n") || resp.Done {
@@ -52,13 +52,13 @@ func (e *Engine) handleContent(state *responseHandlerState, resp api.ChatRespons
 	return nil
 }
 
-func (e *Engine) handleThinking(state *responseHandlerState, resp api.ChatResponse) {
-	if len(resp.Message.Thinking) > 0 {
+func (e *Engine) handleThinking(state *responseHandlerState, resp *api.ChatResponse) {
+	if resp.Message.Thinking != "" {
 		state.thisThinking.WriteString(resp.Message.Thinking)
 	}
 }
 
-func (e *Engine) handleToolCalls(state *responseHandlerState, resp api.ChatResponse, updater StreamingUpdater) error {
+func (e *Engine) handleToolCalls(state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
 	if len(resp.Message.ToolCalls) > 0 {
 		state.pendingCalls = append(state.pendingCalls, resp.Message.ToolCalls...)
 		e.logger.Debug("", "Engine", fmt.Sprintf("Tool call detected: %s", resp.Message.ToolCalls[0].Function.Name))
@@ -75,7 +75,7 @@ func (e *Engine) handleToolCalls(state *responseHandlerState, resp api.ChatRespo
 	return nil
 }
 
-func (e *Engine) handleDone(state *responseHandlerState, resp api.ChatResponse, updater StreamingUpdater) error {
+func (e *Engine) handleDone(state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
 	state.cumulativeStats.IsDone = true
 	state.cumulativeStats.EvalCount = resp.EvalCount
 	state.cumulativeStats.DoneReason = resp.DoneReason
@@ -108,18 +108,18 @@ func (e *Engine) handleDone(state *responseHandlerState, resp api.ChatResponse, 
 func (e *Engine) handleStreamingResponse(updater StreamingUpdater) (*responseHandlerState, api.ChatResponseFunc) {
 	state := &responseHandlerState{}
 	fn := func(resp api.ChatResponse) error {
-		if err := e.handleContent(state, resp, updater); err != nil {
+		if err := e.handleContent(state, &resp, updater); err != nil {
 			return err
 		}
 
-		e.handleThinking(state, resp)
+		e.handleThinking(state, &resp)
 
-		if err := e.handleToolCalls(state, resp, updater); err != nil {
+		if err := e.handleToolCalls(state, &resp, updater); err != nil {
 			return err
 		}
 
 		if resp.Done {
-			if err := e.handleDone(state, resp, updater); err != nil {
+			if err := e.handleDone(state, &resp, updater); err != nil {
 				return err
 			}
 		}

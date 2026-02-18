@@ -17,7 +17,7 @@ type DocumentsBlock struct {
 	DocumentPath string `hcl:"document_path,label"`
 	StoragePath  string `hcl:"storage_path,optional"`
 	Description  string `hcl:"description,optional"`
-	//Model is the embedding model to use
+	// Model is the embedding model to use
 	Model string `hcl:"model,optional"`
 }
 
@@ -94,7 +94,6 @@ func (d *DocumentsBlock) Index(ctx context.Context) error {
 	// Determine an embedding model from env or use a sensible default known to work with Ollama
 	embeddingModel := d.EmbeddingModel()
 	embedder := &ollamaEncoder{client, embeddingModel}
-	fmt.Printf("Using embedding model %q\n", embeddingModel)
 
 	col, err := db.GetOrCreateCollection(d.Name, meta, embedder.Encode)
 	if err != nil {
@@ -121,6 +120,7 @@ func (d *DocumentsBlock) Index(ctx context.Context) error {
 		}
 
 		// Read file content
+		//nolint:gosec
 		b, err := os.ReadFile(path)
 		if err != nil {
 			// Skip unreadable files but continue indexing others
@@ -155,6 +155,5 @@ func (d *DocumentsBlock) Index(ctx context.Context) error {
 	if err := col.AddDocuments(ctx, docs, concurrency); err != nil {
 		return fmt.Errorf("adding documents: %w", err)
 	}
-	fmt.Printf("Added %d documents\n", len(docs))
 	return nil
 }

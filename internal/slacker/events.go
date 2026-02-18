@@ -32,68 +32,84 @@ func NewEventRouter(
 }
 
 // RouteEvent processes Socket Mode events and routes them to appropriate handlers
-//
-//nolint:gocyclo
 func (er *EventRouter) RouteEvent(ctx context.Context, event socketmode.Event) error {
 	switch event.Type {
 	case socketmode.EventTypeHello:
-		// Hello events from Slack should NOT be acknowledged
-		fmt.Println("\t- Hello received from Slack (connection established)")
-		// No Ack() - Hello is one-way notification
-
+		return er.handleHello(event)
 	case socketmode.EventTypeConnecting:
-		er.securityLogger.LogInfo("system", "SlackSocketMode", "Connecting to Slack via Socket Mode...")
-		fmt.Println("Connecting to Slack via Socket Mode...")
-
+		return er.handleConnecting(event)
 	case socketmode.EventTypeConnected:
-		er.securityLogger.LogInfo("system", "SlackSocketMode", "Successfully connected to Slack via Socket Mode")
-		fmt.Println("Connected to Slack via Socket Mode!")
-
+		return er.handleConnected(event)
 	case socketmode.EventTypeConnectionError:
-		fmt.Printf("***\t\tError: %#v\n", event)
-		errMsg := fmt.Sprintf("Socket Mode connection error: %+v", event.Data)
-		er.securityLogger.LogError("system", "SlackSocketMode", errMsg)
-		fmt.Printf("❌ Socket Mode Connection Error: %+v\n", event.Data)
-
-		// Provide specific guidance for connection errors
-		if strings.Contains(errMsg, "not_authed") {
-			fmt.Printf("💡 Troubleshooting 'not_authed' error:\n")
-			fmt.Printf("   1. Verify SLACK_APP_TOKEN starts with 'xapp-' and has 'socket:write' scope\n")
-			fmt.Printf("   2. Enable Socket Mode in your Slack app settings\n")
-			fmt.Printf("   3. Reinstall the app to your workspace\n")
-			fmt.Printf("   4. Check that the app has the required permissions\n")
-		}
-
+		return er.handleConnectionError(event)
 	case socketmode.EventTypeEventsAPI:
-		// Acknowledge the event
-		er.connection.socketClient.Ack(*event.Request)
-
-		payload, ok := event.Data.(slackevents.EventsAPIEvent)
-		if !ok {
-			break
-		}
-		// Handle different event types
-		switch ev := payload.InnerEvent.Data.(type) {
-		case *slackevents.MessageEvent:
-			return er.messageHandler.ProcessMessage(ctx, ev)
-		default:
-			// For other events, just log them
-			fmt.Printf("EventsAPI Event Type: %T\n", ev)
-		}
-
+		return er.handleEventsAPI(ctx, event)
 	case socketmode.EventTypeInteractive:
-		// Handle interactive events (buttons, modals, etc.)
-		callback, ok := event.Data.(slack.InteractionCallback)
-		if ok {
-			er.connection.socketClient.Ack(*event.Request)
-			return er.handleInteractiveCallback(ctx, &callback)
-		}
-
+		return er.handleInteractive(ctx, event)
 	default:
 		fmt.Printf("Unhandled Socket Mode event: %s\n", event.Type)
 	}
-
 	return nil
+}
+
+func (er *EventRouter) handleHello(event socketmode.Event) error {
+	fmt.Println("\t- Hello received from Slack (connection established)")
+	return nil
+}
+
+func (er *EventRouter) handleConnecting(event socketmode.Event) error {
+	er.securityLogger.LogInfo("system", "SlackSocketMode", "Connecting to Slack via Socket Mode...")
+	fmt.Println("Connecting to Slack via Socket Mode...")
+	return nil
+}
+
+func (er *EventRouter) handleConnected(event socketmode.Event) error {
+	er.securityLogger.LogInfo("system", "SlackSocketMode", "Successfully connected to Slack via Socket Mode")
+	fmt.Println("Connected to Slack via Socket Mode!")
+	return nil
+}
+
+func (er *EventRouter) handleConnectionError(event socketmode.Event) error {
+	fmt.Printf("***\t\tError: %#v\n", event)
+	errMsg := fmt.Sprintf("Socket Mode connection error: %+v", event.Data)
+	er.securityLogger.LogError("system", "SlackSocketMode", errMsg)
+	fmt.Printf("❌ Socket Mode Connection Error: %+v\n", event.Data)
+
+	if strings.Contains(errMsg, "not_authed") {
+		fmt.Printf("💡 Troubleshooting 'not_authed' error:\n")
+		fmt.Printf("   1. Verify SLACK_APP_TOKEN starts with 'xapp-' and has 'socket:write' scope\n")
+		fmt.Printf("   2. Enable Socket Mode in your Slack app settings\n")
+		fmt.Printf("   3. Reinstall the app to your workspace\n")
+		fmt.Printf("   4. Check that the app has the required permissions\n")
+	}
+	return nil
+}
+
+func (er *EventRouter) handleEventsAPI(ctx context.Context, event socketmode.Event) error {
+	er.connection.socketClient.Ack(*event.Request)
+
+	payload, ok := event.Data.(slackevents.EventsAPIEvent)
+	if !ok {
+		return nil
+	}
+
+	switch ev := payload.InnerEvent.Data.(type) {
+	case *slackevents.MessageEvent:
+		return er.messageHandler.ProcessMessage(ctx, ev)
+	default:
+		fmt.Printf("EventsAPI Event Type: %T\n", ev)
+	}
+	return nil
+}
+
+func (er *EventRouter) handleInteractive(ctx context.Context, event socketmode.Event) error {
+	callback, ok := event.Data.(slack.InteractionCallback)
+	if !ok {
+		return nil
+	}
+
+	er.connection.socketClient.Ack(*event.Request)
+	return er.handleInteractiveCallback(ctx, &callback)
 }
 
 // handleInteractiveCallback handles interactive events (buttons, modals, etc.)

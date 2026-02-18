@@ -39,7 +39,7 @@ type Config struct {
 // NewEngine creates a new conversation engine with the provided components
 func NewEngine(
 	client LLM,
-	config *config.File,
+	configuration *config.File,
 	logger Logger,
 	tools *ToolSet,
 	messages []api.Message,
@@ -50,17 +50,18 @@ func NewEngine(
 
 	return &Engine{
 		client:   client,
-		config:   config,
+		config:   configuration,
 		logger:   logger,
 		tools:    tools,
 		messages: messages,
 	}
 }
 
+// todo: merge with above with options
 // NewEngineWithCallback creates a conversation engine with a message callback
 func NewEngineWithCallback(
 	client LLM,
-	config *config.File,
+	configuration *config.File,
 	logger Logger,
 	tools *ToolSet,
 	messages []api.Message,
@@ -72,7 +73,7 @@ func NewEngineWithCallback(
 
 	return &Engine{
 		client:          client,
-		config:          config,
+		config:          configuration,
 		logger:          logger,
 		tools:           tools,
 		messages:        messages,

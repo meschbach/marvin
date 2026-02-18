@@ -96,47 +96,18 @@ func parseLocalProgramConfig(configStr string) (*config.LocalProgramBlock, error
 }
 
 // parseDockerConfig parses Docker tool configuration
-//
-//nolint:gocyclo
 func parseDockerConfig(configStr string) (*config.DockerMCPBlock, error) {
-	// Format could be: "image:tag" or "name using image:tag" or "image image:tag with args"
-
-	var name, image string
-	var args []config.DockerMCPBlockArg
-
 	configStr = strings.TrimSpace(configStr)
 
-	// Check for different separators
 	if strings.Contains(strings.ToLower(configStr), " using ") {
-		parts := strings.SplitN(configStr, " using ", 2)
-		if len(parts) == 2 {
-			name = strings.TrimSpace(parts[0])
-			rest := strings.TrimSpace(parts[1])
-
-			restParts := strings.Fields(rest)
-			if len(restParts) > 0 {
-				image = restParts[0]
-				for i, arg := range restParts[1:] {
-					args = append(args, config.DockerMCPBlockArg{
-						Strings: []string{arg},
-					})
-					if i == 0 { // For now, just take first extra arg as one strings array
-						break
-					}
-				}
-			}
-		}
-	} else if strings.Contains(strings.ToLower(configStr), " image ") {
-		parts := strings.SplitN(configStr, " image ", 2)
-		if len(parts) == 2 {
-			name = strings.TrimSpace(parts[0])
-			image = strings.TrimSpace(parts[1])
-		}
-	} else {
-		// Just an image - generate name
-		image = configStr
-		name = generateNameFromImage(image)
+		return parseDockerConfigWithUsing(configStr)
 	}
+	if strings.Contains(strings.ToLower(configStr), " image ") {
+		return parseDockerConfigWithImage(configStr)
+	}
+
+	image := configStr
+	name := generateNameFromImage(image)
 
 	if image == "" {
 		return nil, fmt.Errorf("no Docker image found in Docker tool configuration")
@@ -145,7 +116,56 @@ func parseDockerConfig(configStr string) (*config.DockerMCPBlock, error) {
 	return &config.DockerMCPBlock{
 		Name:  name,
 		Image: image,
+		Args:  nil,
+	}, nil
+}
+
+func parseDockerConfigWithUsing(configStr string) (*config.DockerMCPBlock, error) {
+	parts := strings.SplitN(configStr, " using ", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid Docker configuration")
+	}
+
+	name := strings.TrimSpace(parts[0])
+	rest := strings.TrimSpace(parts[1])
+
+	restParts := strings.Fields(rest)
+	if len(restParts) == 0 {
+		return nil, fmt.Errorf("no Docker image found in Docker tool configuration")
+	}
+
+	image := restParts[0]
+	var args []config.DockerMCPBlockArg
+	if len(restParts) > 1 {
+		args = append(args, config.DockerMCPBlockArg{
+			Strings: []string{restParts[1]},
+		})
+	}
+
+	return &config.DockerMCPBlock{
+		Name:  name,
+		Image: image,
 		Args:  args,
+	}, nil
+}
+
+func parseDockerConfigWithImage(configStr string) (*config.DockerMCPBlock, error) {
+	parts := strings.SplitN(configStr, " image ", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid Docker configuration")
+	}
+
+	name := strings.TrimSpace(parts[0])
+	image := strings.TrimSpace(parts[1])
+
+	if image == "" {
+		return nil, fmt.Errorf("no Docker image found in Docker tool configuration")
+	}
+
+	return &config.DockerMCPBlock{
+		Name:  name,
+		Image: image,
+		Args:  nil,
 	}, nil
 }
 
@@ -206,113 +226,142 @@ func generateNameFromImage(image string) string {
 }
 
 // HandlePreferenceIntent processes preference management commands
-//
-//nolint:gocyclo,funlen
 func HandlePreferenceIntent(intent *ToolManagementIntent, sessionManager *SessionManager, userID string) (string, error) {
-	// Get current preferences
 	currentPrefs, hasPrefs := sessionManager.GetPreferences(userID)
 	if !hasPrefs {
 		currentPrefs = DefaultUserPreferences()
 	}
 
-	// Create updated preferences based on intent
 	updatedPrefs := currentPrefs
-	var responseMessage string
 
 	switch intent.Action {
 	case "toggle_thinking":
-		configStr, ok := intent.Config.(string)
-		if !ok {
-			return "🤖 Invalid option specified.", nil
-		}
-		switch configStr {
-		case "on":
-			updatedPrefs.ShowThinking = true
-			responseMessage = "🤖 Thinking display enabled. Use `/marvin thinking off` to disable."
-		case "off":
-			updatedPrefs.ShowThinking = false
-			responseMessage = "🤖 Thinking display disabled. Use `/marvin thinking on` to re-enable."
-		default:
-			return "🤖 Please specify `on` or `off` for thinking display.", nil
-		}
-
+		return handleToggleThinking(intent, updatedPrefs, sessionManager, userID)
 	case "set_thinking_format":
-		configStr, ok := intent.Config.(string)
-		if !ok {
-			return "🤖 Invalid format specified.", nil
-		}
-		if configStr == "plain" || configStr == "markdown" || configStr == "collapsed" {
-			updatedPrefs.ThinkingFormat = configStr
-			responseMessage = fmt.Sprintf("🤖 Thinking format set to %s.", configStr)
-		} else {
-			return "🤖 Please specify a valid format: `plain`, `markdown`, or `collapsed`.", nil
-		}
-
+		return handleThinkingFormat(intent, updatedPrefs, sessionManager, userID)
 	case "toggle_tools":
-		configStr, ok := intent.Config.(string)
-		if !ok {
-			return "🔧 Invalid option specified.", nil
-		}
-		switch configStr {
-		case "on":
-			updatedPrefs.ShowTools = true
-			responseMessage = "🔧 Tool display enabled. Use `/marvin tools off` to disable."
-		case "off":
-			updatedPrefs.ShowTools = false
-			responseMessage = "🔧 Tool display disabled. Use `/marvin tools on` to re-enable."
-		default:
-			return "🔧 Please specify `on` or `off` for tool display.", nil
-		}
-
+		return handleToggleTools(intent, updatedPrefs, sessionManager, userID)
 	case "toggle_done":
-		configStr, ok := intent.Config.(string)
-		if !ok {
-			return "✅ Invalid option specified.", nil
-		}
-		switch configStr {
-		case "on":
-			updatedPrefs.ShowDone = true
-			responseMessage = "✅ Completion messages enabled. Use `/marvin done off` to disable."
-		case "off":
-			updatedPrefs.ShowDone = false
-			responseMessage = "✅ Completion messages disabled. Use `/marvin done on` to re-enable."
-		default:
-			return "✅ Please specify `on` or `off` for completion messages.", nil
-		}
-
+		return handleToggleDone(intent, updatedPrefs, sessionManager, userID)
 	case "toggle_verbose":
-		configStr, ok := intent.Config.(string)
-		if !ok {
-			return "🔍 Invalid option specified.", nil
-		}
-		switch configStr {
-		case "on":
-			updatedPrefs.Verbose = true
-			responseMessage = "🔍 Verbose mode enabled. Use `/marvin verbose off` to disable."
-		case "off":
-			updatedPrefs.Verbose = false
-			responseMessage = "🔍 Verbose mode disabled. Use `/marvin verbose on` to re-enable."
-		default:
-			return "🔍 Please specify `on` or `off` for verbose mode.", nil
-		}
-
+		return handleToggleVerbose(intent, updatedPrefs, sessionManager, userID)
 	case "show_preferences":
-		return fmt.Sprintf("🤖 Current preferences:\n• Thinking: %t\n• Tools: %t\n• Done messages: %t\n• Thinking format: %s\n• Tool format: %s\n• Verbose: %t\n\n• Use `/marvin thinking on/off` to toggle thinking\n• Use `/marvin thinking format [plain|markdown|collapsed]` to set format\n• Use `/marvin tools on/off` to toggle tool display\n• Use `/marvin done on/off` to toggle completion messages\n• Use `/marvin verbose on/off` to toggle verbose mode",
-			currentPrefs.ShowThinking,
-			currentPrefs.ShowTools,
-			currentPrefs.ShowDone,
-			currentPrefs.ThinkingFormat,
-			currentPrefs.ToolFormat,
-			currentPrefs.Verbose), nil
-
+		return formatPreferences(currentPrefs), nil
 	default:
 		return "", fmt.Errorf("unknown preference action: %s", intent.Action)
 	}
+}
 
-	// Actually persist the changes
-	if err := sessionManager.UpdatePreferences(userID, updatedPrefs); err != nil {
+func handleToggleThinking(intent *ToolManagementIntent, prefs UserPreferences, sessionManager *SessionManager, userID string) (string, error) {
+	configStr, ok := intent.Config.(string)
+	if !ok {
+		return "🤖 Invalid option specified.", nil
+	}
+	switch configStr {
+	case "on":
+		prefs.ShowThinking = true
+	case "off":
+		prefs.ShowThinking = false
+	default:
+		return "🤖 Please specify `on` or `off` for thinking display.", nil
+	}
+	if err := sessionManager.UpdatePreferences(userID, prefs); err != nil {
 		return "", fmt.Errorf("failed to update preferences: %w", err)
 	}
+	if configStr == "on" {
+		return "🤖 Thinking display enabled. Use `/marvin thinking off` to disable.", nil
+	}
+	return "🤖 Thinking display disabled. Use `/marvin thinking on` to re-enable.", nil
+}
 
-	return responseMessage, nil
+func handleThinkingFormat(intent *ToolManagementIntent, prefs UserPreferences, sessionManager *SessionManager, userID string) (string, error) {
+	configStr, ok := intent.Config.(string)
+	if !ok {
+		return "🤖 Invalid format specified.", nil
+	}
+	if configStr == "plain" || configStr == "markdown" || configStr == "collapsed" {
+		prefs.ThinkingFormat = configStr
+	} else {
+		return "🤖 Please specify a valid format: `plain`, `markdown`, or `collapsed`.", nil
+	}
+	if err := sessionManager.UpdatePreferences(userID, prefs); err != nil {
+		return "", fmt.Errorf("failed to update preferences: %w", err)
+	}
+	return fmt.Sprintf("🤖 Thinking format set to %s.", configStr), nil
+}
+
+func handleToggleTools(intent *ToolManagementIntent, prefs UserPreferences, sessionManager *SessionManager, userID string) (string, error) {
+	configStr, ok := intent.Config.(string)
+	if !ok {
+		return "🔧 Invalid option specified.", nil
+	}
+	switch configStr {
+	case "on":
+		prefs.ShowTools = true
+	case "off":
+		prefs.ShowTools = false
+	default:
+		return "🔧 Please specify `on` or `off` for tool display.", nil
+	}
+	if err := sessionManager.UpdatePreferences(userID, prefs); err != nil {
+		return "", fmt.Errorf("failed to update preferences: %w", err)
+	}
+	if configStr == "on" {
+		return "🔧 Tool display enabled. Use `/marvin tools off` to disable.", nil
+	}
+	return "🔧 Tool display disabled. Use `/marvin tools on` to re-enable.", nil
+}
+
+func handleToggleDone(intent *ToolManagementIntent, prefs UserPreferences, sessionManager *SessionManager, userID string) (string, error) {
+	configStr, ok := intent.Config.(string)
+	if !ok {
+		return "✅ Invalid option specified.", nil
+	}
+	switch configStr {
+	case "on":
+		prefs.ShowDone = true
+	case "off":
+		prefs.ShowDone = false
+	default:
+		return "✅ Please specify `on` or `off` for completion messages.", nil
+	}
+	if err := sessionManager.UpdatePreferences(userID, prefs); err != nil {
+		return "", fmt.Errorf("failed to update preferences: %w", err)
+	}
+	if configStr == "on" {
+		return "✅ Completion messages enabled. Use `/marvin done off` to disable.", nil
+	}
+	return "✅ Completion messages disabled. Use `/marvin done on` to re-enable.", nil
+}
+
+func handleToggleVerbose(intent *ToolManagementIntent, prefs UserPreferences, sessionManager *SessionManager, userID string) (string, error) {
+	configStr, ok := intent.Config.(string)
+	if !ok {
+		return "🔍 Invalid option specified.", nil
+	}
+	switch configStr {
+	case "on":
+		prefs.Verbose = true
+	case "off":
+		prefs.Verbose = false
+	default:
+		return "🔍 Please specify `on` or `off` for verbose mode.", nil
+	}
+	if err := sessionManager.UpdatePreferences(userID, prefs); err != nil {
+		return "", fmt.Errorf("failed to update preferences: %w", err)
+	}
+	if configStr == "on" {
+		return "🔍 Verbose mode enabled. Use `/marvin verbose off` to disable.", nil
+	}
+	return "🔍 Verbose mode disabled. Use `/marvin verbose on` to re-enable.", nil
+}
+
+func formatPreferences(prefs UserPreferences) string {
+	return fmt.Sprintf("🤖 Current preferences:\n• Thinking: %t\n• Tools: %t\n• Done messages: %t\n• Thinking format: %s\n• Tool format: %s\n• Verbose: %t\n\n• Use `/marvin thinking on/off` to toggle thinking\n• Use `/marvin thinking format [plain|markdown|collapsed]` to set format\n• Use `/marvin tools on/off` to toggle tool display\n• Use `/marvin done on/off` to toggle completion messages\n• Use `/marvin verbose on/off` to toggle verbose mode",
+		prefs.ShowThinking,
+		prefs.ShowTools,
+		prefs.ShowDone,
+		prefs.ThinkingFormat,
+		prefs.ToolFormat,
+		prefs.Verbose)
 }

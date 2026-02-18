@@ -15,6 +15,7 @@ import (
 //
 //nolint:funlen
 func TestModelAccessConfig_Validation(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name           string
 		config         *File
@@ -122,7 +123,9 @@ func TestModelAccessConfig_Validation(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			allowed, reason := tt.config.ValidateModelAccess(tt.model, tt.userID)
 
 			assert.Equal(t, tt.expectedAllow, allowed, "Allow/deny mismatch")
@@ -133,6 +136,7 @@ func TestModelAccessConfig_Validation(t *testing.T) {
 
 // TestModelAccessState_JSONSerialization tests JSON serialization of model access state
 func TestModelAccessState_JSONSerialization(t *testing.T) {
+	t.Parallel()
 	state := &ModelAccessState{
 		AllowedModels: []string{"model1", "model2"},
 		DeniedModels:  []string{"model3"},
@@ -160,6 +164,7 @@ func TestModelAccessState_JSONSerialization(t *testing.T) {
 
 // TestModelAccessState_SaveLoad tests saving and loading model access state
 func TestModelAccessState_SaveLoad(t *testing.T) {
+	t.Parallel()
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
@@ -208,6 +213,7 @@ func TestModelAccessState_SaveLoad(t *testing.T) {
 
 // TestModelAccessState_NoStateFile tests loading when no state file exists
 func TestModelAccessState_NoStateFile(t *testing.T) {
+	t.Parallel()
 	// Create config with non-existent slacker state path
 	config := &File{
 		MultiTenant: &MultiTenantBlock{
@@ -217,23 +223,25 @@ func TestModelAccessState_NoStateFile(t *testing.T) {
 
 	// Load state should return nil, nil when file doesn't exist
 	state, err := config.LoadModelAccessState()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Nil(t, state)
 }
 
 // TestModelAccessState_NoSlackerStatePath tests loading when no slacker state path is configured
 func TestModelAccessState_NoSlackerStatePath(t *testing.T) {
+	t.Parallel()
 	// Create config without slacker state path
 	config := &File{}
 
 	// Load state should return nil, nil when no path is configured
 	state, err := config.LoadModelAccessState()
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Nil(t, state)
 }
 
 // TestGetEffectiveModelAccess tests priority order of model access configuration
 func TestGetEffectiveModelAccess(t *testing.T) {
+	t.Parallel()
 	// Create temporary directory for state
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
@@ -244,6 +252,7 @@ func TestGetEffectiveModelAccess(t *testing.T) {
 	}()
 
 	t.Run("StateOverridesHCL", func(t *testing.T) {
+		t.Parallel()
 		config := &File{
 			MultiTenant: &MultiTenantBlock{
 				SlackerStatePath: tempDir,
@@ -275,6 +284,7 @@ func TestGetEffectiveModelAccess(t *testing.T) {
 	})
 
 	t.Run("HCLFallback", func(t *testing.T) {
+		t.Parallel()
 		config := &File{
 			MultiTenant: &MultiTenantBlock{
 				SlackerStatePath: "/non/existent/path", // No state file
@@ -295,6 +305,7 @@ func TestGetEffectiveModelAccess(t *testing.T) {
 	})
 
 	t.Run("NoConfiguration", func(t *testing.T) {
+		t.Parallel()
 		config := &File{
 			MultiTenant: &MultiTenantBlock{
 				SlackerStatePath: "/non/existent/path", // No state file
@@ -315,6 +326,7 @@ func TestGetEffectiveModelAccess(t *testing.T) {
 
 // TestModelAccessConfig_AtomicSave tests that state files are written atomically
 func TestModelAccessConfig_AtomicSave(t *testing.T) {
+	t.Parallel()
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "marvin-test-*")
 	require.NoError(t, err)
@@ -343,7 +355,7 @@ func TestModelAccessConfig_AtomicSave(t *testing.T) {
 	// Verify file exists and is properly named
 	stateFile := filepath.Join(tempDir, "model-access.json")
 	_, err = os.Stat(stateFile)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify temp file doesn't exist
 	tempFile := stateFile + ".tmp"
@@ -351,6 +363,7 @@ func TestModelAccessConfig_AtomicSave(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 
 	// Verify content is valid JSON
+	//nolint:gosec
 	data, err := os.ReadFile(stateFile)
 	require.NoError(t, err)
 

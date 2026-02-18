@@ -54,7 +54,6 @@ func (c *CommandLineOptions) LoadFromPath(filePath string) (*File, error) {
 }
 
 func loadConfig(filePath string) (*File, error) {
-	//fmt.Printf("Loading config from %s\n", filePath)
 	p := hclparse.NewParser()
 	parsedContent, diags := p.ParseHCLFile(filePath)
 	if diags != nil {

@@ -1,21 +1,62 @@
 version: "2"
 
 run:
-  timeout: 3m
+  timeout: 10m
   tests: true
 
 linters:
+  # todo: fix these
+  exclusions:
+    paths:
+      - cmd
+      - internal/gemini
+      - internal/openrouter
+      - internal/query
+      - internal/slacker
   enable:
-    - funlen
+    # Core
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    
+    # Security
+    - gosec
+    
+    # Code quality
+    - gocritic
     - gocyclo
+    - dupl
+    - misspell
+    - dogsled
+    - makezero
+    - prealloc
+    
+    # Testing
+    - paralleltest
+    - testifylint
+    
+    # Modern practices
+    - exhaustive
+    - forbidigo
   settings:
-    funlen:
-      lines: 100
-      statements: 100
     gocyclo:
       min-complexity: 8
+    gosec:
+      excludes:
+        - G204  # Subprocess launching may be allowed in this context
+    dupl:
+      threshold: 80
     misspell:
       locale: US
+#    forbidigo:
+#      forbid:
+#        - 'fmt\.Print.*'  # Use structured logging instead
+#      exclude-glob:
+#        - 'cmd/vikunja-cli/**/*.go'  # CLI tools need user output
+#        - 'pkg/vikunja/formatter.go' # Output formatting library
+
     gocritic:
       enabled-tags:
         - diagnostic
@@ -23,16 +64,23 @@ linters:
         - opinionated
         - performance
         - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+
     errcheck:
       check-type-assertions: true
-      check-blank: true
-      disable-default-exclusions: true
+      check-blank: false  # Allow _ = errors for explicit ignoring
       exclude-functions:
-        # Exclude fmt.Print family functions from errcheck
-        - fmt.Fprint
-        - fmt.Fprintf
-        - fmt.Fprintln
-        - fmt.Print
-        - fmt.Printf
-        - fmt.Println
-        - (*strings.Builder).WriteString
+        - (fmt\.Fprintf).*outputWriter  # CLI user output is legitimate
+
+    paralleltest:
+      ignore-missing-subtests: false  # Require explicit t.Parallel() calls for all tests
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

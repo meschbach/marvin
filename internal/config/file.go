@@ -22,20 +22,22 @@ const (
 	ProviderGemini     ProviderType = "gemini"
 )
 
-// GeminiBlock contains configuration for Google Gemini provider
-type GeminiBlock struct {
+type APIKeyBlock struct {
 	// APIKey is the Google Gemini API key
+	//nolint
 	APIKey string `hcl:"api_key,optional"`
 	// APIKeyFile is a path to a file containing the Gemini API key
 	APIKeyFile string `hcl:"api_key_file,optional"`
 }
 
+// GeminiBlock contains configuration for Google Gemini provider
+type GeminiBlock struct {
+	APIKeyBlock
+}
+
 // OpenRouterBlock contains configuration for OpenRouter provider
 type OpenRouterBlock struct {
-	// APIKey is the OpenRouter API key
-	APIKey string `hcl:"api_key,optional"`
-	// APIKeyFile is a path to a file containing the OpenRouter API key
-	APIKeyFile string `hcl:"api_key_file,optional"`
+	APIKeyBlock
 	// BaseURL allows overriding the default OpenRouter endpoint
 	BaseURL string `hcl:"base_url,optional"`
 }
@@ -156,50 +158,12 @@ func (f *File) Provider() ProviderType {
 
 // ResolveOpenRouterAPIKey resolves the OpenRouter API key from config, file, or environment
 func (f *File) ResolveOpenRouterAPIKey() (string, error) {
-	// Priority: config API key > file > environment variable
-	if f.OpenRouter != nil && f.OpenRouter.APIKey != "" {
-		return f.OpenRouter.APIKey, nil
-	}
-
-	if f.OpenRouter != nil && f.OpenRouter.APIKeyFile != "" {
-		data, err := os.ReadFile(f.OpenRouter.APIKeyFile)
-		if err != nil {
-			return "", fmt.Errorf("failed to read OpenRouter API key file: %w", err)
-		}
-		return strings.TrimSpace(string(data)), nil
-	}
-
-	// Fall back to environment variable
-	envKey := os.Getenv("OPENROUTER_API_KEY")
-	if envKey != "" {
-		return envKey, nil
-	}
-
-	return "", nil
+	return resolveAPIKey(&f.OpenRouter.APIKeyBlock, "OPENROUTER_API_KEY", "failed to resolve OpenRouter API key")
 }
 
 // ResolveGeminiAPIKey resolves the Gemini API key from config, file, or environment
 func (f *File) ResolveGeminiAPIKey() (string, error) {
-	// Priority: config API key > file > environment variable
-	if f.Gemini != nil && f.Gemini.APIKey != "" {
-		return f.Gemini.APIKey, nil
-	}
-
-	if f.Gemini != nil && f.Gemini.APIKeyFile != "" {
-		data, err := os.ReadFile(f.Gemini.APIKeyFile)
-		if err != nil {
-			return "", fmt.Errorf("failed to read Gemini API key file: %w", err)
-		}
-		return strings.TrimSpace(string(data)), nil
-	}
-
-	// Fall back to environment variable
-	envKey := os.Getenv("GEMINI_API_KEY")
-	if envKey != "" {
-		return envKey, nil
-	}
-
-	return "", nil
+	return resolveAPIKey(&f.Gemini.APIKeyBlock, "GEMINI_API_KEY", "failed to resolve Gemini API key")
 }
 
 func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) ([]QueryResult, error) {
@@ -262,8 +226,8 @@ type SharingBlock struct {
 // BuildAPIOptions constructs a map for api.ChatRequest.Options from the configuration.
 // Only includes options that are explicitly set (non-nil), allowing
 // Ollama to use its built-in defaults for unspecified options.
-//
-//nolint:gocyclo
+// todo: cleanup
+// nolint
 func (f *File) BuildAPIOptions() map[string]any {
 	if f.Options == nil {
 		return nil
@@ -444,6 +408,7 @@ func (f *File) LoadModelAccessState() (*ModelAccessState, error) {
 
 	stateFile := filepath.Join(f.MultiTenant.SlackerStatePath, "model-access.json")
 
+	//nolint:gosec
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -468,7 +433,7 @@ func (f *File) SaveModelAccessState(state *ModelAccessState, updatedBy string) e
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(f.MultiTenant.SlackerStatePath, 0755); err != nil {
+	if err := os.MkdirAll(f.MultiTenant.SlackerStatePath, 0700); err != nil {
 		return err
 	}
 
@@ -485,7 +450,7 @@ func (f *File) SaveModelAccessState(state *ModelAccessState, updatedBy string) e
 
 	// Write to temporary file first, then rename for atomicity
 	tempFile := stateFile + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	if err := os.WriteFile(tempFile, data, 0600); err != nil {
 		return err
 	}
 
@@ -494,8 +459,8 @@ func (f *File) SaveModelAccessState(state *ModelAccessState, updatedBy string) e
 
 // ValidateModelAccess checks if a model is allowed for Slacker operations.
 // For CLI operations, this should not be called.
-//
-//nolint:gocyclo
+// todo: cleanup
+// nolint
 func (f *File) ValidateModelAccess(model string, userID string) (bool, string) {
 	// Check if user is admin - admins bypass all restrictions
 	if f.MultiTenant != nil {
@@ -586,4 +551,22 @@ func (f *File) GetEffectiveModelAccess() (*ModelAccessState, error) {
 		LastUpdated:   "",
 		UpdatedBy:     "",
 	}, nil
+}
+
+// resolveAPIKey resolves an API key from config, file, or environment variable.
+func resolveAPIKey(block *APIKeyBlock, envVarName, errorPrefix string) (string, error) {
+	if block != nil && block.APIKey != "" {
+		return block.APIKey, nil
+	}
+	if block != nil && block.APIKeyFile != "" {
+		data, err := os.ReadFile(block.APIKeyFile)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", errorPrefix, err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+	if envKey := os.Getenv(envVarName); envKey != "" {
+		return envKey, nil
+	}
+	return "", nil
 }

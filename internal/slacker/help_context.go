@@ -200,13 +200,13 @@ func (hi *HelpIntegrator) FormatHelpMessage(analysis *HelpAnalysis) string {
 
 	// Main diagnosis with emoji
 	builder.WriteString("🤖 **Intelligent Help**\n\n")
-	builder.WriteString(fmt.Sprintf("**Issue:** %s\n\n", analysis.Diagnosis))
+	fmt.Fprintf(&builder, "**Issue:** %s\n\n", analysis.Diagnosis)
 
 	// Suggestions
 	if len(analysis.Suggestions) > 0 {
 		builder.WriteString("💡 **Suggestions:**\n")
 		for i, suggestion := range analysis.Suggestions {
-			builder.WriteString(fmt.Sprintf("%d. %s\n", i+1, suggestion))
+			fmt.Fprintf(&builder, "%d. %s\n", i+1, suggestion)
 		}
 		builder.WriteString("\n")
 	}
@@ -215,7 +215,7 @@ func (hi *HelpIntegrator) FormatHelpMessage(analysis *HelpAnalysis) string {
 	if len(analysis.Examples) > 0 {
 		builder.WriteString("📋 **Examples:**\n")
 		for _, example := range analysis.Examples {
-			builder.WriteString(fmt.Sprintf("• `%s`\n", example))
+			fmt.Fprintf(&builder, "• `%s`\n", example)
 		}
 		builder.WriteString("\n")
 	}
@@ -223,14 +223,14 @@ func (hi *HelpIntegrator) FormatHelpMessage(analysis *HelpAnalysis) string {
 	// Additional context
 	if analysis.ContextHelp != "" {
 		builder.WriteString("ℹ️ **Additional Help:**\n")
-		builder.WriteString(fmt.Sprintf("%s\n\n", analysis.ContextHelp))
+		fmt.Fprintf(&builder, "%s\n\n", analysis.ContextHelp)
 	}
 
 	// Interactive actions (placeholder for future implementation)
 	if len(analysis.Actions) > 0 {
 		builder.WriteString("🎯 **Actions:**\n")
 		for _, action := range analysis.Actions {
-			builder.WriteString(fmt.Sprintf("• %s\n", action.Label))
+			fmt.Fprintf(&builder, "• %s\n", action.Label)
 		}
 	}
 
@@ -388,47 +388,47 @@ func (hm *HelpMetrics) RecordUserFeedback(failureType string, rating int, commen
 func (hm *HelpMetrics) GetPerformanceReport() string {
 	var report strings.Builder
 
-	report.WriteString("📊 **Help System Performance Report**\n\n")
+	fmt.Fprintf(&report, "📊 **Help System Performance Report**\n\n")
 
 	// Overview statistics
-	report.WriteString("📈 **Overview:**\n")
-	report.WriteString(fmt.Sprintf("• Total Requests: %d\n", hm.TotalRequests))
-	report.WriteString(fmt.Sprintf("• Average Confidence: %.2f\n", hm.AverageConfidence))
+	fmt.Fprintf(&report, "📈 **Overview:**\n")
+	fmt.Fprintf(&report, "• Total Requests: %d\n", hm.TotalRequests)
+	fmt.Fprintf(&report, "• Average Confidence: %.2f\n", hm.AverageConfidence)
 
 	if !hm.FirstRequestTime.IsZero() {
-		report.WriteString(fmt.Sprintf("• First Request: %s\n", hm.FirstRequestTime.Format("2006-01-02 15:04:05")))
-		report.WriteString(fmt.Sprintf("• Last Request: %s\n", hm.LastRequestTime.Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&report, "• First Request: %s\n", hm.FirstRequestTime.Format("2006-01-02 15:04:05"))
+		fmt.Fprintf(&report, "• Last Request: %s\n", hm.LastRequestTime.Format("2006-01-02 15:04:05"))
 	}
 
 	// Breakdown by type
-	report.WriteString("\n📋 **Request Breakdown:**\n")
-	report.WriteString(fmt.Sprintf("• Intent Failures: %d\n", hm.IntentFailures))
-	report.WriteString(fmt.Sprintf("• Model Access Issues: %d\n", hm.ModelAccessIssues))
-	report.WriteString(fmt.Sprintf("• Tool Config Errors: %d\n", hm.ToolConfigErrors))
-	report.WriteString(fmt.Sprintf("• Tool Access Denied: %d\n", hm.ToolAccessDenied))
-	report.WriteString(fmt.Sprintf("• Admin Help Requests: %d\n", hm.AdminHelpRequests))
+	fmt.Fprintf(&report, "\n📋 **Request Breakdown:**\n")
+	fmt.Fprintf(&report, "• Intent Failures: %d\n", hm.IntentFailures)
+	fmt.Fprintf(&report, "• Model Access Issues: %d\n", hm.ModelAccessIssues)
+	fmt.Fprintf(&report, "• Tool Config Errors: %d\n", hm.ToolConfigErrors)
+	fmt.Fprintf(&report, "• Tool Access Denied: %d\n", hm.ToolAccessDenied)
+	fmt.Fprintf(&report, "• Admin Help Requests: %d\n", hm.AdminHelpRequests)
 
 	// Performance metrics
-	report.WriteString("\n⚡ **Performance:**\n")
+	fmt.Fprintf(&report, "\n⚡ **Performance:**\n")
 	hm.TotalRequests = hm.IntentFailures + hm.ModelAccessIssues + hm.ToolConfigErrors + hm.ToolAccessDenied + hm.AdminHelpRequests
 
 	for failureType, responseTime := range hm.ResponseTimes {
-		report.WriteString(fmt.Sprintf("• %s: %s avg response time\n", failureType, responseTime.String()))
+		fmt.Fprintf(&report, "• %s: %s avg response time\n", failureType, responseTime.String())
 	}
 
 	// Cache performance
 	if hm.CacheHits > 0 || hm.CacheMisses > 0 {
 		totalCacheRequests := hm.CacheHits + hm.CacheMisses
 		hitRate := float64(hm.CacheHits) / float64(totalCacheRequests) * 100
-		report.WriteString(fmt.Sprintf("• Cache Hit Rate: %.1f%%\n", hitRate))
-		report.WriteString(fmt.Sprintf("• Average Cache Age: %s\n", hm.AverageCacheAge.String()))
+		fmt.Fprintf(&report, "• Cache Hit Rate: %.1f%%\n", hitRate)
+		fmt.Fprintf(&report, "• Average Cache Age: %s\n", hm.AverageCacheAge.String())
 	}
 
 	// User satisfaction
 	if len(hm.UserSatisfaction) > 0 {
-		report.WriteString("\n😊 **User Satisfaction:**\n")
+		fmt.Fprintf(&report, "\n😊 **User Satisfaction:**\n")
 		for failureType, rating := range hm.UserSatisfaction {
-			report.WriteString(fmt.Sprintf("• %s: %.1f/5.0\n", failureType, rating))
+			fmt.Fprintf(&report, "• %s: %.1f/5.0\n", failureType, rating)
 		}
 	}
 

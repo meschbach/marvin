@@ -27,6 +27,8 @@ jobs:
       - name: Build and run unit tests ${{ matrix.go-version }}
         run: |
           go test -count 1 ./internal/...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v5
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v1
       - name: Set up Docker

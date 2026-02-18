@@ -132,7 +132,7 @@ func (tm *ToolManagerImpl) handleListTools(ctx context.Context, slackCtx *SlackC
 	toolList.WriteString("🔧 **Your Available Tools:**\n\n")
 
 	for i, tool := range tools {
-		toolList.WriteString(fmt.Sprintf("%d. `%s`\n", i+1, tool))
+		fmt.Fprintf(&toolList, "%d. `%s`\n", i+1, tool)
 	}
 
 	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, toolList.String())

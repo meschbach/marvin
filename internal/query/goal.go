@@ -15,7 +15,6 @@ import (
 const mcpParameterTypeObject = "object"
 const mcpParameterTypeString = "string"
 
-//nolint:gocyclo
 func PerformGoalWithConfig(cfg *config.File, goal string) {
 	ctx, done := context.WithCancel(context.Background())
 	defer done()
@@ -25,55 +24,25 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
 		return
 	}
-	defer func() {
-		if err := realToolSet.Shutdown(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down real tool set: %v\n", err)
-		}
-	}()
+	defer shutdownToolSet(ctx, realToolSet, "real")
 
-	reasoningToolset, err := loadToolsFromConfig(ctx, cfg)
+	reasoningToolset, err := createReasoningToolSet(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
 	}
-	defer func() {
-		if err := reasoningToolset.Shutdown(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down reasoning tool set: %v\n", err)
-		}
-	}()
-	//if err := reasoningToolset.registerTool(ctx, &reasoningStep{}); err != nil {
-	//	fmt.Fprintf(os.Stderr, "Error registering reasoning step tool: %v\n", err)
-	//	return err
-	//}
-	if err := reasoningToolset.RegisterTool(ctx, &questionForUser{}); err != nil {
-		fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
-		return
-	}
+	defer shutdownToolSet(ctx, reasoningToolset, "reasoning")
 
 	fmt.Printf("Goal: %s\n", goal)
 
-	// QueryRAGDocuments Ollama for a response
 	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
 	}
 
-	//generate a message of available MCP tools
-	availableTools := "These are tools available for the instructed AI:\n"
-	for _, tool := range realToolSet.Defs {
-		availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
-	}
-
-	// QueryRAGDocuments the AI model for the steps required to complete the goal
-	messages := []api.Message{
-		{
-			Role:    conversation.RoleSystem,
-			Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
-		},
-		{Role: conversation.RoleSystem, Content: availableTools},
-		{Role: conversation.RoleUser, Content: goal},
-	}
+	availableTools := formatAvailableTools(realToolSet.Defs)
+	messages := buildGoalMessages(availableTools, goal)
 
 	engine := conversation.NewEngine(client, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
 
@@ -86,7 +55,45 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 
 	if err := engine.RunConversation(ctx, model, updater); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running AI: %v\n", err)
-		return
+	}
+}
+
+func shutdownToolSet(ctx context.Context, ts *conversation.ToolSet, name string) {
+	if err := ts.Shutdown(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "Error shutting down %s tool set: %v\n", name, err)
+	}
+}
+
+func createReasoningToolSet(ctx context.Context, cfg *config.File) (*conversation.ToolSet, error) {
+	ts, err := loadToolsFromConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ts.RegisterTool(ctx, &questionForUser{}); err != nil {
+		fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
+		return nil, err
+	}
+
+	return ts, nil
+}
+
+func formatAvailableTools(tools api.Tools) string {
+	availableTools := "These are tools available for the instructed AI:\n"
+	for _, tool := range tools {
+		availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
+	}
+	return availableTools
+}
+
+func buildGoalMessages(availableTools string, goal string) []api.Message {
+	return []api.Message{
+		{
+			Role:    conversation.RoleSystem,
+			Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
+		},
+		{Role: conversation.RoleSystem, Content: availableTools},
+		{Role: conversation.RoleUser, Content: goal},
 	}
 }
 

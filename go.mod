@@ -5,8 +5,10 @@ go 1.25.5
 require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/go-faker/faker/v4 v4.7.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mark3labs/mcp-go v0.44.0-beta.2
+	github.com/meschbach/go-junk-bucket v0.1.7
 	github.com/ollama/ollama v0.15.2
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/revrost/go-openrouter v1.1.5
@@ -70,7 +72,7 @@ require (
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	golang.org/x/tools v0.41.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260112192933-99fd39fd28a9 // indirect

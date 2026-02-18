@@ -58,17 +58,17 @@ func (ns *NotificationSender) SendApprovalNotification(ctx context.Context, requ
 
 	if status == "approved" {
 		message.WriteString("✅ Your tool request has been approved!\n\n")
-		message.WriteString(fmt.Sprintf("• Request ID: %s\n", requestID))
-		message.WriteString(fmt.Sprintf("• Tool ID: %s\n", toolID))
-		message.WriteString(fmt.Sprintf("• Approved by: <@%s>\n", adminID))
-		message.WriteString(fmt.Sprintf("• Reason: %s\n\n", reason))
+		fmt.Fprintf(&message, "• Request ID: %s\n", requestID)
+		fmt.Fprintf(&message, "• Tool ID: %s\n", toolID)
+		fmt.Fprintf(&message, "• Approved by: <@%s>\n", adminID)
+		fmt.Fprintf(&message, "• Reason: %s\n\n", reason)
 		message.WriteString("The tool is now available in your conversations. Try using it!")
 	} else {
 		message.WriteString("❌ Your tool request has been rejected.\n\n")
-		message.WriteString(fmt.Sprintf("• Request ID: %s\n", requestID))
-		message.WriteString(fmt.Sprintf("• Tool ID: %s\n", toolID))
-		message.WriteString(fmt.Sprintf("• Rejected by: <@%s>\n", adminID))
-		message.WriteString(fmt.Sprintf("• Reason: %s\n\n", reason))
+		fmt.Fprintf(&message, "• Request ID: %s\n", requestID)
+		fmt.Fprintf(&message, "• Tool ID: %s\n", toolID)
+		fmt.Fprintf(&message, "• Rejected by: <@%s>\n", adminID)
+		fmt.Fprintf(&message, "• Reason: %s\n\n", reason)
 		message.WriteString("If you believe this is an error, please contact an admin for review.")
 	}
 
@@ -99,21 +99,21 @@ func (ns *NotificationSender) formatApprovalForSlack(request *ToolApprovalReques
 	var message strings.Builder
 
 	message.WriteString("🔧 **Tool Approval Request**\n\n")
-	message.WriteString(fmt.Sprintf("• **Requester:** <@%s>\n", request.RequesterID))
-	message.WriteString(fmt.Sprintf("• **Tool Type:** %s\n", request.ToolType))
-	message.WriteString(fmt.Sprintf("• **Tool ID:** %s\n", request.ToolID))
-	message.WriteString(fmt.Sprintf("• **Request ID:** %s\n", requestID))
-	message.WriteString(fmt.Sprintf("• **Timestamp:** %s\n", request.Timestamp.Format("2006-01-02 15:04:05")))
+	fmt.Fprintf(&message, "• **Requester:** <@%s>\n", request.RequesterID)
+	fmt.Fprintf(&message, "• **Tool Type:** %s\n", request.ToolType)
+	fmt.Fprintf(&message, "• **Tool ID:** %s\n", request.ToolID)
+	fmt.Fprintf(&message, "• **Request ID:** %s\n", requestID)
+	fmt.Fprintf(&message, "• **Timestamp:** %s\n", request.Timestamp.Format("2006-01-02 15:04:05"))
 
 	if request.Config != nil {
 		message.WriteString("• **Configuration:**\n")
-		message.WriteString(fmt.Sprintf("```%+v```", request.Config))
+		fmt.Fprintf(&message, "```%+v```", request.Config)
 	}
 
 	message.WriteString("\n")
 	message.WriteString("👉 Please review and approve/reject this request.\n\n")
-	message.WriteString(fmt.Sprintf("**To approve:** Reply with \"Approve %s\"\n", requestID))
-	message.WriteString(fmt.Sprintf("**To reject:** Reply with \"Reject %s because [reason]\"", requestID))
+	fmt.Fprintf(&message, "**To approve:** Reply with \"Approve %s\"\n", requestID)
+	fmt.Fprintf(&message, "**To reject:** Reply with \"Reject %s because [reason]\"", requestID)
 
 	return message.String()
 }

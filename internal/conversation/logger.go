@@ -17,10 +17,12 @@ func (n *NullLogger) Error(_, _, _ string) {}
 
 type VerboseLogger struct{}
 
+// nolint
 func (v *VerboseLogger) Debug(userID, component, message string) {
 	fmt.Printf("[DEBUG] {user: %s, component: %s}: %s\n", userID, component, message)
 }
 
+// nolint
 func (v *VerboseLogger) Error(userID, component, message string) {
 	fmt.Printf("[ERROR] {user: %s, component: %s}: %s\n", userID, component, message)
 }
