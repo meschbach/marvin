@@ -9,6 +9,7 @@ import (
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // EventRouter routes Socket Mode events to appropriate handlers
@@ -92,6 +93,9 @@ func (er *EventRouter) handleEventsAPI(ctx context.Context, event socketmode.Eve
 	if !ok {
 		return nil
 	}
+
+	span := trace.SpanFromContext(ctx)
+	span.SetName(fmt.Sprintf("slacker.event.events_api:%s", payload.InnerEvent.Type))
 
 	switch ev := payload.InnerEvent.Data.(type) {
 	case *slackevents.MessageEvent:

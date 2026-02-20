@@ -8,7 +8,11 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
+
+var botTracer = otel.Tracer("slacker")
 
 // SlackBot represents the main Slack bot orchestrator
 type SlackBot struct {
@@ -54,7 +58,7 @@ func NewSlackBot(
 
 	// Create message handler dependencies
 	intentProcessor := NewIntentProcessor()
-	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, config, securityLogger, formatter, helpIntegrator)
+	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, connection, config, securityLogger, formatter, helpIntegrator)
 	if err != nil {
 		return nil, fmt.Errorf("creating query processor: %w", err)
 	}
@@ -112,7 +116,49 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case event := <-sb.connection.socketClient.Events:
+			spanName := fmt.Sprintf("slacker.event.%s", event.Type)
+			ctx, span := botTracer.Start(ctx, spanName)
+
+			// Extract common attributes from event
+			var attrs []attribute.KeyValue
+			switch event.Type {
+			case "events_api":
+				if payload, ok := event.Data.(map[string]interface{}); ok {
+					if channel, ok := payload["channel"].(string); ok {
+						attrs = append(attrs, attribute.String("channel", channel))
+					}
+					if user, ok := payload["user"].(string); ok {
+						attrs = append(attrs, attribute.String("user", user))
+					}
+					if eventType, ok := payload["type"].(string); ok {
+						attrs = append(attrs, attribute.String("event_type", eventType))
+					}
+				}
+			case "interactive":
+				if payload, ok := event.Data.(map[string]interface{}); ok {
+					if callbackID, ok := payload["callback_id"].(string); ok {
+						attrs = append(attrs, attribute.String("callback_id", callbackID))
+					}
+					if user, ok := payload["user"].(map[string]interface{}); ok {
+						if userID, ok := user["id"].(string); ok {
+							attrs = append(attrs, attribute.String("user", userID))
+						}
+					}
+				}
+			case "slash_commands":
+				if payload, ok := event.Data.(map[string]interface{}); ok {
+					if command, ok := payload["command"].(string); ok {
+						attrs = append(attrs, attribute.String("command", command))
+					}
+					if userID, ok := payload["user_id"].(string); ok {
+						attrs = append(attrs, attribute.String("user", userID))
+					}
+				}
+			}
+			span.SetAttributes(attrs...)
+
 			if err := sb.eventRouter.RouteEvent(ctx, event); err != nil {
+				span.RecordError(err)
 				botUserID := sb.connection.GetBotUserID()
 				// Determine user ID for error logging - this is simplified
 				if event.Type == "events_api" {
@@ -121,6 +167,7 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 				}
 				sb.securityLogger.LogError(botUserID, "SlackBot", err.Error())
 			}
+			span.End()
 		}
 	}
 }

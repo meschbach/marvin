@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/meschbach/go-junk-bucket/pkg"
+	"github.com/meschbach/go-junk-bucket/pkg/observability"
 )
 
 const DefaultLanguageModel = "ministral-3:3b"
@@ -132,6 +135,8 @@ type File struct {
 	HelpSystem *HelpSystemBlock `hcl:"help_system,block"`
 	// Display preferences for output formatting
 	Display *DisplayBlock `hcl:"display,block"`
+	// Observability configuration for OTEL tracing
+	Observability *ObservabilityBlock `hcl:"observability,block"`
 }
 
 func (f *File) resolveWorkingDirectory(marvinFilePath string) (string, error) {
@@ -195,6 +200,67 @@ type MultiTenantBlock struct {
 	SlackerStatePath  string   `hcl:"slacker_state_path,optional"`
 	SecurityLogFormat string   `hcl:"security_log_format,optional"`
 	ApprovalTimeout   string   `hcl:"approval_timeout,optional"`
+}
+
+// ObservabilityBlock contains configuration for OTEL tracing
+type ObservabilityBlock struct {
+	// Exporter is the OTEL exporter to use (none, stdout, grpc)
+	Exporter string `hcl:"exporter,optional"`
+	// ServiceName is the service name for tracing
+	ServiceName string `hcl:"service_name,optional"`
+	// Environment is the deployment environment
+	Environment string `hcl:"environment,optional"`
+	// Batched enables batched span exporting (default: true)
+	Batched *bool `hcl:"batched,optional"`
+	// Silent suppresses startup configuration output
+	Silent *bool `hcl:"silent,optional"`
+}
+
+// HasObservabilityEnvVars returns true if any OTEL environment variables are set
+func (f *File) HasObservabilityEnvVars() bool {
+	otelVars := []string{
+		"OTEL_EXPORTER",
+		"OTEL_SERVICE_NAME",
+		"OTEL_ENDPOINT",
+		"OTEL_AUTH",
+		"ENV",
+	}
+	for _, v := range otelVars {
+		if os.Getenv(v) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// ToObservabilityConfig converts ObservabilityBlock to observability.Config with env var overrides
+func (o *ObservabilityBlock) ToObservabilityConfig() observability.Config {
+	cfg := observability.DefaultConfig("marvin")
+
+	if o.Exporter != "" {
+		cfg.Exporter = o.Exporter
+	}
+	cfg.Exporter = pkg.EnvOrDefault("OTEL_EXPORTER", cfg.Exporter)
+
+	if o.ServiceName != "" {
+		cfg.ServiceName = o.ServiceName
+	}
+	cfg.ServiceName = pkg.EnvOrDefault("OTEL_SERVICE_NAME", cfg.ServiceName)
+
+	if o.Environment != "" {
+		cfg.Environment = o.Environment
+	}
+	cfg.Environment = pkg.EnvOrDefault("ENV", cfg.Environment)
+
+	if o.Batched != nil {
+		cfg.Batched = *o.Batched
+	}
+
+	if o.Silent != nil {
+		cfg.Silent = *o.Silent
+	}
+
+	return cfg
 }
 
 // ModelAccessBlock contains model access control configuration

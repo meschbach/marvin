@@ -42,7 +42,7 @@ func TestSlackUpdater_FormattingErrorRecovery(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First message should not crash despite formatting error
 	err := updater.AddContent(ctx, "test message")
@@ -64,7 +64,7 @@ func TestSlackUpdater_MultipleFormattingErrorsContinue(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Add multiple pieces of content - none should crash
 	messages := []string{"first", "second", "third"}
@@ -96,7 +96,7 @@ func TestSlackUpdater_FormatterWorksNormally(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	content := "# Test Header\n\nThis is a test message."
 	err := updater.AddContent(ctx, content)
@@ -118,7 +118,7 @@ func TestSlackUpdater_ContentIgnoreType(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Simulate ContentIgnore type by accessing internal method
 	updater.mutex.Lock()
@@ -148,7 +148,7 @@ func TestSlackUpdater_NotificationFlagBehavior(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Check initial state
 	if updater.formattingErrorNotified {
@@ -184,7 +184,7 @@ func TestSlackUpdater_NotificationResetOnStateTransition(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Start in init state
 	updater.mutex.Lock()
@@ -228,7 +228,7 @@ func TestSlackUpdater_TimeProviderWorks(t *testing.T) {
 
 	preferences := DefaultUserPreferences()
 	updater := NewSlackUpdater(mockClient, "test-channel", errorFormatter, preferences, WithTimeProvider(timeProvider))
-	ctx := context.Background()
+	ctx := t.Context()
 
 	err := updater.AddContent(ctx, "test message")
 	if err != nil {
@@ -254,7 +254,7 @@ func TestSlackUpdater_WorkingFormatterNoNotification(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	err := updater.AddContent(ctx, "test message")
 	if err != nil {
@@ -307,7 +307,7 @@ func TestSlackUpdater_SlackAPIInvalidBlocksRecovery(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	err := updater.AddContent(ctx, "test message")
 	if err != nil {
@@ -332,7 +332,7 @@ func TestSlackUpdater_SlackAPIInvalidBlocksRecoveryUpdate(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First, post a message to get a timestamp
 	err := updater.AddContent(ctx, "first message")
@@ -366,7 +366,7 @@ func TestSlackUpdater_CharacterLimitEnforcement(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create a very long message that exceeds limits
 	longMessage := strings.Repeat("This is a very long message that should be truncated. ", 200) // Much longer than 4000 chars
@@ -392,7 +392,7 @@ func TestSlackUpdater_CharacterLimitEnforcementWithManyBlocks(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create content that would result in many blocks
 	contentWithHeaders := strings.Repeat("# Header\n\nThis is content.\n\n", 60) // Would create >50 blocks
@@ -460,7 +460,7 @@ func TestEnforceSlackLimitsIntegration(t *testing.T) {
 	preferences := DefaultUserPreferences()
 
 	updater := NewSlackUpdater(mockClient, "test-channel", workingFormatter, preferences)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test with extremely long content that should be truncated
 	longMessage := strings.Repeat("This message is way too long and exceeds Slack's limits. ", 200)

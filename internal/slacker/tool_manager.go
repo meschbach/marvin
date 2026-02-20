@@ -92,7 +92,7 @@ func (tm *ToolManagerImpl) handleAddTool(ctx context.Context, slackCtx *SlackCon
 			Timestamp:     time.Now(),
 		}
 
-		requestID, err := tm.approvalWorkflow.RequestToolApproval(request)
+		requestID, err := tm.approvalWorkflow.RequestToolApproval(ctx, request)
 		if err != nil {
 			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error submitting approval request: %s", err.Error()))
 		}
@@ -157,7 +157,7 @@ func (tm *ToolManagerImpl) handleApprovalCommand(ctx context.Context, slackCtx *
 	}
 
 	if action == "approve" {
-		if err := tm.approvalWorkflow.ApproveTool(slackCtx.UserID, requestID, "Approved via natural language"); err != nil {
+		if err := tm.approvalWorkflow.ApproveTool(ctx, slackCtx.UserID, requestID, "Approved via natural language"); err != nil {
 			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error approving request: %s", err.Error()))
 		}
 		// Send approval notification via notification sender
@@ -169,7 +169,7 @@ func (tm *ToolManagerImpl) handleApprovalCommand(ctx context.Context, slackCtx *
 				reason = configString
 			}
 		}
-		if err := tm.approvalWorkflow.RejectTool(slackCtx.UserID, requestID, reason); err != nil {
+		if err := tm.approvalWorkflow.RejectTool(ctx, slackCtx.UserID, requestID, reason); err != nil {
 			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error rejecting request: %s", err.Error()))
 		}
 		// Send rejection notification via notification sender

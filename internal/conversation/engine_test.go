@@ -1,7 +1,6 @@
 package conversation
 
 import (
-	"context"
 	"testing"
 
 	"github.com/go-faker/faker/v4"
@@ -50,7 +49,7 @@ func TestConversationEngine_ContentBeforeDone(t *testing.T) {
 		[]api.Message{{Role: "user", Content: "hi"}},
 	)
 
-	err := engine.RunConversation(context.Background(), "test-model", updater)
+	err := engine.RunConversation(t.Context(), "test-model", updater)
 	require.NoError(t, err)
 
 	assert.True(t, updater.lastStats.IsDone, "should be done")
@@ -106,7 +105,7 @@ func TestConversationEngine_ContentWithDoneInSameChunk(t *testing.T) {
 		[]api.Message{{Role: "user", Content: "hello"}},
 	)
 
-	err := engine.RunConversation(context.Background(), "test-model", updater)
+	err := engine.RunConversation(t.Context(), "test-model", updater)
 	require.NoError(t, err)
 
 	assert.True(t, updater.lastStats.IsDone)
@@ -163,7 +162,7 @@ func TestConversationEngine_ThinkingBeforeDone(t *testing.T) {
 		[]api.Message{{Role: "user", Content: "think"}},
 	)
 
-	err := engine.RunConversation(context.Background(), "test-model", updater)
+	err := engine.RunConversation(t.Context(), "test-model", updater)
 	require.NoError(t, err)
 
 	assert.True(t, updater.lastStats.IsDone)

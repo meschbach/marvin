@@ -90,6 +90,9 @@ pre-commit run --all-files
 pre-commit run go-fmt go-mod-tidy go-vet
 pre-commit run golangci-lint
 pre-commit run go-test-unit go-build-marvin go-build-slacker
+
+# Run only a specific linter (e.g., forbidigo for context.Background checks)
+golangci-lint run --enable-only forbidigo ./...
 ```
 
 ## Code Style Guidelines
@@ -309,6 +312,16 @@ When files exceed size targets:
 - Validate all external program inputs
 - Use proper error channels for user feedback
 - Tokens and credentials should be handled via environment variables or secure config
+
+### Observability and Tracing
+- **Span Naming Convention**: Use `StructName.MethodName` format (e.g., `MessageHandler.ProcessMessage`, `QueryStreamer.ProcessQueryWithUpdater`)
+- **Context Propagation**: Always pass the incoming context to child spans; never use `context.Background()` in event handlers as it breaks the trace chain
+- **Key Integration Points**:
+  - `internal/slacker/events.go` - Slack event entry point creates root span
+  - `internal/slacker/message_handler.go` - Message processing and routing
+  - `internal/slacker/query_handler.go` - Query processing (ensure ctx propagation to async operations)
+  - `internal/slacker/query_streaming.go` - LLM integration and streaming
+- **Attributes**: Add relevant attributes like user ID, channel ID, intent action, and confidence scores to aid debugging
 
 ### Documentation Guidelines
 - **Update both README.md and docs/** - When adding features or making significant changes, update documentation in both locations

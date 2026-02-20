@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	"github.com/revrost/go-openrouter"
 	"github.com/stretchr/testify/assert"
@@ -275,4 +276,111 @@ func TestOpenRouterLLM_Chat_ToolCallWithMalformedArguments(t *testing.T) {
 
 	assert.Equal(t, "call_bad", toolCallResp.Message.ToolCalls[0].ID, "ID should be preserved")
 	assert.Equal(t, "bad_tool", toolCallResp.Message.ToolCalls[0].Function.Name, "Name should be preserved even if args are bad")
+}
+
+type headerCapturingTransport struct {
+	respBody    string
+	capturedReq *http.Request
+}
+
+func (m *headerCapturingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.capturedReq = req.Clone(context.Background())
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(m.respBody)),
+		Header:     http.Header{},
+	}, nil
+}
+
+func TestOpenRouterLLM_NoTracePropagation(t *testing.T) {
+	respBody := `data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":null}
+
+data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+
+data: [DONE]
+`
+
+	transport := &headerCapturingTransport{respBody: respBody}
+
+	config := openrouter.DefaultConfig("test-key")
+	config.BaseURL = "https://openrouter.ai/api/v1"
+	config.HTTPClient = &http.Client{Transport: transport}
+
+	llm := &LLM{
+		apiKey:     "test-key",
+		baseURL:    "https://openrouter.ai/api/v1",
+		model:      "openai/gpt-4o-mini",
+		httpClient: openrouter.NewClientWithConfig(*config),
+	}
+
+	req := &api.ChatRequest{
+		Messages: []api.Message{
+			{Role: "user", Content: "Hi"},
+		},
+	}
+
+	err := llm.Chat(context.Background(), req, func(resp api.ChatResponse) error {
+		return nil
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, transport.capturedReq, "request should have been made")
+
+	traceparent := transport.capturedReq.Header.Get("traceparent")
+	baggage := transport.capturedReq.Header.Get("baggage")
+
+	assert.Empty(t, traceparent, "traceparent header should NOT be sent to OpenRouter")
+	assert.Empty(t, baggage, "baggage header should NOT be sent to OpenRouter")
+}
+
+func TestOpenRouterLLM_ConvertMessage_EmptyAssistantMessageBecomesThinking(t *testing.T) {
+	llm := &LLM{
+		apiKey:  "test-key",
+		baseURL: "https://openrouter.ai/api/v1",
+		model:   "openai/gpt-4o-mini",
+	}
+
+	emptyAssistantMsg := api.Message{
+		Role:    conversation.RoleAssistant,
+		Content: "",
+	}
+
+	converted := llm.convertMessage(emptyAssistantMsg)
+
+	assert.Equal(t, "Thinking...", converted.Content.Text, "empty assistant message should be converted to 'Thinking...'")
+	assert.Equal(t, string(conversation.RoleAssistant), converted.Role)
+}
+
+func TestOpenRouterLLM_ConvertMessage_NonEmptyAssistantMessageUnchanged(t *testing.T) {
+	llm := &LLM{
+		apiKey:  "test-key",
+		baseURL: "https://openrouter.ai/api/v1",
+		model:   "openai/gpt-4o-mini",
+	}
+
+	msg := api.Message{
+		Role:    conversation.RoleAssistant,
+		Content: "Hello, world!",
+	}
+
+	converted := llm.convertMessage(msg)
+
+	assert.Equal(t, "Hello, world!", converted.Content.Text)
+}
+
+func TestOpenRouterLLM_ConvertMessage_EmptyUserMessageUnchanged(t *testing.T) {
+	llm := &LLM{
+		apiKey:  "test-key",
+		baseURL: "https://openrouter.ai/api/v1",
+		model:   "openai/gpt-4o-mini",
+	}
+
+	msg := api.Message{
+		Role:    conversation.RoleUser,
+		Content: "",
+	}
+
+	converted := llm.convertMessage(msg)
+
+	assert.Equal(t, "", converted.Content.Text, "empty user message should remain empty")
 }

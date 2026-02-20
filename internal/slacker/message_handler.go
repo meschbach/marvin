@@ -12,7 +12,12 @@ import (
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
+
+var tracer = otel.Tracer("slacker")
 
 // QueryHandler defines the interface for handling queries
 type QueryHandler interface {
@@ -75,7 +80,14 @@ func (mh *MessageHandler) SetHelpContextBuilder(helpContextBuilder *HelpContextB
 
 // ProcessMessage processes incoming Slack messages
 func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.MessageEvent) error {
-	if !mh.shouldProcessMessage(ev) {
+	ctx, span := tracer.Start(ctx, "MessageHandler.ProcessMessage",
+		trace.WithAttributes(
+			attribute.String("channel", ev.Channel),
+			attribute.String("user", ev.User),
+		))
+	defer span.End()
+
+	if !mh.shouldProcessMessage(ctx, ev) {
 		return nil
 	}
 
@@ -99,16 +111,15 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 }
 
 // shouldProcessMessage determines if the message should be processed
-func (mh *MessageHandler) shouldProcessMessage(ev *slackevents.MessageEvent) bool {
-	if ev.BotID != "" || ev.SubType != "" || ev.Text == "" {
-		return false
-	}
+func (mh *MessageHandler) shouldProcessMessage(ctx context.Context, ev *slackevents.MessageEvent) bool {
+	_, span := tracer.Start(ctx, "MessageHandler.shouldProcessMessage")
+	defer span.End()
 
-	if ev.ChannelType == "im" {
-		return true
-	}
+	shouldProcess := ev.BotID == "" && ev.SubType == "" && ev.Text != "" &&
+		(ev.ChannelType == "im" || strings.Contains(ev.Text, fmt.Sprintf("<@%s>", mh.connection.GetBotUserID())))
 
-	return strings.Contains(ev.Text, fmt.Sprintf("<@%s>", mh.connection.GetBotUserID()))
+	span.SetAttributes(attribute.Bool("shouldProcess", shouldProcess))
+	return shouldProcess
 }
 
 // extractBotMention removes the bot mention from the message and returns clean text
@@ -202,9 +213,19 @@ func (mh *MessageHandler) ensureToolsInitialized(ctx context.Context, slackCtx *
 
 // routeMessage routes the message to the appropriate handler
 func (mh *MessageHandler) routeMessage(ctx context.Context, ev *slackevents.MessageEvent, slackCtx *SlackContext, session *UserSession, message string) error {
+	ctx, span := tracer.Start(ctx, "MessageHandler.routeMessage")
+	defer span.End()
+
 	intent, err := mh.intentProcessor.ProcessMessage(message)
 	if err != nil {
 		return fmt.Errorf("processing intent: %w", err)
+	}
+
+	if intent != nil {
+		span.SetAttributes(
+			attribute.String("intent.action", intent.Action),
+			attribute.Float64("intent.confidence", intent.Confidence),
+		)
 	}
 
 	if intent != nil && intent.Confidence >= 0.7 {
@@ -220,6 +241,12 @@ func (mh *MessageHandler) routeMessage(ctx context.Context, ev *slackevents.Mess
 
 // handleHighConfidenceIntent routes high-confidence intents to appropriate handlers
 func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
+	ctx, span := tracer.Start(ctx, "MessageHandler.handleHighConfidenceIntent",
+		trace.WithAttributes(
+			attribute.String("intent.action", intent.Action),
+		))
+	defer span.End()
+
 	if mh.isPreferenceIntent(intent) {
 		return mh.handlePreferenceIntent(ctx, slackCtx, session, intent)
 	}
@@ -246,6 +273,13 @@ func (mh *MessageHandler) isPreferenceIntent(intent *ToolManagementIntent) bool 
 
 // handleQuery processes a regular query
 func (mh *MessageHandler) handleQuery(ctx context.Context, ev *slackevents.MessageEvent, slackCtx *SlackContext, session *UserSession, message string) error {
+	ctx, span := tracer.Start(ctx, "MessageHandler.handleQuery",
+		trace.WithAttributes(
+			attribute.String("user", slackCtx.UserID),
+			attribute.String("channel", slackCtx.ChannelID),
+		))
+	defer span.End()
+
 	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
 	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
 	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, message, updater)
@@ -604,6 +638,12 @@ func (mh *MessageHandler) handleAdminEscalation(ctx context.Context, slackCtx *S
 
 // handleIntentFailure provides intelligent help when intent recognition fails
 func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, ev *slackevents.MessageEvent) error {
+	ctx, span := tracer.Start(ctx, "MessageHandler.handleIntentFailure",
+		trace.WithAttributes(
+			attribute.String("message", message),
+		))
+	defer span.End()
+
 	updater := mh.createHelpUpdater(session, ev)
 
 	if !mh.shouldShowHelpOnIntentFailure() {

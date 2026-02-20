@@ -1,7 +1,6 @@
 package slacker
 
 import (
-	"context"
 	"testing"
 
 	"github.com/meschbach/marvin/internal/conversation"
@@ -60,7 +59,7 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
 	// Process the query
-	ctx := context.Background()
+	ctx := t.Context()
 	err := qs.ProcessQueryWithUpdater(ctx, slackCtx, userSession, "Please use a tool to help me", toolSet, updater)
 	require.NoError(t, err)
 
@@ -134,7 +133,7 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
 	// Process the query
-	ctx := context.Background()
+	ctx := t.Context()
 	err := qs.ProcessQueryWithUpdater(ctx, slackCtx, userSession, "Please use a tool to help me", toolSet, updater)
 	require.NoError(t, err)
 
@@ -238,7 +237,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
 	// Process the query
-	ctx := context.Background()
+	ctx := t.Context()
 	err := qs.ProcessQueryWithUpdater(ctx, slackCtx, userSession, "Please use multiple tools to help me", toolSet, updater)
 	require.NoError(t, err)
 
@@ -302,7 +301,7 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
 	// Process the query
-	ctx := context.Background()
+	ctx := t.Context()
 	err := qs.ProcessQueryWithUpdater(ctx, slackCtx, userSession, "Give me a simple answer", toolSet, updater)
 	require.NoError(t, err)
 
@@ -400,7 +399,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
 
 	// Process the query
-	ctx := context.Background()
+	ctx := t.Context()
 	err := qs.ProcessQueryWithUpdater(ctx, slackCtx, userSession, "Help me with a complex task", toolSet, updater)
 	require.NoError(t, err)
 

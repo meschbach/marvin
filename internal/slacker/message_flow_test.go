@@ -1,7 +1,6 @@
 package slacker
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,7 +44,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 	}
 
 	// Create tenant tool set with context
-	ctx := context.Background()
+	ctx := t.Context()
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
 	require.NoError(t, err)
 
@@ -59,7 +58,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
 
 	// Create query processor
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
 	require.NoError(t, err)
 
 	// Create intent processor
@@ -227,7 +226,7 @@ func TestEventRouter_Integration(t *testing.T) {
 			Enabled: &helpDisabled, // Disable help system in integration tests
 		},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
 	require.NoError(t, err)
 
@@ -239,7 +238,7 @@ func TestEventRouter_Integration(t *testing.T) {
 	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
 	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
 
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
 	require.NoError(t, err)
 	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)

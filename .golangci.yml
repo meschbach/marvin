@@ -50,12 +50,10 @@ linters:
       threshold: 80
     misspell:
       locale: US
-#    forbidigo:
-#      forbid:
-#        - 'fmt\.Print.*'  # Use structured logging instead
-#      exclude-glob:
-#        - 'cmd/vikunja-cli/**/*.go'  # CLI tools need user output
-#        - 'pkg/vikunja/formatter.go' # Output formatting library
+    forbidigo:
+      forbid:
+        - pattern: "context.Background"
+          msg: "Pass a context in or used the past context"
 
     gocritic:
       enabled-tags:

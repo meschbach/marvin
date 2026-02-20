@@ -12,8 +12,8 @@ import (
 )
 
 // testContext provides a consistent context for testing
-func testContext() context.Context {
-	return context.Background()
+func testContext(t *testing.T) context.Context {
+	return t.Context()
 }
 
 func TestSlackUpdater_BasicOperations(t *testing.T) {
@@ -32,7 +32,7 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 	// Test basic operations with timeout
 	done := make(chan error, 1)
 	go func() {
-		ctx := testContext()
+		ctx := testContext(t)
 		err := updater.AddContent(ctx, "test content")
 		if err != nil {
 			done <- err
@@ -83,7 +83,7 @@ func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 	go func() {
 		// Start another goroutine that adds content
 		go func() {
-			ctx := testContext()
+			ctx := testContext(t)
 			err := updater.AddContent(ctx, "concurrent content")
 			if err != nil {
 				return
@@ -98,7 +98,7 @@ func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// This should not deadlock
-		err := updater.ForceUpdate(testContext())
+		err := updater.ForceUpdate(testContext(t))
 		done <- err
 	}()
 
@@ -124,7 +124,7 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 		Verbose:        true,
 	}
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
-	ctx := testContext()
+	ctx := testContext(t)
 
 	// Initially no messages
 	assert.Len(t, client.PostedMessages, 0, "Should start with no posted messages")
@@ -152,7 +152,7 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add tool call
-	ctx := testContext()
+	ctx := testContext(t)
 	toolCall := api.ToolCall{
 		Function: api.ToolCallFunction{
 			Name: "test-tool",
@@ -174,7 +174,7 @@ func TestSlackUpdater_ToolResults(t *testing.T) {
 	preferences := DefaultUserPreferences()
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
-	ctx := testContext()
+	ctx := testContext(t)
 	toolCall := api.ToolCall{
 		Function: api.ToolCallFunction{
 			Name: "test-tool",
@@ -202,7 +202,7 @@ func TestSlackUpdater_Complete(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add some content and complete
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddContent(ctx, "Final answer")
 	require.NoError(t, err)
 	err = updater.ForceUpdate(ctx)
@@ -215,7 +215,7 @@ func TestSlackUpdater_ForceUpdateCompatibility(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add content and force update (for backward compatibility)
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddContent(ctx, "Some content")
 	require.NoError(t, err)
 	err = updater.ForceUpdate(ctx)
@@ -236,7 +236,7 @@ func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add thinking content
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddThought(ctx, "This is a thought process")
 	require.NoError(t, err)
 
@@ -265,7 +265,7 @@ func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", captureFormatter, preferences, WithTimeProvider(timer))
 
 	// Start with thinking
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddThought(ctx, "Initial thought")
 	require.NoError(t, err)
 
@@ -300,7 +300,7 @@ func TestSlackUpdater_FinalBufferFlush(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add content in thinking state
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddThought(ctx, "Let me think")
 	require.NoError(t, err)
 
@@ -325,7 +325,7 @@ func TestSlackUpdater_CompleteWithFinalContent(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Add final content and complete
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddContent(ctx, "Final answer")
 	require.NoError(t, err)
 	err = updater.ForceUpdate(ctx)
@@ -341,7 +341,7 @@ func TestSlackUpdater_UserReportedScenario(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// User scenario: thinking first, then content
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddThought(ctx, "Let me think about this problem")
 	require.NoError(t, err)
 	err = updater.AddThought(ctx, "I need to analyze the requirements")
@@ -386,7 +386,7 @@ func TestSlackUpdater_RealWorldScenario(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	// Simulate real scenario: thinking -> content -> ForceUpdate
-	ctx := testContext()
+	ctx := testContext(t)
 	err := updater.AddThought(ctx, "Let me analyze this problem")
 	require.NoError(t, err)
 

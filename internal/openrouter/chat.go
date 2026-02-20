@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	openrouter "github.com/revrost/go-openrouter"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type usage struct {
@@ -16,18 +20,64 @@ type usage struct {
 }
 
 func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
+	ctx, span := tracer.Start(ctx, "openrouter.chat",
+		trace.WithAttributes(
+			attribute.String("model", o.model),
+			attribute.String("url", o.baseURL),
+		))
+	defer span.End()
+
 	openRouterReq, err := o.buildRequest(req)
 	if err != nil {
+		span.RecordError(err)
 		return err
+	}
+
+	span.SetAttributes(attribute.Int("messages", len(req.Messages)))
+	if len(req.Tools) > 0 {
+		toolNames := make([]string, len(req.Tools))
+		for i, t := range req.Tools {
+			toolNames[i] = t.Function.Name
+		}
+		span.SetAttributes(attribute.StringSlice("tools", toolNames))
 	}
 
 	stream, err := o.httpClient.CreateChatCompletionStream(ctx, *openRouterReq)
 	if err != nil {
+		span.SetStatus(codes.Error, "chat streaming returned error.")
+		span.RecordError(err)
+		if apiErr, ok := err.(*openrouter.APIError); ok {
+			span.SetAttributes(
+				attribute.String("error.message", apiErr.Message),
+				attribute.String("error.code", fmt.Sprintf("%v", apiErr.Code)),
+				attribute.Int("error.http_status", apiErr.HTTPStatusCode),
+			)
+			if apiErr.ProviderError != nil {
+				span.SetAttributes(attribute.String("error.provider", fmt.Sprintf("%v", apiErr.ProviderError.Message())))
+			}
+		}
 		return fmt.Errorf("failed to create stream: %w", err)
 	}
 	defer stream.Close()
 
-	return o.processStream(stream, fn)
+	finalUsage, finishReason, responseToolCalls, err := o.processStream(stream, fn)
+	if err != nil {
+		span.RecordError(err)
+	}
+
+	span.SetAttributes(
+		attribute.Int("tokens.prompt", finalUsage.PromptTokens),
+		attribute.Int("tokens.completion", finalUsage.CompletionTokens),
+		attribute.Int("tokens.total", finalUsage.TotalTokens),
+	)
+	if finishReason != "" {
+		span.SetAttributes(attribute.String("finish_reason", string(finishReason)))
+	}
+	if len(responseToolCalls) > 0 {
+		span.SetAttributes(attribute.StringSlice("tool_calls", responseToolCalls))
+	}
+
+	return err
 }
 
 func (o *LLM) buildRequest(req *api.ChatRequest) (*openrouter.ChatCompletionRequest, error) {
@@ -59,9 +109,13 @@ func (o *LLM) buildRequest(req *api.ChatRequest) (*openrouter.ChatCompletionRequ
 }
 
 func (o *LLM) convertMessage(msg api.Message) openrouter.ChatCompletionMessage {
+	content := msg.Content
+	if msg.Role == conversation.RoleAssistant && content == "" {
+		content = "Thinking..."
+	}
 	openMsg := openrouter.ChatCompletionMessage{
 		Role:    string(msg.Role),
-		Content: openrouter.Content{Text: msg.Content},
+		Content: openrouter.Content{Text: content},
 	}
 	if msg.ToolCallID != "" {
 		openMsg.ToolCallID = msg.ToolCallID
@@ -127,8 +181,10 @@ func (o *LLM) extractStrings(opts map[string]any, key string) []string {
 	return nil
 }
 
-func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.ChatResponseFunc) error {
+func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.ChatResponseFunc) (usage, openrouter.FinishReason, []string, error) {
 	finalUsage := usage{}
+	var finishReason openrouter.FinishReason
+	var responseToolCalls []string
 
 	for {
 		resp, err := stream.Recv()
@@ -136,11 +192,15 @@ func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.Chat
 			if err == io.EOF {
 				break
 			}
-			return fmt.Errorf("error receiving stream: %w", err)
+			return finalUsage, finishReason, responseToolCalls, fmt.Errorf("error receiving stream: %w", err)
 		}
 
-		if err := o.processChunk(resp, &finalUsage, fn); err != nil {
-			return err
+		if len(resp.Choices) > 0 && resp.Choices[0].FinishReason != "" {
+			finishReason = resp.Choices[0].FinishReason
+		}
+
+		if err := o.processChunk(resp, &finalUsage, fn, &responseToolCalls); err != nil {
+			return finalUsage, finishReason, responseToolCalls, err
 		}
 
 		if o.shouldStop(resp, finalUsage) {
@@ -148,10 +208,10 @@ func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.Chat
 		}
 	}
 
-	return nil
+	return finalUsage, finishReason, responseToolCalls, nil
 }
 
-func (o *LLM) processChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc) error {
+func (o *LLM) processChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc, responseToolCalls *[]string) error {
 	o.updateUsage(resp, finalUsage)
 
 	isUsageOnly := o.isUsageOnlyChunk(resp)
@@ -160,7 +220,7 @@ func (o *LLM) processChunk(resp openrouter.ChatCompletionStreamResponse, finalUs
 		return o.sendUsageOnlyChunk(resp, finalUsage, fn)
 	}
 
-	return o.sendContentChunk(resp, finalUsage, fn)
+	return o.sendContentChunk(resp, finalUsage, fn, responseToolCalls)
 }
 
 func (o *LLM) updateUsage(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage) {
@@ -207,7 +267,7 @@ func (o *LLM) sendUsageOnlyChunk(resp openrouter.ChatCompletionStreamResponse, f
 	return nil
 }
 
-func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc) error {
+func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc, responseToolCalls *[]string) error {
 	choice := resp.Choices[0]
 
 	if resp.Usage != nil && (resp.Usage.CompletionTokens > 0 || resp.Usage.PromptTokens > 0) {
@@ -235,6 +295,9 @@ func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, fin
 
 	if choice.Delta.ToolCalls != nil {
 		apiResp.Message.ToolCalls = o.convertToolCalls(choice.Delta.ToolCalls)
+		for _, tc := range choice.Delta.ToolCalls {
+			*responseToolCalls = append(*responseToolCalls, tc.Function.Name)
+		}
 	}
 
 	if choice.Delta.Reasoning != nil && *choice.Delta.Reasoning != "" {

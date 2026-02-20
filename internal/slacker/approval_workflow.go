@@ -64,7 +64,7 @@ func (aw *ApprovalWorkflow) SetNotifyFunction(notifyFunc func(ctx context.Contex
 }
 
 // RequestToolApproval submits a tool for approval
-func (aw *ApprovalWorkflow) RequestToolApproval(request *ToolApprovalRequest) (string, error) {
+func (aw *ApprovalWorkflow) RequestToolApproval(ctx context.Context, request *ToolApprovalRequest) (string, error) {
 	// Check if approval is needed
 	if !config.RequiresApproval(request.ToolType) {
 		return "", fmt.Errorf("tool type %s does not require approval", request.ToolType)
@@ -91,7 +91,7 @@ func (aw *ApprovalWorkflow) RequestToolApproval(request *ToolApprovalRequest) (s
 
 	// Send notification to admins
 	if aw.notifyFunc != nil {
-		if err := aw.notifyFunc(context.Background(), request); err != nil {
+		if err := aw.notifyFunc(ctx, request); err != nil {
 			return requestID, fmt.Errorf("notifying admins: %w", err)
 		}
 	}
@@ -100,7 +100,7 @@ func (aw *ApprovalWorkflow) RequestToolApproval(request *ToolApprovalRequest) (s
 }
 
 // ApproveTool approves a tool request
-func (aw *ApprovalWorkflow) ApproveTool(adminID, requestID, reason string) error {
+func (aw *ApprovalWorkflow) ApproveTool(ctx context.Context, adminID, requestID, reason string) error {
 	// Check if admin
 	if !aw.admins[adminID] {
 		return fmt.Errorf("user %s is not an admin", adminID)
@@ -120,7 +120,7 @@ func (aw *ApprovalWorkflow) ApproveTool(adminID, requestID, reason string) error
 	// Notify original requester
 	if aw.notificationSender != nil {
 		if err := aw.notificationSender.SendApprovalNotification(
-			context.Background(),
+			ctx,
 			approval.RequesterID, // Send to requester, not admin
 			adminID,              // Admin who approved
 			requestID,            // Request ID
@@ -146,7 +146,7 @@ func (aw *ApprovalWorkflow) ApproveTool(adminID, requestID, reason string) error
 }
 
 // RejectTool rejects a tool request
-func (aw *ApprovalWorkflow) RejectTool(adminID, requestID, reason string) error {
+func (aw *ApprovalWorkflow) RejectTool(ctx context.Context, adminID, requestID, reason string) error {
 	// Check if admin
 	if !aw.admins[adminID] {
 		return fmt.Errorf("user %s is not an admin", adminID)
@@ -166,7 +166,7 @@ func (aw *ApprovalWorkflow) RejectTool(adminID, requestID, reason string) error 
 	// Notify original requester
 	if aw.notificationSender != nil {
 		if err := aw.notificationSender.SendApprovalNotification(
-			context.Background(),
+			ctx,
 			approval.RequesterID, // Send to requester, not admin
 			adminID,              // Admin who rejected
 			requestID,            // Request ID

@@ -16,6 +16,8 @@ import (
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/meschbach/marvin/internal/slacker"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
+
+	"github.com/meschbach/go-junk-bucket/pkg/observability"
 )
 
 //go:embed default_config.hcl
@@ -167,6 +169,22 @@ func main() {
 
 	// Create multi-tenant tool set
 	ctx := context.Background()
+
+	// Initialize observability
+	var obsComponent *observability.Component
+	if cfg.Observability != nil || cfg.HasObservabilityEnvVars() {
+		var obsConfig observability.Config
+		if cfg.Observability != nil {
+			obsConfig = cfg.Observability.ToObservabilityConfig()
+		} else {
+			obsConfig = observability.DefaultConfig("marvin")
+		}
+		obsComponent, err = obsConfig.Start(ctx)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize observability: %v", err)
+		}
+	}
+
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
 	if err != nil {
 		log.Fatalf("Error creating tenant tool set: %v", err)
@@ -237,6 +255,13 @@ func main() {
 	// Shutdown components
 	if err := tenantToolSet.Shutdown(ctx); err != nil {
 		log.Printf("Error shutting down tool set: %v", err)
+	}
+
+	// Shutdown observability
+	if obsComponent != nil {
+		if err := obsComponent.ShutdownGracefully(ctx); err != nil {
+			log.Printf("Error shutting down observability: %v", err)
+		}
 	}
 
 	fmt.Println("Slacker bot stopped")

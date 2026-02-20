@@ -2,6 +2,7 @@ package slacker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
@@ -9,12 +10,14 @@ import (
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
+	"github.com/slack-go/slack"
 )
 
 // QueryProcessor handles AI queries with streaming responses
 type QueryProcessor struct {
 	tenantToolSet  *query.TenantToolSet
 	sessionManager *SessionManager
+	connection     *SlackConnection
 	config         *config.File
 	securityLogger *sec.SecurityLogger
 	formatter      *SlackFormatter
@@ -29,6 +32,7 @@ type QueryProcessorImpl = QueryProcessor
 func NewQueryProcessor(
 	tenantToolSet *query.TenantToolSet,
 	sessionManager *SessionManager,
+	connection *SlackConnection,
 	config *config.File,
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
@@ -42,6 +46,7 @@ func NewQueryProcessor(
 	return &QueryProcessor{
 		tenantToolSet:  tenantToolSet,
 		sessionManager: sessionManager,
+		connection:     connection,
 		config:         config,
 		securityLogger: securityLogger,
 		formatter:      formatter,
@@ -77,8 +82,8 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 	}
 
 	// Start progressive response with specific updater
-	go func() {
-		ctx, done := context.WithCancel(context.Background())
+	go func(ctx context.Context) {
+		ctx, done := context.WithCancel(ctx)
 		defer done()
 		defer func() {
 			err := updater.ForceUpdate(ctx)
@@ -91,8 +96,20 @@ func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *
 		err := qp.streamer.ProcessQueryWithUpdater(ctx, slackCtx, session, message, userToolSet, updater)
 		if err != nil {
 			qp.securityLogger.LogError(slackCtx.UserID, "QueryProcessing", err.Error())
+
+			errorMsg := "⚠️ I encountered an error processing your request. Please try again."
+			var llmErr *conversation.LLMConnectionError
+			if errors.As(err, &llmErr) {
+				errorMsg = "⚠️ I'm having trouble connecting to the AI service. Please try again in a moment."
+			} else if errors.Is(err, context.DeadlineExceeded) {
+				errorMsg = "⏱️ Your request took too long. Please try a simpler query."
+			}
+
+			if sendErr := qp.sendErrorMessage(ctx, slackCtx.ChannelID, errorMsg); sendErr != nil {
+				qp.securityLogger.LogError(slackCtx.UserID, "ErrorNotification", sendErr.Error())
+			}
 		}
-	}()
+	}(ctx)
 
 	return nil
 }
@@ -127,4 +144,17 @@ func (qp *QueryProcessor) provideToolAccessHelp(ctx context.Context, slackCtx *S
 		qp.securityLogger.LogInfo(slackCtx.UserID, "help_system",
 			fmt.Sprintf("Tool access help prepared (confidence: %.2f): %s", analysis.Confidence, helpResponse.QuickText))
 	}
+}
+
+// sendErrorMessage sends an error message to the specified channel
+func (qp *QueryProcessor) sendErrorMessage(ctx context.Context, channelID, message string) error {
+	if qp.connection == nil || qp.connection.client == nil {
+		return nil
+	}
+	_, _, err := qp.connection.client.PostMessageContext(
+		ctx,
+		channelID,
+		slack.MsgOptionText(message, true),
+	)
+	return err
 }
