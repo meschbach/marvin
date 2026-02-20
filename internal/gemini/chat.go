@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
@@ -42,17 +43,20 @@ func convertToGenAIRequest(req *api.ChatRequest) ([]*genai.Content, *genai.Gener
 	if err != nil {
 		return nil, nil, err
 	}
-	generationConfig := convertOptions(req.Options)
+	generationConfig, err := convertOptions(req.Options)
+	if err != nil {
+		return nil, nil, err
+	}
 	generationConfig.SystemInstruction = systemInstruction
 	generationConfig.Tools = convertTools(req.Tools)
 
 	return userContents, generationConfig, nil
 }
 
-func convertMessages(messages []api.Message) (*genai.Content, []*genai.Content, error) {
-	var systemInstruction *genai.Content
-	userContents := make([]*genai.Content, 0, len(messages))
+func convertMessages(messages []api.Message) (systemInstruction *genai.Content, userContents []*genai.Content, err error) {
+	userContents = make([]*genai.Content, 0, len(messages))
 
+	//nolint:gocritic
 	for i, msg := range messages {
 		if msg.Role == "system" {
 			systemInstruction = genai.NewContentFromText(msg.Content, "system")
@@ -71,6 +75,7 @@ func convertMessages(messages []api.Message) (*genai.Content, []*genai.Content, 
 	return systemInstruction, userContents, nil
 }
 
+//nolint:gocritic
 func convertSingleMessage(msg api.Message, index int) (*genai.Content, error) {
 	role := msg.Role
 	switch role {
@@ -83,15 +88,16 @@ func convertSingleMessage(msg api.Message, index int) (*genai.Content, error) {
 	}
 }
 
+//nolint:gocritic
 func convertAssistantMessage(msg api.Message, index int) (*genai.Content, error) {
-	if len(msg.Content) == 0 && len(msg.ToolCalls) > 0 {
+	if msg.Content == "" && len(msg.ToolCalls) > 0 {
 		parts, err := convertToolCalls(msg.ToolCalls)
 		if err != nil {
 			return nil, err
 		}
 		return genai.NewContentFromParts(parts, genai.RoleModel), nil
 	}
-	if len(msg.Content) == 0 {
+	if msg.Content == "" {
 		fmt.Printf("warn\tSkipping empty assistant message @ %d (no tool calls)\n", index)
 		return nil, nil
 	}
@@ -111,24 +117,26 @@ func convertToolCalls(toolCalls []api.ToolCall) ([]*genai.Part, error) {
 	return parts, nil
 }
 
+//nolint:gocritic
 func convertUserMessage(msg api.Message, role string, index int) (*genai.Content, error) {
-	if len(msg.Content) == 0 {
+	if msg.Content == "" {
 		fmt.Printf("warn\tSkipping empty %s message @ %d\n", role, index)
 		return nil, nil
 	}
 	return genai.NewContentFromText(msg.Content, genai.Role(role)), nil
 }
 
+//nolint:gocritic
 func convertToolResult(msg api.Message) *genai.Content {
 	part := genai.NewPartFromFunctionResponse(msg.ToolName, map[string]any{"result": msg.Content})
 	return genai.NewContentFromParts([]*genai.Part{part}, "user")
 }
 
-func convertOptions(opts map[string]any) *genai.GenerateContentConfig {
+func convertOptions(opts map[string]any) (*genai.GenerateContentConfig, error) {
 	generationConfig := &genai.GenerateContentConfig{}
 
 	if opts == nil {
-		return generationConfig
+		return generationConfig, nil
 	}
 
 	convertFloatOption(opts, "temperature", func(v float32) {
@@ -140,12 +148,14 @@ func convertOptions(opts map[string]any) *genai.GenerateContentConfig {
 	convertIntToFloatOption(opts, "top_k", func(v float32) {
 		generationConfig.TopK = &v
 	})
-	convertIntOption(opts, "num_predict", func(v int32) {
+	if err := convertIntOption(opts, "num_predict", func(v int32) {
 		generationConfig.MaxOutputTokens = v
-	})
+	}); err != nil {
+		return nil, err
+	}
 	convertStopSequences(opts, generationConfig)
 
-	return generationConfig
+	return generationConfig, nil
 }
 
 func convertFloatOption(opts map[string]any, key string, setter func(float32)) {
@@ -160,10 +170,14 @@ func convertIntToFloatOption(opts map[string]any, key string, setter func(float3
 	}
 }
 
-func convertIntOption(opts map[string]any, key string, setter func(int32)) {
+func convertIntOption(opts map[string]any, key string, setter func(int32)) error {
 	if val, ok := opts[key].(int); ok {
+		if val > math.MaxInt32 || val < math.MinInt32 {
+			return fmt.Errorf("value for %s exceeds int32 bounds", key)
+		}
 		setter(int32(val))
 	}
+	return nil
 }
 
 func convertStopSequences(opts map[string]any, config *genai.GenerateContentConfig) {
@@ -178,6 +192,7 @@ func convertStopSequences(opts map[string]any, config *genai.GenerateContentConf
 	}
 }
 
+//nolint:gocyclo
 func handleFinishReason(reason genai.FinishReason) error {
 	switch reason {
 	case genai.FinishReasonStop:
@@ -192,9 +207,30 @@ func handleFinishReason(reason genai.FinishReason) error {
 		return errors.New("response blocked due to recitation policy")
 	case genai.FinishReasonOther:
 		return errors.New("response stopped for unknown reason")
-	default:
-		return nil
+	case genai.FinishReasonUnspecified:
+		return errors.New("response finish reason unspecified")
+	case genai.FinishReasonLanguage:
+		return errors.New("response blocked due to language policy")
+	case genai.FinishReasonBlocklist:
+		return errors.New("response blocked due to blocklist policy")
+	case genai.FinishReasonProhibitedContent:
+		return errors.New("response blocked due to prohibited content")
+	case genai.FinishReasonSPII:
+		return errors.New("response blocked due to sensitive personal information")
+	case genai.FinishReasonMalformedFunctionCall:
+		return errors.New("response has malformed function call")
+	case genai.FinishReasonImageSafety:
+		return errors.New("response blocked due to image safety policy")
+	case genai.FinishReasonImageProhibitedContent:
+		return errors.New("response blocked due to prohibited image content")
+	case genai.FinishReasonNoImage:
+		return errors.New("response blocked: no image provided")
+	case genai.FinishReasonImageRecitation:
+		return errors.New("response blocked due to image recitation policy")
+	case genai.FinishReasonImageOther:
+		return errors.New("response blocked due to image policy")
 	}
+	return nil
 }
 
 func convertTools(tools api.Tools) []*genai.Tool {
@@ -203,6 +239,7 @@ func convertTools(tools api.Tools) []*genai.Tool {
 	}
 
 	result := make([]*genai.Tool, len(tools))
+	//nolint:gocritic
 	for i, t := range tools {
 		funcDecl := &genai.FunctionDeclaration{
 			Name:        t.Function.Name,
@@ -216,6 +253,7 @@ func convertTools(tools api.Tools) []*genai.Tool {
 	return result
 }
 
+//nolint:gocritic
 func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
 	schema := &genai.Schema{
 		Type: genai.TypeObject,
@@ -236,7 +274,7 @@ func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
 	return schema
 }
 
-//nolint:gocyclo
+//nolint:gocritic,hugeParam,gocyclo
 func convertToolProperty(prop api.ToolProperty) *genai.Schema {
 	schema := &genai.Schema{}
 

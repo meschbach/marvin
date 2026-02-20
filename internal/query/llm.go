@@ -23,10 +23,10 @@ func (o *OllamaLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatR
 	return o.client.Chat(ctx, req, fn)
 }
 
-func NewLLM(cfg *config.File) (conversation.LLM, error) {
+func NewLLM(ctx context.Context, cfg *config.File) (conversation.LLM, error) {
 	switch cfg.Provider() {
 	case config.ProviderGemini:
-		return newGeminiLLM(cfg)
+		return newGeminiLLM(ctx, cfg)
 	case config.ProviderOpenRouter:
 		return newOpenRouterLLM(cfg)
 	case config.ProviderOllama:
@@ -36,7 +36,7 @@ func NewLLM(cfg *config.File) (conversation.LLM, error) {
 	}
 }
 
-func newGeminiLLM(cfg *config.File) (conversation.LLM, error) {
+func newGeminiLLM(ctx context.Context, cfg *config.File) (conversation.LLM, error) {
 	apiKey, has, err := cfg.Gemini.ResolveKey()
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve Gemini API key: %w", err)
@@ -45,7 +45,7 @@ func newGeminiLLM(cfg *config.File) (conversation.LLM, error) {
 		return nil, fmt.Errorf("gemini API key is required. Set it via config, file, or GEMINI_API_KEY env var")
 	}
 
-	return gemini.NewLLM(apiKey, cfg.LanguageModel())
+	return gemini.NewLLM(ctx, apiKey, cfg.LanguageModel())
 }
 
 func newOpenRouterLLM(cfg *config.File) (conversation.LLM, error) {

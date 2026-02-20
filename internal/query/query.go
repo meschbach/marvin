@@ -27,7 +27,7 @@ type ChatOptions struct {
 // PerformWithConfig executes the search using the optional parsed configuration.
 //
 //nolint:gocyclo,funlen
-func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) {
+func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string, opts *ChatOptions) {
 	// Apply configuration defaults if CLI flags not set
 	if cfg != nil {
 		if !opts.ShowThinking && cfg.ShowThinking() {
@@ -52,14 +52,13 @@ func PerformWithConfig(cfg *config.File, actualQuery string, opts *ChatOptions) 
 	}
 
 	// Create LLM client based on configuration (supports Ollama and OpenRouter)
-	llm, err := NewLLM(cfg)
+	llm, err := NewLLM(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating LLM client: %v\n", err)
 		return
 	}
 
 	// Build tools from configuration (if provided)
-	ctx := context.Background()
 	toolset, tsErr := loadToolsFromConfig(ctx, cfg)
 	if tsErr != nil {
 		fmt.Fprintf(os.Stderr, "Error initializing tools: %v\n", tsErr)

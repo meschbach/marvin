@@ -26,8 +26,8 @@ func (g *genaiClient) GenerateContentStream(ctx context.Context, model string, c
 	return g.client.Models.GenerateContentStream(ctx, model, contents, config)
 }
 
-func NewLLM(apiKey, model string) (*LLM, error) {
-	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+func NewLLM(ctx context.Context, apiKey, model string) (*LLM, error) {
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
 	})
 	if err != nil {

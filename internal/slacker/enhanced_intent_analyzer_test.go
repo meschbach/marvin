@@ -1,7 +1,6 @@
 package slacker
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -177,7 +176,7 @@ func TestEnhancedIntentAnalyzer_FullEnhancedAnalysis(t *testing.T) {
 	}
 
 	// Test full enhanced analysis
-	analysis, err := enhanced.AnalyzeIntentFailureEnhanced(context.TODO(), "lsit my tool", helpCtx)
+	analysis, err := enhanced.AnalyzeIntentFailureEnhanced(t.Context(), "lsit my tool", helpCtx)
 
 	// Should not error and should provide enhanced analysis
 	assert.NoError(t, err)

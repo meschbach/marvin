@@ -38,7 +38,9 @@ func NewQueryProcessor(
 	formatter *SlackFormatter,
 	helpIntegrator *HelpIntegrator,
 ) (*QueryProcessor, error) {
-	llm, err := query.NewLLM(config)
+	// need for context pushes we need a better design :-)
+	// nolint
+	llm, err := query.NewLLM(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize LLM: %w", err)
 	}

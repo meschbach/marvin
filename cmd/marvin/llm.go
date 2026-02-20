@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -33,7 +34,7 @@ func queryCommand(global *globalOptions) *cobra.Command {
 				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 				return
 			}
-			query.PerformWithConfig(config, actualQuery, queryOpts)
+			query.PerformWithConfig(context.Background(), config, actualQuery, queryOpts)
 		},
 	}
 	pflags := cmd.PersistentFlags()

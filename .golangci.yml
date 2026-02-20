@@ -9,7 +9,6 @@ linters:
   exclusions:
     paths:
       - cmd
-      - internal/gemini
       - internal/openrouter
       - internal/query
       - internal/slacker
@@ -54,6 +53,8 @@ linters:
       forbid:
         - pattern: "context.Background"
           msg: "Pass a context in or used the past context"
+        - pattern: "context.TODO"
+          msg: "Use a specific context or pass a context in"
 
     gocritic:
       enabled-tags:
