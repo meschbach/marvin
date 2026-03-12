@@ -41,6 +41,15 @@ type Mark3labsTool struct {
 }
 
 func (m *Mark3labsTool) ensureRunning(ctx context.Context) (problem error) {
+	defer func() {
+		if raised := recover(); raised != nil {
+			if err, ok := raised.(error); ok {
+				problem = errors.Join(problem, &junk.OperationalError{Description: "panic during ensureRunning", Underlying: err})
+			} else {
+				panic(raised)
+			}
+		}
+	}()
 	if m.active != nil {
 		return nil
 	}
