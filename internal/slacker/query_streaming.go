@@ -10,12 +10,9 @@ import (
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/ollama/ollama/api"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-var qsTracer = otel.Tracer("slacker")
 
 type llm interface {
 	Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error
@@ -57,7 +54,7 @@ func NewQueryStreamer(
 
 // ProcessQueryWithUpdater handles AI processing with a specific Slack updater using the unified Engine
 func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *conversation.ToolSet, updater *SlackUpdater) error {
-	ctx, span := qsTracer.Start(ctx, "QueryStreamer.ProcessQueryWithUpdater",
+	ctx, span := tracer.Start(ctx, "QueryStreamer.ProcessQueryWithUpdater",
 		trace.WithAttributes(
 			attribute.String("user", slackCtx.UserID),
 			attribute.String("channel", slackCtx.ChannelID),

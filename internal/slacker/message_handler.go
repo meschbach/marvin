@@ -12,12 +12,9 @@ import (
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-var tracer = otel.Tracer("slacker")
 
 // QueryHandler defines the interface for handling queries
 type QueryHandler interface {

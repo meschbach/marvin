@@ -8,11 +8,8 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
-
-var botTracer = otel.Tracer("slacker")
 
 // SlackBot represents the main Slack bot orchestrator
 type SlackBot struct {
@@ -117,7 +114,7 @@ func (sb *SlackBot) StartSocketMode(ctx context.Context) error {
 			return ctx.Err()
 		case event := <-sb.connection.socketClient.Events:
 			spanName := fmt.Sprintf("slacker.event.%s", event.Type)
-			ctx, span := botTracer.Start(ctx, spanName)
+			ctx, span := tracer.Start(ctx, spanName)
 
 			// Extract common attributes from event
 			var attrs []attribute.KeyValue
