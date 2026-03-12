@@ -1,3 +1,4 @@
+// Package config provides system configuration
 package config
 
 import (

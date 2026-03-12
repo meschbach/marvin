@@ -192,16 +192,6 @@ type AssistantPromptBlock struct {
 	FromFile   string `hcl:"from_file,optional"`
 }
 
-type MultiTenantBlock struct {
-	AdminUsers        []string `hcl:"admin_users,optional"`
-	AdminChannel      string   `hcl:"admin_channel,optional"`
-	SessionStorePath  string   `hcl:"session_store_path,optional"`
-	CredentialStore   string   `hcl:"credential_store,optional"`
-	SlackerStatePath  string   `hcl:"slacker_state_path,optional"`
-	SecurityLogFormat string   `hcl:"security_log_format,optional"`
-	ApprovalTimeout   string   `hcl:"approval_timeout,optional"`
-}
-
 // ObservabilityBlock contains configuration for OTEL tracing
 type ObservabilityBlock struct {
 	// Exporter is the OTEL exporter to use (none, stdout, grpc)
