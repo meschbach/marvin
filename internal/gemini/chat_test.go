@@ -28,7 +28,7 @@ func TestConvertFloatOption(t *testing.T) {
 		t.Parallel()
 		var called bool
 		opts := map[string]any{"temperature": "wrong"}
-		convertFloatOption(opts, "temperature", func(v float32) { called = true })
+		convertFloatOption(opts, "temperature", func(_ float32) { called = true })
 		assert.False(t, called, "should not call setter with wrong type")
 	})
 
@@ -36,7 +36,7 @@ func TestConvertFloatOption(t *testing.T) {
 		t.Parallel()
 		var called bool
 		opts := map[string]any{}
-		convertFloatOption(opts, "temperature", func(v float32) { called = true })
+		convertFloatOption(opts, "temperature", func(_ float32) { called = true })
 		assert.False(t, called)
 	})
 }
@@ -47,7 +47,7 @@ func TestConvertIntToFloatOption(t *testing.T) {
 		t.Parallel()
 		var result float32
 		opts := map[string]any{"top_k": 40}
-		convertIntToFloatOption(opts, "top_k", func(v float32) { result = v })
+		convertTopKOption(opts, func(v float32) { result = v })
 		assert.InEpsilon(t, float32(40.0), result, 0.001)
 	})
 
@@ -55,7 +55,7 @@ func TestConvertIntToFloatOption(t *testing.T) {
 		t.Parallel()
 		var called bool
 		opts := map[string]any{"top_k": 40.5}
-		convertIntToFloatOption(opts, "top_k", func(v float32) { called = true })
+		convertTopKOption(opts, func(_ float32) { called = true })
 		assert.False(t, called)
 	})
 
@@ -63,7 +63,7 @@ func TestConvertIntToFloatOption(t *testing.T) {
 		t.Parallel()
 		var called bool
 		opts := map[string]any{"top_k": "forty"}
-		convertIntToFloatOption(opts, "top_k", func(v float32) { called = true })
+		convertTopKOption(opts, func(_ float32) { called = true })
 		assert.False(t, called)
 	})
 }
@@ -83,7 +83,7 @@ func TestConvertIntOption(t *testing.T) {
 		t.Parallel()
 		var called bool
 		opts := map[string]any{"num_predict": "100"}
-		err := convertIntOption(opts, "num_predict", func(v int32) { called = true })
+		err := convertIntOption(opts, "num_predict", func(_ int32) { called = true })
 		require.NoError(t, err)
 		assert.False(t, called)
 	})
@@ -319,7 +319,6 @@ func TestConvertMessages_UserEmptyContentWithoutToolCalls_Skipped(t *testing.T) 
 	assert.Empty(t, user, "should skip empty user message")
 }
 
-//nolint:funlen
 func TestConvertToOllamaResponse(t *testing.T) {
 	t.Parallel()
 	t.Run("BasicTextResponse", func(t *testing.T) {
@@ -461,10 +460,10 @@ type MockStreamer struct {
 }
 
 func (m *MockStreamer) GenerateContentStream(
-	ctx context.Context,
-	model string,
-	contents []*genai.Content,
-	config *genai.GenerateContentConfig,
+	_ context.Context,
+	_ string,
+	_ []*genai.Content,
+	_ *genai.GenerateContentConfig,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	return func(yield func(*genai.GenerateContentResponse, error) bool) {
 		// First, yield any initial errors
@@ -490,7 +489,27 @@ func (m *MockStreamer) GenerateContentStream(
 	}
 }
 
-//nolint:funlen
+type responseCapture struct {
+	responses []*api.ChatResponse
+}
+
+func (r *responseCapture) OnChatResponse(_ context.Context, resp *api.ChatResponse) error {
+	r.responses = append(r.responses, resp)
+	return nil
+}
+
+type stopAtOne struct {
+	responses []*api.ChatResponse
+}
+
+func (r *stopAtOne) OnChatResponse(_ context.Context, resp *api.ChatResponse) error {
+	r.responses = append(r.responses, resp)
+	if len(r.responses) >= 1 {
+		return errors.New("stop")
+	}
+	return nil
+}
+
 func TestLLM_Chat(t *testing.T) {
 	t.Parallel()
 	t.Run("SingleResponse_Success", func(t *testing.T) {
@@ -507,13 +526,11 @@ func TestLLM_Chat(t *testing.T) {
 		}
 		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
 
-		var responses []api.ChatResponse
+		capture := &responseCapture{}
 		err := llm.Chat(t.Context(), &api.ChatRequest{
 			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, func(resp api.ChatResponse) error {
-			responses = append(responses, resp)
-			return nil
-		})
+		}, capture)
+		responses := capture.responses
 
 		require.NoError(t, err)
 		require.Len(t, responses, 1)
@@ -542,12 +559,13 @@ func TestLLM_Chat(t *testing.T) {
 		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		var content string
+		capture := &responseCapture{}
 		err := llm.Chat(t.Context(), &api.ChatRequest{
 			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, func(resp api.ChatResponse) error {
+		}, capture)
+		for _, resp := range capture.responses {
 			content += resp.Message.Content
-			return nil
-		})
+		}
 
 		require.NoError(t, err)
 		assert.Equal(t, "Hello world", content)
@@ -561,11 +579,10 @@ func TestLLM_Chat(t *testing.T) {
 		}
 		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
 
+		capture := &responseCapture{}
 		err := llm.Chat(t.Context(), &api.ChatRequest{
 			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, func(resp api.ChatResponse) error {
-			return nil
-		})
+		}, capture)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "API error")
@@ -591,20 +608,14 @@ func TestLLM_Chat(t *testing.T) {
 		}
 		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
 
-		var responses []api.ChatResponse
+		stop := &stopAtOne{}
 		err := llm.Chat(t.Context(), &api.ChatRequest{
 			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, func(resp api.ChatResponse) error {
-			responses = append(responses, resp)
-			if len(responses) == 1 {
-				return errors.New("stop iteration")
-			}
-			return nil
-		})
+		}, stop)
 
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "stop iteration")
-		assert.Len(t, responses, 1)
+		assert.Contains(t, err.Error(), "stop")
+		assert.Len(t, stop.responses, 1)
 	})
 
 	t.Run("EmptyResponseStream_CompletesWithoutError", func(t *testing.T) {
@@ -614,15 +625,12 @@ func TestLLM_Chat(t *testing.T) {
 		}
 		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
 
-		var responses []api.ChatResponse
+		capture := &responseCapture{}
 		err := llm.Chat(t.Context(), &api.ChatRequest{
 			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, func(resp api.ChatResponse) error {
-			responses = append(responses, resp)
-			return nil
-		})
+		}, capture)
 
 		require.NoError(t, err)
-		assert.Empty(t, responses)
+		assert.Empty(t, capture.responses)
 	})
 }

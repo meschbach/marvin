@@ -33,7 +33,6 @@ type dockerRuntimeSpec struct {
 	cfg *config.DockerMCPBlock
 }
 
-//nolint:gocyclo,funlen
 func (d *dockerRuntimeSpec) start(ctx context.Context) (program runningProgram, problem error) {
 	verbose := d.cfg.ResolveVerbose()
 	cli, err := dockerclient.NewClientWithOpts(dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation())
@@ -200,7 +199,6 @@ func (d dockerContainer) transport() transport.Interface {
 	return d.bridge
 }
 
-//nolint:gocyclo
 func (d dockerContainer) stop(ctx context.Context) (problem error) {
 	if d.verbose {
 		fmt.Printf("docker-%s > Shutting down container...\n", d.name)

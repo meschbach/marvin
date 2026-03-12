@@ -22,7 +22,7 @@ type TestEnvironment struct {
 	MockLLM        *MockLLM
 	Updater        *SlackUpdater
 	MockSlackSink  *MockSlackSink
-	QueryStreamer  *QueryStreamer[*MockLLM]
+	QueryStreamer  *QueryStreamer
 }
 
 type capturedFormat struct {

@@ -1,3 +1,4 @@
+// Package openrouter provides LLM bindings for using [OpenRouter](https://openrouter.ai/)
 package openrouter
 
 import (
@@ -5,13 +6,10 @@ import (
 
 	openrouter "github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
 
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
-
-var tracer = otel.Tracer("openrouter")
 
 type LLM struct {
 	apiKey     string

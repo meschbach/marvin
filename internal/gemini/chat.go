@@ -1,3 +1,4 @@
+// Package gemini provides LLM integration with Google's Gemini API via Model Context Protocol.
 package gemini
 
 import (
@@ -6,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
@@ -14,7 +16,7 @@ import (
 	"google.golang.org/genai"
 )
 
-func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
+func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, onEvent conversation.ChatResponseListener) error {
 	contents, config, err := convertToGenAIRequest(req)
 	if err != nil {
 		return err
@@ -30,7 +32,7 @@ func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRespons
 		if finishErr != nil {
 			return finishErr
 		}
-		if err := fn(*ollamaResp); err != nil {
+		if err := onEvent.OnChatResponse(ctx, ollamaResp); err != nil {
 			return err
 		}
 	}
@@ -56,8 +58,8 @@ func convertToGenAIRequest(req *api.ChatRequest) ([]*genai.Content, *genai.Gener
 func convertMessages(messages []api.Message) (systemInstruction *genai.Content, userContents []*genai.Content, err error) {
 	userContents = make([]*genai.Content, 0, len(messages))
 
-	//nolint:gocritic
-	for i, msg := range messages {
+	for i := range messages {
+		msg := &messages[i]
 		if msg.Role == "system" {
 			systemInstruction = genai.NewContentFromText(msg.Content, "system")
 			continue
@@ -75,8 +77,7 @@ func convertMessages(messages []api.Message) (systemInstruction *genai.Content, 
 	return systemInstruction, userContents, nil
 }
 
-//nolint:gocritic
-func convertSingleMessage(msg api.Message, index int) (*genai.Content, error) {
+func convertSingleMessage(msg *api.Message, index int) (*genai.Content, error) {
 	role := msg.Role
 	switch role {
 	case "tool":
@@ -88,8 +89,7 @@ func convertSingleMessage(msg api.Message, index int) (*genai.Content, error) {
 	}
 }
 
-//nolint:gocritic
-func convertAssistantMessage(msg api.Message, index int) (*genai.Content, error) {
+func convertAssistantMessage(msg *api.Message, index int) (*genai.Content, error) {
 	if msg.Content == "" && len(msg.ToolCalls) > 0 {
 		parts, err := convertToolCalls(msg.ToolCalls)
 		if err != nil {
@@ -117,8 +117,7 @@ func convertToolCalls(toolCalls []api.ToolCall) ([]*genai.Part, error) {
 	return parts, nil
 }
 
-//nolint:gocritic
-func convertUserMessage(msg api.Message, role string, index int) (*genai.Content, error) {
+func convertUserMessage(msg *api.Message, role string, index int) (*genai.Content, error) {
 	if msg.Content == "" {
 		fmt.Printf("warn\tSkipping empty %s message @ %d\n", role, index)
 		return nil, nil
@@ -126,8 +125,7 @@ func convertUserMessage(msg api.Message, role string, index int) (*genai.Content
 	return genai.NewContentFromText(msg.Content, genai.Role(role)), nil
 }
 
-//nolint:gocritic
-func convertToolResult(msg api.Message) *genai.Content {
+func convertToolResult(msg *api.Message) *genai.Content {
 	part := genai.NewPartFromFunctionResponse(msg.ToolName, map[string]any{"result": msg.Content})
 	return genai.NewContentFromParts([]*genai.Part{part}, "user")
 }
@@ -145,7 +143,7 @@ func convertOptions(opts map[string]any) (*genai.GenerateContentConfig, error) {
 	convertFloatOption(opts, "top_p", func(v float32) {
 		generationConfig.TopP = &v
 	})
-	convertIntToFloatOption(opts, "top_k", func(v float32) {
+	convertTopKOption(opts, func(v float32) {
 		generationConfig.TopK = &v
 	})
 	if err := convertIntOption(opts, "num_predict", func(v int32) {
@@ -164,8 +162,8 @@ func convertFloatOption(opts map[string]any, key string, setter func(float32)) {
 	}
 }
 
-func convertIntToFloatOption(opts map[string]any, key string, setter func(float32)) {
-	if val, ok := opts[key].(int); ok {
+func convertTopKOption(opts map[string]any, setter func(float32)) {
+	if val, ok := opts["top_k"].(int); ok {
 		setter(float32(val))
 	}
 }
@@ -192,43 +190,32 @@ func convertStopSequences(opts map[string]any, config *genai.GenerateContentConf
 	}
 }
 
-//nolint:gocyclo
+var finishReasonErrors = map[genai.FinishReason]string{
+	genai.FinishReasonStop:                   "", // no error
+	genai.FinishReasonMaxTokens:              "", // no error
+	genai.FinishReasonUnexpectedToolCall:     "model attempted to call a tool but none were provided",
+	genai.FinishReasonSafety:                 "response blocked due to safety policy",
+	genai.FinishReasonRecitation:             "response blocked due to recitation policy",
+	genai.FinishReasonOther:                  "response stopped for unknown reason",
+	genai.FinishReasonUnspecified:            "response finish reason unspecified",
+	genai.FinishReasonLanguage:               "response blocked due to language policy",
+	genai.FinishReasonBlocklist:              "response blocked due to blocklist policy",
+	genai.FinishReasonProhibitedContent:      "response blocked due to prohibited content",
+	genai.FinishReasonSPII:                   "response blocked due to sensitive personal information",
+	genai.FinishReasonMalformedFunctionCall:  "response has malformed function call",
+	genai.FinishReasonImageSafety:            "response blocked due to image safety policy",
+	genai.FinishReasonImageProhibitedContent: "response blocked due to prohibited image content",
+	genai.FinishReasonNoImage:                "response blocked: no image provided",
+	genai.FinishReasonImageRecitation:        "response blocked due to image recitation policy",
+	genai.FinishReasonImageOther:             "response blocked due to image policy",
+}
+
 func handleFinishReason(reason genai.FinishReason) error {
-	switch reason {
-	case genai.FinishReasonStop:
+	if errMsg, ok := finishReasonErrors[reason]; ok {
+		if errMsg != "" {
+			return errors.New(errMsg)
+		}
 		return nil
-	case genai.FinishReasonMaxTokens:
-		return nil
-	case genai.FinishReasonUnexpectedToolCall:
-		return errors.New("model attempted to call a tool but none were provided")
-	case genai.FinishReasonSafety:
-		return errors.New("response blocked due to safety policy")
-	case genai.FinishReasonRecitation:
-		return errors.New("response blocked due to recitation policy")
-	case genai.FinishReasonOther:
-		return errors.New("response stopped for unknown reason")
-	case genai.FinishReasonUnspecified:
-		return errors.New("response finish reason unspecified")
-	case genai.FinishReasonLanguage:
-		return errors.New("response blocked due to language policy")
-	case genai.FinishReasonBlocklist:
-		return errors.New("response blocked due to blocklist policy")
-	case genai.FinishReasonProhibitedContent:
-		return errors.New("response blocked due to prohibited content")
-	case genai.FinishReasonSPII:
-		return errors.New("response blocked due to sensitive personal information")
-	case genai.FinishReasonMalformedFunctionCall:
-		return errors.New("response has malformed function call")
-	case genai.FinishReasonImageSafety:
-		return errors.New("response blocked due to image safety policy")
-	case genai.FinishReasonImageProhibitedContent:
-		return errors.New("response blocked due to prohibited image content")
-	case genai.FinishReasonNoImage:
-		return errors.New("response blocked: no image provided")
-	case genai.FinishReasonImageRecitation:
-		return errors.New("response blocked due to image recitation policy")
-	case genai.FinishReasonImageOther:
-		return errors.New("response blocked due to image policy")
 	}
 	return nil
 }
@@ -239,12 +226,12 @@ func convertTools(tools api.Tools) []*genai.Tool {
 	}
 
 	result := make([]*genai.Tool, len(tools))
-	//nolint:gocritic
-	for i, t := range tools {
+	for i := range tools {
+		t := &tools[i]
 		funcDecl := &genai.FunctionDeclaration{
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
-			Parameters:  convertSchema(t.Function.Parameters),
+			Parameters:  convertSchema(&t.Function.Parameters),
 		}
 		result[i] = &genai.Tool{
 			FunctionDeclarations: []*genai.FunctionDeclaration{funcDecl},
@@ -253,8 +240,7 @@ func convertTools(tools api.Tools) []*genai.Tool {
 	return result
 }
 
-//nolint:gocritic
-func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
+func convertSchema(params *api.ToolFunctionParameters) *genai.Schema {
 	schema := &genai.Schema{
 		Type: genai.TypeObject,
 	}
@@ -262,7 +248,7 @@ func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
 	if params.Properties != nil {
 		properties := make(map[string]*genai.Schema)
 		for k, v := range params.Properties.ToMap() {
-			properties[k] = convertToolProperty(v)
+			properties[k] = convertToolProperty(&v)
 		}
 		schema.Properties = properties
 	}
@@ -274,40 +260,48 @@ func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
 	return schema
 }
 
-//nolint:gocritic,gocyclo
-func convertToolProperty(prop api.ToolProperty) *genai.Schema {
+func convertToolProperty(prop *api.ToolProperty) *genai.Schema {
 	schema := &genai.Schema{}
-
-	for _, t := range prop.Type {
-		switch t {
-		case "string":
-			schema.Type = genai.TypeString
-		case "integer":
-			schema.Type = genai.TypeInteger
-		case "number":
-			schema.Type = genai.TypeNumber
-		case "boolean":
-			schema.Type = genai.TypeBoolean
-		case "array":
-			schema.Type = genai.TypeArray
-		case "object":
-			schema.Type = genai.TypeObject
-		}
-	}
-
+	schema.Type = convertType(prop.Type)
 	schema.Description = prop.Description
 
 	if len(prop.Enum) > 0 {
-		enumStrs := make([]string, len(prop.Enum))
-		for i, e := range prop.Enum {
-			if s, ok := e.(string); ok {
-				enumStrs[i] = s
-			}
-		}
-		schema.Enum = enumStrs
+		schema.Enum = convertEnum(prop.Enum)
 	}
 
 	return schema
+}
+
+// convertType maps API property types to GenAI schema types
+func convertType(types []string) genai.Type {
+	for _, t := range types {
+		switch t {
+		case "string":
+			return genai.TypeString
+		case "integer":
+			return genai.TypeInteger
+		case "number":
+			return genai.TypeNumber
+		case "boolean":
+			return genai.TypeBoolean
+		case "array":
+			return genai.TypeArray
+		case "object":
+			return genai.TypeObject
+		}
+	}
+	return genai.TypeString // default
+}
+
+// convertEnum extracts string values from enum array
+func convertEnum(enum []any) []string {
+	result := make([]string, 0, len(enum))
+	for _, e := range enum {
+		if s, ok := e.(string); ok {
+			result = append(result, s)
+		}
+	}
+	return result
 }
 
 func convertFunctionCallFromAPI(tc api.ToolCall) (*genai.FunctionCall, error) {
@@ -334,7 +328,9 @@ func convertFunctionCall(fc *genai.FunctionCall) api.ToolCall {
 	if fc.Args != nil {
 		argsJSON, err := json.Marshal(fc.Args)
 		if err == nil {
-			_ = args.UnmarshalJSON(argsJSON) //nolint:errcheck
+			if err := args.UnmarshalJSON(argsJSON); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to unmarshal tool call arguments: %v\n", err)
+			}
 		}
 	}
 
@@ -347,7 +343,6 @@ func convertFunctionCall(fc *genai.FunctionCall) api.ToolCall {
 	}
 }
 
-//nolint:gocyclo
 func convertToOllamaResponse(resp *genai.GenerateContentResponse) (*api.ChatResponse, error) {
 	ollamaResp := &api.ChatResponse{
 		Model:     resp.ModelVersion,
@@ -355,35 +350,13 @@ func convertToOllamaResponse(resp *genai.GenerateContentResponse) (*api.ChatResp
 		Done:      false,
 	}
 
-	if len(resp.Candidates) > 0 && resp.Candidates[0].FinishReason != "" {
-		if resp.Candidates[0].FinishReason != genai.FinishReasonStop {
-			finishErr := handleFinishReason(resp.Candidates[0].FinishReason)
-			if finishErr != nil {
-				return nil, finishErr
-			}
-		}
-		ollamaResp.Done = true
+	done, err := handleFinishReasonIfPresent(resp)
+	if err != nil {
+		return nil, err
 	}
+	ollamaResp.Done = done
 
-	if len(resp.Candidates) > 0 &&
-		resp.Candidates[0].Content != nil &&
-		len(resp.Candidates[0].Content.Parts) > 0 {
-		for _, part := range resp.Candidates[0].Content.Parts {
-			if part == nil {
-				continue
-			}
-			if part.Text != "" {
-				ollamaResp.Message = api.Message{
-					Role:    "assistant",
-					Content: part.Text,
-				}
-			}
-			if part.FunctionCall != nil {
-				toolCall := convertFunctionCall(part.FunctionCall)
-				ollamaResp.Message.ToolCalls = append(ollamaResp.Message.ToolCalls, toolCall)
-			}
-		}
-	}
+	ollamaResp.Message = extractMessageFromCandidates(resp)
 
 	if resp.UsageMetadata != nil {
 		ollamaResp.PromptEvalCount = int(resp.UsageMetadata.PromptTokenCount)
@@ -391,4 +364,43 @@ func convertToOllamaResponse(resp *genai.GenerateContentResponse) (*api.ChatResp
 	}
 
 	return ollamaResp, nil
+}
+
+func handleFinishReasonIfPresent(resp *genai.GenerateContentResponse) (bool, error) {
+	if len(resp.Candidates) > 0 && resp.Candidates[0].FinishReason != "" {
+		if resp.Candidates[0].FinishReason != genai.FinishReasonStop {
+			finishErr := handleFinishReason(resp.Candidates[0].FinishReason)
+			if finishErr != nil {
+				return false, finishErr
+			}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func extractMessageFromCandidates(resp *genai.GenerateContentResponse) api.Message {
+	if len(resp.Candidates) == 0 ||
+		resp.Candidates[0].Content == nil ||
+		len(resp.Candidates[0].Content.Parts) == 0 {
+		return api.Message{}
+	}
+
+	var msg api.Message
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part == nil {
+			continue
+		}
+		if part.Text != "" {
+			msg = api.Message{
+				Role:    "assistant",
+				Content: part.Text,
+			}
+		}
+		if part.FunctionCall != nil {
+			toolCall := convertFunctionCall(part.FunctionCall)
+			msg.ToolCalls = append(msg.ToolCalls, toolCall)
+		}
+	}
+	return msg
 }

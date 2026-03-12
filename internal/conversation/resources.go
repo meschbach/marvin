@@ -7,6 +7,7 @@ import (
 	"github.com/yosida95/uritemplate/v3"
 )
 
+// McpResource defines an interface for an MCP resource.
 type McpResource interface {
 	Matches() []*uritemplate.Template
 	DescribeMessages() []api.Message
@@ -18,15 +19,18 @@ type McpResourceGateway struct {
 	ResourceServices []McpResource
 }
 
+// NewMCPResourceGateway creates a new MCP resource gateway.
 func NewMCPResourceGateway() *McpResourceGateway {
 	return &McpResourceGateway{}
 }
 
+// Register adds a new resource gateway to the gateway.
 func (m *McpResourceGateway) Register(gateway McpResource) {
 	m.ResourceServices = append(m.ResourceServices, gateway)
 }
 
-func (m *McpResourceGateway) DefineAPI(ctx context.Context) (definition *ToolDefinition, problem error) {
+// DefineAPI defines the API for the MCP resource gateway.
+func (m *McpResourceGateway) DefineAPI(_ context.Context) (definition *ToolDefinition, problem error) {
 	props := api.NewToolPropertiesMap()
 	props.Set("uri", api.ToolProperty{
 		Type:        ToolPropTypeString,
@@ -57,6 +61,7 @@ func (m *McpResourceGateway) DefineAPI(ctx context.Context) (definition *ToolDef
 	return definition, nil
 }
 
+// Invoke executes a tool call through the gateway.
 func (m *McpResourceGateway) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	args := call.Function.Arguments
 	uriUnknownType, hasURI := args.Get("uri")

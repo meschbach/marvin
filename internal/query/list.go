@@ -11,10 +11,9 @@ import (
 )
 
 func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
-	tools, err := loadToolsFromConfig(ctx, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading tools: %v\n", err)
-		return
+	tools, warnings := loadToolsFromConfig(ctx, cfg)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", w)
 	}
 	defer func() {
 		if err := tools.Shutdown(ctx); err != nil {

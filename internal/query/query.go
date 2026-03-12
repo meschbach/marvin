@@ -25,8 +25,6 @@ type ChatOptions struct {
 }
 
 // PerformWithConfig executes the search using the optional parsed configuration.
-//
-//nolint:gocyclo,funlen
 func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string, opts *ChatOptions) {
 	// Apply configuration defaults if CLI flags not set
 	if cfg != nil {
@@ -59,10 +57,9 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 	}
 
 	// Build tools from configuration (if provided)
-	toolset, tsErr := loadToolsFromConfig(ctx, cfg)
-	if tsErr != nil {
-		fmt.Fprintf(os.Stderr, "Error initializing tools: %v\n", tsErr)
-		return
+	toolset, warnings := loadToolsFromConfig(ctx, cfg)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", w)
 	}
 	defer func() {
 		fmt.Println("Shutting down tools")
@@ -71,10 +68,10 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 		}
 	}()
 	for _, rag := range cfg.Documents {
-		tool := &chromemTool{config: rag, showInvocations: false}
+		tool := &ChromemTool{config: rag, showInvocations: false}
 		if err := toolset.RegisterTool(ctx, tool); err != nil {
-			fmt.Fprintf(os.Stderr, "Error registering RAG tool: %v\n", err)
-			return
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			continue
 		}
 	}
 

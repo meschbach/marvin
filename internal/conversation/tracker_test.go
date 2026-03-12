@@ -23,42 +23,42 @@ type TrackerEvent struct {
 	Kind  TrackerEventType
 	Value string
 	Err   error
-	Stats ConversationStats
+	Stats Stats
 }
 
 // TrackingUpdater captures the content of the conversation and the last received stats from an LLM
 type TrackingUpdater struct {
 	events    []TrackerEvent
-	lastStats ConversationStats
+	lastStats Stats
 }
 
-func (t *TrackingUpdater) AddContent(ctx context.Context, content string) error {
+func (t *TrackingUpdater) AddContent(_ context.Context, content string) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventContent, Value: content})
 	return nil
 }
 
-func (t *TrackingUpdater) AddThought(ctx context.Context, thought string) error {
+func (t *TrackingUpdater) AddThought(_ context.Context, thought string) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventThoughts, Value: thought})
 	return nil
 }
 
-func (t *TrackingUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+func (t *TrackingUpdater) AddToolCall(_ context.Context, toolCall api.ToolCall) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventToolCall, Value: toolCall.Function.Name})
 	return nil
 }
 
-func (t *TrackingUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (t *TrackingUpdater) AddToolResult(_ context.Context, toolCall api.ToolCall, _ []api.Message, err error) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventToolResults, Value: toolCall.Function.Name, Err: err})
 	return nil
 }
 
-func (t *TrackingUpdater) UpdateStats(ctx context.Context, stats ConversationStats) error {
+func (t *TrackingUpdater) UpdateStats(_ context.Context, stats Stats) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventStats, Stats: stats})
 	t.lastStats = stats
 	return nil
 }
 
-func (t *TrackingUpdater) Flush(ctx context.Context) error {
+func (t *TrackingUpdater) Flush(_ context.Context) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventFlush})
 	return nil
 }

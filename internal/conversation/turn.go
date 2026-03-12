@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/meschbach/marvin/internal/junk"
 	"github.com/ollama/ollama/api"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
+// TurnResult contains the results of a single conversation turn
 type TurnResult struct {
 	AssistantMessage api.Message
 	PendingCalls     []api.ToolCall
-	Stats            ConversationStats
+	Stats            Stats
 }
 
 type responseHandlerState struct {
@@ -20,25 +24,33 @@ type responseHandlerState struct {
 	thisLine        strings.Builder
 	thisThinking    strings.Builder
 	pendingCalls    []api.ToolCall
-	cumulativeStats ConversationStats
+	cumulativeStats Stats
 }
 
 func (e *Engine) buildChatRequest(model string) *api.ChatRequest {
 	stream := true
+	var opts map[string]any
+	if e.config != nil {
+		opts = e.config.BuildAPIOptions()
+	}
 	return &api.ChatRequest{
 		Model:    model,
 		Messages: e.messages,
 		Tools:    e.tools.APITools(),
 		Stream:   &stream,
-		Options:  e.config.BuildAPIOptions(),
+		Options:  opts,
 	}
 }
 
 func (e *Engine) handleContent(ctx context.Context, state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
 	if s := resp.Message.Content; s != "" {
+		span := trace.SpanFromContext(ctx)
+		newLineOrDone := false
 		state.thisLine.WriteString(s)
 		if strings.Contains(s, "\n") || resp.Done {
+			newLineOrDone = true
 			if err := updater.AddContent(ctx, state.thisLine.String()); err != nil {
+				junk.RecordSpanErrorNoLint(span, err)
 				return &StreamingUpdateError{
 					Component: "Engine.AddContent",
 					Message:   "failed to stream content",
@@ -48,18 +60,21 @@ func (e *Engine) handleContent(ctx context.Context, state *responseHandlerState,
 			state.thisLine.Reset()
 		}
 		state.assistantOut.WriteString(s)
+		span.AddEvent("turn.content", trace.WithAttributes(attribute.Bool("chat.newline_or_done", newLineOrDone), attribute.Int("chat.assistant_out", state.assistantOut.Len())))
 	}
 	return nil
 }
 
-func (e *Engine) handleThinking(state *responseHandlerState, resp *api.ChatResponse) {
+func (e *Engine) handleThinking(ctx context.Context, state *responseHandlerState, resp *api.ChatResponse) {
 	if resp.Message.Thinking != "" {
 		state.thisThinking.WriteString(resp.Message.Thinking)
+		trace.SpanFromContext(ctx).AddEvent("turn.thinking", trace.WithAttributes(attribute.Int("thinking", state.thisThinking.Len())))
 	}
 }
 
 func (e *Engine) handleToolCalls(ctx context.Context, state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
 	if len(resp.Message.ToolCalls) > 0 {
+		trace.SpanFromContext(ctx).AddEvent("turn.tool_call")
 		state.pendingCalls = append(state.pendingCalls, resp.Message.ToolCalls...)
 		e.logger.Debug("", "Engine", fmt.Sprintf("Tool call detected: %s", resp.Message.ToolCalls[0].Function.Name))
 		for _, toolCall := range resp.Message.ToolCalls {
@@ -76,6 +91,7 @@ func (e *Engine) handleToolCalls(ctx context.Context, state *responseHandlerStat
 }
 
 func (e *Engine) handleDone(ctx context.Context, state *responseHandlerState, resp *api.ChatResponse, updater StreamingUpdater) error {
+	trace.SpanFromContext(ctx).AddEvent("turn.done")
 	state.cumulativeStats.IsDone = true
 	state.cumulativeStats.EvalCount = resp.EvalCount
 	state.cumulativeStats.DoneReason = resp.DoneReason
@@ -105,28 +121,44 @@ func (e *Engine) handleDone(ctx context.Context, state *responseHandlerState, re
 	return nil
 }
 
-func (e *Engine) handleStreamingResponse(ctx context.Context, updater StreamingUpdater) (*responseHandlerState, api.ChatResponseFunc) {
-	state := &responseHandlerState{}
-	fn := func(resp api.ChatResponse) error {
-		if err := e.handleContent(ctx, state, &resp, updater); err != nil {
-			return err
-		}
+type chatResponseListener struct {
+	engine  *Engine
+	span    trace.Span
+	state   *responseHandlerState
+	updater StreamingUpdater
+}
 
-		e.handleThinking(state, &resp)
-
-		if err := e.handleToolCalls(ctx, state, &resp, updater); err != nil {
-			return err
-		}
-
-		if resp.Done {
-			if err := e.handleDone(ctx, state, &resp, updater); err != nil {
-				return err
-			}
-		}
-
-		return nil
+func (c *chatResponseListener) OnChatResponse(ctx context.Context, resp *api.ChatResponse) error {
+	c.span.AddEvent("chat.response", trace.WithAttributes(
+		attribute.Int("content", len(resp.Message.Content)),
+		attribute.Int("thinking", len(resp.Message.Thinking)),
+		attribute.Int("tool.count", len(resp.Message.ToolCalls)),
+		attribute.Int("tool.eval_count", resp.EvalCount),
+	))
+	if err := c.engine.handleContent(ctx, c.state, resp, c.updater); err != nil {
+		return junk.RecordSpanError(c.span, err)
 	}
-	return state, fn
+
+	c.engine.handleThinking(ctx, c.state, resp)
+
+	if err := c.engine.handleToolCalls(ctx, c.state, resp, c.updater); err != nil {
+		return junk.RecordSpanError(c.span, err)
+	}
+
+	if resp.Done {
+		if err := c.engine.handleDone(ctx, c.state, resp, c.updater); err != nil {
+			return junk.RecordSpanError(c.span, err)
+		}
+	}
+
+	return nil
+}
+
+func (e *Engine) handleStreamingResponse(ctx context.Context, updater StreamingUpdater) (*responseHandlerState, ChatResponseListener) {
+	span := trace.SpanFromContext(ctx)
+	state := &responseHandlerState{}
+	c := &chatResponseListener{engine: e, span: span, state: state, updater: updater}
+	return state, c
 }
 
 func (e *Engine) executeTurn(ctx context.Context, model string, updater StreamingUpdater) (*TurnResult, error) {

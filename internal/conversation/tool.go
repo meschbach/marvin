@@ -8,25 +8,32 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
+// ToolTypeFunction represents a function-based tool.
 const ToolTypeFunction = "function"
 
+// ToolPropTypeString represents a string property type.
 var ToolPropTypeString = []string{"string"}
 
+// ToolDefinition defines the structure and instructions for a tool.
 type ToolDefinition struct {
 	Instructions []api.Message
 	//todo: rename to `tools`
-	Tool       api.Tools
-	UriHandler McpResource
+	Tool api.Tools
+	// URIHandler handles MCP resource reading.
+	URIHandler McpResource
 }
 
+// NewToolDefinition creates a new tool definition.
 func NewToolDefinition() *ToolDefinition {
 	return &ToolDefinition{}
 }
 
+// AppendInstruction adds a new system instruction to the tool definition.
 func (t *ToolDefinition) AppendInstruction(message string) {
 	t.Instructions = append(t.Instructions, api.Message{Role: RoleAssistant, Content: message})
 }
 
+// Tool defines the interface for an executable tool.
 type Tool interface {
 	DefineAPI(ctx context.Context) (definition *ToolDefinition, problem error)
 	Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error)
@@ -53,6 +60,7 @@ func NewToolSet() *ToolSet {
 	return ts
 }
 
+// RegisterGatewayService registers the resource gateway service.
 func (ts *ToolSet) RegisterGatewayService(ctx context.Context) error {
 	if len(ts.gateway.ResourceServices) == 0 {
 		return nil
@@ -60,19 +68,22 @@ func (ts *ToolSet) RegisterGatewayService(ctx context.Context) error {
 	return ts.RegisterTool(ctx, ts.gateway)
 }
 
+// RegisterTool registers a new tool in the tool set.
 func (ts *ToolSet) RegisterTool(ctx context.Context, t Tool) error {
 	definition, err := t.DefineAPI(ctx)
 	if err != nil {
 		return err
 	}
-	//nolint:gocritic
-	for _, d := range definition.Tool {
-		ts.ByName[d.Function.Name] = t
+	for i := range definition.Tool {
+		d := &definition.Tool[i]
+		if _, exists := ts.ByName[d.Function.Name]; !exists {
+			ts.ByName[d.Function.Name] = t
+			ts.Defs = append(ts.Defs, *d)
+		}
 	}
-	if definition.UriHandler != nil {
-		ts.gateway.Register(definition.UriHandler)
+	if definition.URIHandler != nil {
+		ts.gateway.Register(definition.URIHandler)
 	}
-	ts.Defs = append(ts.Defs, definition.Tool...)
 	ts.Instructions = append(ts.Instructions, definition.Instructions...)
 	return nil
 }
@@ -80,6 +91,7 @@ func (ts *ToolSet) RegisterTool(ctx context.Context, t Tool) error {
 // APITools returns the list of api.Tool definitions to send with chat requests.
 func (ts *ToolSet) APITools() api.Tools { return ts.Defs }
 
+// Shutdown stops all tools in the tool set.
 func (ts *ToolSet) Shutdown(ctx context.Context) error {
 	return ts.Container.Shutdown(ctx)
 }

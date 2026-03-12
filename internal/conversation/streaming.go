@@ -6,8 +6,9 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-// ConversationStats holds real-time statistics from LLM streaming responses
-type ConversationStats struct {
+// Stats holds real-time statistics from LLM streaming responses
+// Stats tracks token usage metrics for a single conversation.
+type Stats struct {
 	// PromptTokens is the number of tokens used for the user's input
 	PromptTokens int
 
@@ -49,7 +50,7 @@ type StreamingUpdater interface {
 
 	// UpdateStats provides real-time statistics about token usage and completion.
 	// Enables monitoring, cost tracking, and performance analysis.
-	UpdateStats(ctx context.Context, stats ConversationStats) error
+	UpdateStats(ctx context.Context, stats Stats) error
 
 	// Flush signals completion of a conversation turn.
 	// Allows backends to perform final cleanup and display.
@@ -62,7 +63,8 @@ type OptionalStatisticsUpdater struct {
 	StreamingUpdater
 }
 
-func (o *OptionalStatisticsUpdater) UpdateStats(ctx context.Context, stats ConversationStats) error {
+// UpdateStats provides a default no-op implementation for UpdateStats.
+func (o *OptionalStatisticsUpdater) UpdateStats(_ context.Context, _ Stats) error {
 	// Default no-op implementation
 	return nil
 }
@@ -70,7 +72,7 @@ func (o *OptionalStatisticsUpdater) UpdateStats(ctx context.Context, stats Conve
 // WrapWithOptionalStats wraps a StreamingUpdater to provide no-op UpdateStats if not implemented
 func WrapWithOptionalStats(updater StreamingUpdater) StreamingUpdater {
 	if _, ok := updater.(interface {
-		UpdateStats(ctx context.Context, stats ConversationStats) error
+		UpdateStats(ctx context.Context, stats Stats) error
 	}); ok {
 		return updater
 	}

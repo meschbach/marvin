@@ -11,10 +11,9 @@ type OneShotLLM struct {
 	responses []api.ChatResponse
 }
 
-func (m *OneShotLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
-	//nolint:gocritic
-	for _, resp := range m.responses {
-		if err := fn(resp); err != nil {
+func (m *OneShotLLM) Chat(ctx context.Context, _ *api.ChatRequest, onEvent ChatResponseListener) error {
+	for i := range m.responses {
+		if err := onEvent.OnChatResponse(ctx, &m.responses[i]); err != nil {
 			return err
 		}
 	}

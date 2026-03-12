@@ -11,15 +11,24 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-type chromemTool struct {
+// ChromemTool provides RAG functionality for searching and reading documents.
+type ChromemTool struct {
 	config          *config.DocumentsBlock
 	showInvocations bool
+}
+
+// NewChromemTool creates a new ChromemTool for the given documents config.
+func NewChromemTool(cfg *config.DocumentsBlock, showInvocations bool) *ChromemTool {
+	return &ChromemTool{
+		config:          cfg,
+		showInvocations: showInvocations,
+	}
 }
 
 const ChromemSearchQueryParameter = "query"
 const ChromemDocumentPathParameter = "filename"
 
-const chromemToolDescriptionFormat = `The %s tool enhances your agent’s ability to retrieve accurate, contextually relevant information for decision-making. Here's a concise overview:
+const ChromemToolDescriptionFormat = `The %s tool enhances your agent’s ability to retrieve accurate, contextually relevant information for decision-making. Here's a concise overview:
 
 ** %s Tool Description**:  
 The tool combines facts, reasoning, and context to provide efficient, accurate information. It enables your agent to search for terms of interest (via the ` + "`search` function) and retrieve document content (via `read_document`) to support analysis or decision-making." + `
@@ -34,11 +43,11 @@ The tool combines facts, reasoning, and context to provide efficient, accurate i
 
 This integration streamlines information retrieval for real-time decision-making. Let me know if further details are needed!`
 
-func (c *chromemTool) DefineAPI(ctx context.Context) (definition *conversation.ToolDefinition, problem error) {
+func (c *ChromemTool) DefineAPI(ctx context.Context) (definition *conversation.ToolDefinition, problem error) {
 	definitions := &conversation.ToolDefinition{}
 	definitions.Instructions = append(definitions.Instructions, api.Message{
 		Role:    conversation.RoleSystem,
-		Content: fmt.Sprintf(chromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
+		Content: fmt.Sprintf(ChromemToolDescriptionFormat, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name, c.config.Name),
 	})
 	searchProps := api.NewToolPropertiesMap()
 	searchProps.Set(ChromemSearchQueryParameter, api.ToolProperty{
@@ -81,7 +90,7 @@ func (c *chromemTool) DefineAPI(ctx context.Context) (definition *conversation.T
 	return definitions, nil
 }
 
-func (c *chromemTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (c *ChromemTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	if c.showInvocations {
 		fmt.Printf("rag> invoked chromem tool %s\n", call.Function.Name)
 	}
@@ -99,7 +108,7 @@ func (c *chromemTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.
 	}
 }
 
-func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (c *ChromemTool) search(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	query, has := call.Function.Arguments.Get(ChromemSearchQueryParameter)
 	if !has {
 		return []api.Message{
@@ -130,7 +139,7 @@ func (c *chromemTool) search(ctx context.Context, call api.ToolCall) (out []api.
 	return output, nil
 }
 
-func (c *chromemTool) readDocument(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (c *ChromemTool) readDocument(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
 	path, has := call.Function.Arguments.Get(ChromemDocumentPathParameter)
 	if !has {
 		return nil, fmt.Errorf("required parameter path is missing")

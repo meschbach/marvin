@@ -22,12 +22,12 @@ type llm interface {
 }
 
 // QueryStreamer handles LLM integration and streaming responses
-type QueryStreamer[LLM llm] struct {
+type QueryStreamer struct {
 	tenantToolSet   *query.TenantToolSet
 	sessionManager  *SessionManager
 	config          *config.File
 	securityLogger  *sec.SecurityLogger
-	languageService LLM
+	languageService conversation.LLM
 	helpIntegrator  *HelpIntegrator
 
 	//Deprecated: not used
@@ -35,16 +35,16 @@ type QueryStreamer[LLM llm] struct {
 }
 
 // NewQueryStreamer creates a new query streamer
-func NewQueryStreamer[LLM llm](
+func NewQueryStreamer(
 	tenantToolSet *query.TenantToolSet,
 	sessionManager *SessionManager,
 	config *config.File,
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
-	languageService LLM,
+	languageService conversation.LLM,
 	helpIntegrator *HelpIntegrator,
-) *QueryStreamer[LLM] {
-	return &QueryStreamer[LLM]{
+) *QueryStreamer {
+	return &QueryStreamer{
 		tenantToolSet:   tenantToolSet,
 		sessionManager:  sessionManager,
 		config:          config,
@@ -56,7 +56,7 @@ func NewQueryStreamer[LLM llm](
 }
 
 // ProcessQueryWithUpdater handles AI processing with a specific Slack updater using the unified Engine
-func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *conversation.ToolSet, updater *SlackUpdater) error {
+func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, userToolSet *conversation.ToolSet, updater *SlackUpdater) error {
 	ctx, span := qsTracer.Start(ctx, "QueryStreamer.ProcessQueryWithUpdater",
 		trace.WithAttributes(
 			attribute.String("user", slackCtx.UserID),
@@ -84,7 +84,6 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 	messages = append(messages, api.Message{Role: "user", Content: message})
 
 	// Create LLM adapter and logger adapter
-	llmAdapter := NewSlackLLMAdapter(qs.languageService)
 	loggerAdapter := NewSlackLoggerAdapter(qs.securityLogger, slackCtx.UserID)
 
 	// Create message callback for session management
@@ -94,7 +93,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 
 	// Create the conversation engine with callback
 	engine := conversation.NewEngineWithCallback(
-		llmAdapter,
+		qs.languageService,
 		qs.config,
 		loggerAdapter,
 		userToolSet,
@@ -124,7 +123,7 @@ func (qs *QueryStreamer[LLM]) ProcessQueryWithUpdater(ctx context.Context, slack
 }
 
 // provideModelAccessHelp provides intelligent help when model access is denied
-func (qs *QueryStreamer[LLM]) provideModelAccessHelp(ctx context.Context, slackCtx *SlackContext, model, reason string) {
+func (qs *QueryStreamer) provideModelAccessHelp(ctx context.Context, slackCtx *SlackContext, model, reason string) {
 	if qs.helpIntegrator == nil {
 		return
 	}

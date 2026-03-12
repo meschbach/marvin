@@ -19,10 +19,9 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 	ctx, done := context.WithCancel(context.Background())
 	defer done()
 
-	realToolSet, err := loadToolsFromConfig(context.Background(), cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading MCP servers: %v\n", err)
-		return
+	realToolSet, warnings := loadToolsFromConfig(context.Background(), cfg)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", w)
 	}
 	defer shutdownToolSet(ctx, realToolSet, "real")
 
@@ -35,7 +34,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 
 	fmt.Printf("Goal: %s\n", goal)
 
-	client, err := api.ClientFromEnvironment()
+	ollama, err := newOllamaLLMFromEnv()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
 		return
@@ -44,7 +43,7 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 	availableTools := formatAvailableTools(realToolSet.Defs)
 	messages := buildGoalMessages(availableTools, goal)
 
-	engine := conversation.NewEngine(client, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
+	engine := conversation.NewEngine(ollama, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
 
 	model := "ministral-3:3b"
 	if cfg != nil && cfg.Model != "" {
@@ -65,14 +64,14 @@ func shutdownToolSet(ctx context.Context, ts *conversation.ToolSet, name string)
 }
 
 func createReasoningToolSet(ctx context.Context, cfg *config.File) (*conversation.ToolSet, error) {
-	ts, err := loadToolsFromConfig(ctx, cfg)
-	if err != nil {
-		return nil, err
+	ts, warnings := loadToolsFromConfig(ctx, cfg)
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", w)
 	}
 
 	if err := ts.RegisterTool(ctx, &questionForUser{}); err != nil {
-		fmt.Fprintf(os.Stderr, "Error registering question for user tool: %v\n", err)
-		return nil, err
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		// Continue anyway - the questionForUser tool is important but not critical
 	}
 
 	return ts, nil

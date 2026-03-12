@@ -113,7 +113,7 @@ func (c *CLIStreamingUpdater) AddToolResult(ctx context.Context, toolCall api.To
 }
 
 // UpdateStats tracks real-time statistics from the LLM
-func (c *CLIStreamingUpdater) UpdateStats(ctx context.Context, stats conversation.ConversationStats) error {
+func (c *CLIStreamingUpdater) UpdateStats(_ context.Context, stats conversation.Stats) error {
 	// Update cumulative statistics
 	c.promptTokens = stats.PromptTokens
 	c.responseTokens = stats.ResponseTokens

@@ -423,7 +423,7 @@ func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall
 }
 
 // UpdateStats handles statistics updates (no-op for Slack UI)
-func (su *SlackUpdater) UpdateStats(ctx context.Context, stats conversation.ConversationStats) error {
+func (su *SlackUpdater) UpdateStats(ctx context.Context, stats conversation.Stats) error {
 	// Slack UI doesn't currently display statistics
 	// This provides a hook for future statistics display if needed
 	return nil

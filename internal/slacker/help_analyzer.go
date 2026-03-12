@@ -4,13 +4,13 @@ package slacker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
 )
 
 // HelpAnalyzer provides intelligent help analysis using LLM capabilities
@@ -318,32 +318,33 @@ Focus on transparency and providing secure alternatives.`,
 
 // callHelpLLM makes a help-specific LLM call
 func (h *HelpAnalyzer) callHelpLLM(ctx context.Context, prompt string) (string, error) {
+	return "", errors.New("fix me")
 	// Use a fast, capable model for help analysis
-	helpModel := h.config.LanguageModel()
-	if helpModel == "" {
-		helpModel = config.DefaultLanguageModel
-	}
+	//helpModel := h.config.LanguageModel()
+	//if helpModel == "" {
+	//	helpModel = config.DefaultLanguageModel
+	//}
+	//
+	//var response strings.Builder
+	//
+	//req := &api.ChatRequest{
+	//	Model: helpModel,
+	//	Messages: []api.Message{
+	//		{Role: "system", Content: "You are a helpful assistant that provides JSON responses for intelligent help analysis. Always respond with valid JSON."},
+	//		{Role: "user", Content: prompt},
+	//	},
+	//	Stream: new(bool), // Non-streaming for structured response
+	//	Options: map[string]interface{}{
+	//		"temperature": 0.3, // Lower temperature for consistent analysis
+	//	},
+	//}
 
-	var response strings.Builder
+	//err := h.llm.Chat(ctx, req, func(resp api.ChatResponse) error {
+	//	response.WriteString(resp.Message.Content)
+	//	return nil
+	//})
 
-	req := &api.ChatRequest{
-		Model: helpModel,
-		Messages: []api.Message{
-			{Role: "system", Content: "You are a helpful assistant that provides JSON responses for intelligent help analysis. Always respond with valid JSON."},
-			{Role: "user", Content: prompt},
-		},
-		Stream: new(bool), // Non-streaming for structured response
-		Options: map[string]interface{}{
-			"temperature": 0.3, // Lower temperature for consistent analysis
-		},
-	}
-
-	err := h.llm.Chat(ctx, req, func(resp api.ChatResponse) error {
-		response.WriteString(resp.Message.Content)
-		return nil
-	})
-
-	return response.String(), err
+	//return response.String(), err
 }
 
 // parseHelpResponse parses the LLM response into a HelpAnalysis

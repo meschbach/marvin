@@ -69,8 +69,8 @@ type TenantToolSet struct {
 	userTools   map[string]map[string]conversation.Tool // userID -> tools
 
 	// Security
-	approvals   map[string]*ToolApproval   // toolID -> approval
-	permissions map[string]*ToolPermission // toolID:userID -> permission
+	approvals   map[string]*ToolApproval   // toolId -> approval
+	permissions map[string]*ToolPermission // toolId:userID -> permission
 	adminUsers  map[string]bool
 
 	// Base functionality from Marvin
@@ -81,6 +81,7 @@ type TenantToolSet struct {
 	// Lazy initialization
 	initOnce      sync.Once
 	initError     error
+	initWarnings  []string
 	httpConfigs   []*config.HttpMCPBlock
 	localConfigs  []config.LocalProgramBlock
 	dockerConfigs []*config.DockerMCPBlock
@@ -120,6 +121,13 @@ func (tts *TenantToolSet) IsInitialized() bool {
 	return tts.initError == nil && len(tts.globalTools) > 0
 }
 
+// GetInitializationWarnings returns any warnings collected during tool initialization
+func (tts *TenantToolSet) GetInitializationWarnings() []string {
+	tts.mutex.RLock()
+	defer tts.mutex.RUnlock()
+	return append([]string{}, tts.initWarnings...) // return copy
+}
+
 // Initialize loads all tools with a timeout. Safe to call multiple times.
 func (tts *TenantToolSet) Initialize(ctx context.Context) error {
 	tts.initOnce.Do(func() {
@@ -131,25 +139,24 @@ func (tts *TenantToolSet) Initialize(ctx context.Context) error {
 // doInitialize performs the actual tool initialization
 func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
 	// Load global HTTP tools (no approval needed)
-	if err := tts.loadGlobalHTTPTools(ctx); err != nil {
-		return err
-	}
+	tts.loadGlobalHTTPTools(ctx)
 
 	// Load approved local/docker tools from config
-	if err := tts.loadApprovedRestrictedTools(ctx); err != nil {
-		return err
-	}
+	tts.loadApprovedRestrictedTools(ctx)
 
+	// Always succeed - warnings stored in initWarnings
 	return nil
 }
 
 // loadGlobalHTTPTools loads HTTP MCP tools that don't require approval
-func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) error {
+func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) {
 	for _, httpCfg := range tts.httpConfigs {
 		tool := FromHTTPMCPService(httpCfg)
 		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
-			return ToolInitializationError{ToolName: httpCfg.Name, Cause: err}
+			tts.initWarnings = append(tts.initWarnings,
+				fmt.Sprintf("HTTP tool %q failed: %v", httpCfg.Name, err))
+			continue
 		}
 
 		// Register global tool with namespaced name
@@ -157,19 +164,18 @@ func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) error {
 			tts.globalTools[toolDef.Function.Name] = tool
 		}
 	}
-	return nil
 }
 
 // loadApprovedRestrictedTools loads local and docker tools that are pre-approved in config
-//
-//nolint:gocyclo
-func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error {
+func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) {
 	// Load approved local programs
 	for _, localCfg := range tts.localConfigs {
 		tool := FromLocalProgram(localCfg)
 		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
-			return ToolInitializationError{ToolName: localCfg.Name, Cause: err}
+			tts.initWarnings = append(tts.initWarnings,
+				fmt.Sprintf("local_program tool %q failed: %v", localCfg.Name, err))
+			continue
 		}
 
 		// Register as global tool (these are pre-approved)
@@ -190,7 +196,9 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 		tool := FromDockerSpec(dockerCfg)
 		definition, err := tool.DefineAPI(ctx)
 		if err != nil {
-			return ToolInitializationError{ToolName: dockerCfg.Name, Cause: err}
+			tts.initWarnings = append(tts.initWarnings,
+				fmt.Sprintf("docker_mcp tool %q failed: %v", dockerCfg.Name, err))
+			continue
 		}
 
 		// Register as global tool (these are pre-approved)
@@ -205,13 +213,9 @@ func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) error
 			}
 		}
 	}
-
-	return nil
 }
 
 // GetUserTools creates a ToolSet for a specific user based on their permissions
-//
-//nolint:gocyclo
 func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext) (*conversation.ToolSet, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
@@ -226,9 +230,17 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 			if err != nil {
 				continue
 			}
-			userToolSet.ByName[name] = tool
-			userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
-			userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+			// Deduplicate by function name
+			for _, toolDef := range def.Tool {
+				funcName := toolDef.Function.Name
+				if _, exists := userToolSet.ByName[funcName]; !exists {
+					userToolSet.ByName[funcName] = tool
+					userToolSet.Defs = append(userToolSet.Defs, toolDef)
+				}
+			}
+			if len(def.Instructions) > 0 {
+				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+			}
 		}
 	}
 
@@ -240,9 +252,17 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 				if err != nil {
 					continue
 				}
-				userToolSet.ByName[name] = tool
-				userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
-				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+				// Deduplicate by function name
+				for _, toolDef := range def.Tool {
+					funcName := toolDef.Function.Name
+					if _, exists := userToolSet.ByName[funcName]; !exists {
+						userToolSet.ByName[funcName] = tool
+						userToolSet.Defs = append(userToolSet.Defs, toolDef)
+					}
+				}
+				if len(def.Instructions) > 0 {
+					userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+				}
 			}
 		}
 	}
@@ -251,8 +271,6 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 }
 
 // GetUserToolsWithDeniedInfo returns both available tools and information about denied tools
-//
-//nolint:gocyclo
 func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCtx *UserContext) (*conversation.ToolSet, []string, error) {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
@@ -269,9 +287,17 @@ func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCt
 			if err != nil {
 				continue
 			}
-			userToolSet.ByName[name] = tool
-			userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
-			userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+			// Deduplicate by function name
+			for _, toolDef := range def.Tool {
+				funcName := toolDef.Function.Name
+				if _, exists := userToolSet.ByName[funcName]; !exists {
+					userToolSet.ByName[funcName] = tool
+					userToolSet.Defs = append(userToolSet.Defs, toolDef)
+				}
+			}
+			if len(def.Instructions) > 0 {
+				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+			}
 		} else if !tts.isHTTPTool(name) {
 			// Track denied tools (non-HTTP tools that user can't access)
 			deniedTools = append(deniedTools, name)
@@ -286,9 +312,17 @@ func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCt
 				if err != nil {
 					continue
 				}
-				userToolSet.ByName[name] = tool
-				userToolSet.Defs = append(userToolSet.Defs, def.Tool...)
-				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+				// Deduplicate by function name
+				for _, toolDef := range def.Tool {
+					funcName := toolDef.Function.Name
+					if _, exists := userToolSet.ByName[funcName]; !exists {
+						userToolSet.ByName[funcName] = tool
+						userToolSet.Defs = append(userToolSet.Defs, toolDef)
+					}
+				}
+				if len(def.Instructions) > 0 {
+					userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
+				}
 			} else {
 				// Track denied user-specific tools
 				deniedTools = append(deniedTools, name)
@@ -355,6 +389,14 @@ func (tts *TenantToolSet) setPermission(toolID, userID string, canInvoke, canSha
 // IsAdmin checks if a user is an admin
 func (tts *TenantToolSet) IsAdmin(userID string) bool {
 	return tts.adminUsers[userID]
+}
+
+// SetGlobalToolForTesting adds a tool directly to globalTools (for testing only)
+func (tts *TenantToolSet) SetGlobalToolForTesting(name string, tool conversation.Tool) {
+	if tts.globalTools == nil {
+		tts.globalTools = make(map[string]conversation.Tool)
+	}
+	tts.globalTools[name] = tool
 }
 
 // Shutdown implements the Container interface

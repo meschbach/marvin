@@ -6,20 +6,22 @@ import (
 	"io"
 
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/junk"
 	"github.com/ollama/ollama/api"
-	openrouter "github.com/revrost/go-openrouter"
+	"github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
+// usage capture the token allocations while attempting to chat
 type usage struct {
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
 }
 
-func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
+func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversation.ChatResponseListener) error {
 	ctx, span := tracer.Start(ctx, "openrouter.chat",
 		trace.WithAttributes(
 			attribute.String("model", o.model),
@@ -27,7 +29,7 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRespons
 		))
 	defer span.End()
 
-	openRouterReq, err := o.buildRequest(req)
+	openRouterReq, err := o.buildRequest(ctx, req)
 	if err != nil {
 		span.RecordError(err)
 		return err
@@ -60,7 +62,7 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRespons
 	}
 	defer stream.Close()
 
-	finalUsage, finishReason, responseToolCalls, err := o.processStream(stream, fn)
+	finalUsage, finishReason, responseToolCalls, err := o.processStream(ctx, span, stream, onEvent)
 	if err != nil {
 		span.RecordError(err)
 	}
@@ -80,10 +82,10 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRespons
 	return err
 }
 
-func (o *LLM) buildRequest(req *api.ChatRequest) (*openrouter.ChatCompletionRequest, error) {
+func (o *LLM) buildRequest(ctx context.Context, req *api.ChatRequest) (*openrouter.ChatCompletionRequest, error) {
 	messages := make([]openrouter.ChatCompletionMessage, len(req.Messages))
 	for i, msg := range req.Messages {
-		messages[i] = o.convertMessage(msg)
+		messages[i] = o.convertMessage(ctx, msg)
 	}
 
 	openRouterReq := &openrouter.ChatCompletionRequest{
@@ -108,7 +110,7 @@ func (o *LLM) buildRequest(req *api.ChatRequest) (*openrouter.ChatCompletionRequ
 	return openRouterReq, nil
 }
 
-func (o *LLM) convertMessage(msg api.Message) openrouter.ChatCompletionMessage {
+func (o *LLM) convertMessage(ctx context.Context, msg api.Message) openrouter.ChatCompletionMessage {
 	content := msg.Content
 	if msg.Role == conversation.RoleAssistant && content == "" {
 		content = "Thinking..."
@@ -119,6 +121,9 @@ func (o *LLM) convertMessage(msg api.Message) openrouter.ChatCompletionMessage {
 	}
 	if msg.ToolCallID != "" {
 		openMsg.ToolCallID = msg.ToolCallID
+	}
+	if len(msg.ToolCalls) > 0 {
+		openMsg.ToolCalls = o.convertToolCallsFromOllama(ctx, msg.ToolCalls)
 	}
 	return openMsg
 }
@@ -181,7 +186,7 @@ func (o *LLM) extractStrings(opts map[string]any, key string) []string {
 	return nil
 }
 
-func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.ChatResponseFunc) (usage, openrouter.FinishReason, []string, error) {
+func (o *LLM) processStream(ctx context.Context, span trace.Span, stream *openrouter.ChatCompletionStream, fn conversation.ChatResponseListener) (usage, openrouter.FinishReason, []string, error) {
 	finalUsage := usage{}
 	var finishReason openrouter.FinishReason
 	var responseToolCalls []string
@@ -192,14 +197,17 @@ func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.Chat
 			if err == io.EOF {
 				break
 			}
+			junk.RecordSpanErrorNoLint(span, err)
 			return finalUsage, finishReason, responseToolCalls, fmt.Errorf("error receiving stream: %w", err)
 		}
 
+		span.AddEvent("received_event", trace.WithAttributes(attribute.Int("choices", len(resp.Choices))))
 		if len(resp.Choices) > 0 && resp.Choices[0].FinishReason != "" {
+			span.AddEvent("finish")
 			finishReason = resp.Choices[0].FinishReason
 		}
 
-		if err := o.processChunk(resp, &finalUsage, fn, &responseToolCalls); err != nil {
+		if err := o.processChunk(ctx, span, resp, &finalUsage, fn, &responseToolCalls); err != nil {
 			return finalUsage, finishReason, responseToolCalls, err
 		}
 
@@ -211,16 +219,16 @@ func (o *LLM) processStream(stream *openrouter.ChatCompletionStream, fn api.Chat
 	return finalUsage, finishReason, responseToolCalls, nil
 }
 
-func (o *LLM) processChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc, responseToolCalls *[]string) error {
+func (o *LLM) processChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn conversation.ChatResponseListener, responseToolCalls *[]string) error {
 	o.updateUsage(resp, finalUsage)
 
 	isUsageOnly := o.isUsageOnlyChunk(resp)
 
 	if isUsageOnly {
-		return o.sendUsageOnlyChunk(resp, finalUsage, fn)
+		return o.sendUsageOnlyChunk(ctx, resp, finalUsage, fn)
 	}
 
-	return o.sendContentChunk(resp, finalUsage, fn, responseToolCalls)
+	return o.sendContentChunk(ctx, span, resp, finalUsage, fn, responseToolCalls)
 }
 
 func (o *LLM) updateUsage(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage) {
@@ -247,14 +255,14 @@ func (o *LLM) isUsageOnlyChunk(resp openrouter.ChatCompletionStreamResponse) boo
 	return !hasContent && !hasToolCalls && !hasReasoning && !hasFinishReason
 }
 
-func (o *LLM) sendUsageOnlyChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc) error {
+func (o *LLM) sendUsageOnlyChunk(ctx context.Context, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, onEvent conversation.ChatResponseListener) error {
 	if resp.Usage != nil && (resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0) {
 		*finalUsage = usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		}
-		apiResp := api.ChatResponse{
+		apiResp := &api.ChatResponse{
 			Model: resp.Model,
 			Done:  true,
 			Metrics: api.Metrics{
@@ -262,13 +270,15 @@ func (o *LLM) sendUsageOnlyChunk(resp openrouter.ChatCompletionStreamResponse, f
 				PromptEvalCount: finalUsage.PromptTokens,
 			},
 		}
-		return fn(apiResp)
+		return onEvent.OnChatResponse(ctx, apiResp)
 	}
 	return nil
 }
 
-func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn api.ChatResponseFunc, responseToolCalls *[]string) error {
+func (o *LLM) sendContentChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn conversation.ChatResponseListener, responseToolCalls *[]string) error {
 	choice := resp.Choices[0]
+	delta := choice.Delta
+	span.AddEvent("content-chunk")
 
 	if resp.Usage != nil && (resp.Usage.CompletionTokens > 0 || resp.Usage.PromptTokens > 0) {
 		*finalUsage = usage{
@@ -280,11 +290,16 @@ func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, fin
 
 	isDone := o.isDone(choice.FinishReason, *finalUsage)
 
-	apiResp := api.ChatResponse{
+	reasoning := ""
+	if delta.Reasoning != nil {
+		reasoning = *delta.Reasoning
+	}
+	apiResp := &api.ChatResponse{
 		Model: resp.Model,
 		Message: api.Message{
-			Role:    choice.Delta.Role,
-			Content: choice.Delta.Content,
+			Role:     delta.Role,
+			Content:  delta.Content,
+			Thinking: reasoning,
 		},
 		Done: isDone,
 		Metrics: api.Metrics{
@@ -293,37 +308,14 @@ func (o *LLM) sendContentChunk(resp openrouter.ChatCompletionStreamResponse, fin
 		},
 	}
 
-	if choice.Delta.ToolCalls != nil {
-		apiResp.Message.ToolCalls = o.convertToolCalls(choice.Delta.ToolCalls)
-		for _, tc := range choice.Delta.ToolCalls {
+	if delta.ToolCalls != nil {
+		apiResp.Message.ToolCalls = o.convertToolCallsFromOpenRouter(ctx, delta.ToolCalls)
+		for _, tc := range delta.ToolCalls {
 			*responseToolCalls = append(*responseToolCalls, tc.Function.Name)
 		}
 	}
 
-	if choice.Delta.Reasoning != nil && *choice.Delta.Reasoning != "" {
-		apiResp.Message.Thinking = *choice.Delta.Reasoning
-	}
-
-	return fn(apiResp)
-}
-
-func (o *LLM) convertToolCalls(toolCalls []openrouter.ToolCall) []api.ToolCall {
-	result := make([]api.ToolCall, len(toolCalls))
-	for i, tc := range toolCalls {
-		args := api.NewToolCallFunctionArguments()
-		if err := args.UnmarshalJSON([]byte(tc.Function.Arguments)); err != nil {
-			args = api.NewToolCallFunctionArguments()
-		}
-
-		result[i] = api.ToolCall{
-			ID: tc.ID,
-			Function: api.ToolCallFunction{
-				Name:      tc.Function.Name,
-				Arguments: args,
-			},
-		}
-	}
-	return result
+	return fn.OnChatResponse(ctx, apiResp)
 }
 
 func (o *LLM) isDone(finishReason openrouter.FinishReason, finalUsage usage) bool {

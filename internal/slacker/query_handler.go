@@ -21,7 +21,7 @@ type QueryProcessor struct {
 	config         *config.File
 	securityLogger *sec.SecurityLogger
 	formatter      *SlackFormatter
-	streamer       *QueryStreamer[conversation.LLM]
+	streamer       *QueryStreamer
 	helpIntegrator *HelpIntegrator
 }
 

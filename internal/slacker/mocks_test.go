@@ -3,9 +3,12 @@ package slacker
 import (
 	"context"
 	"sync"
+	"time"
 
+	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 )
 
 // MockLLM simulates an LLM that can be configured to return specific responses
@@ -16,7 +19,7 @@ type MockLLM struct {
 	callCount int
 }
 
-func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error {
+func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, listener conversation.ChatResponseListener) error {
 	m.calls = append(m.calls, req)
 
 	if m.callCount >= len(m.responses) {
@@ -26,8 +29,8 @@ func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRes
 	responses := m.responses[m.callCount]
 	m.callCount++
 
-	for _, resp := range responses {
-		if err := fn(resp); err != nil {
+	for i := range responses {
+		if err := listener.OnChatResponse(ctx, &responses[i]); err != nil {
 			return err
 		}
 	}
@@ -35,7 +38,7 @@ func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatRes
 	return nil
 }
 
-// Calls returns the list of requests made to the mock LLM
+// Calls return the list of requests made to the mock LLM
 func (m *MockLLM) Calls() []*api.ChatRequest {
 	return m.calls
 }
@@ -46,31 +49,116 @@ func (m *MockLLM) Reset() {
 	m.callCount = 0
 }
 
-// MockSlackSink implements SlackSink for testing
-type MockSlackSink struct {
-	state           sync.Mutex
-	PostedMessages  []string
-	UpdatedMessages []string
+// ResetCallCount resets only the call count, preserving recorded calls.
+// Useful for testing multi-turn conversations where you want to verify all calls.
+func (m *MockLLM) ResetCallCount() {
+	m.callCount = 0
 }
 
-func (m *MockSlackSink) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+// MockLLMProvider implements marvin.LLMProvider for testing
+type MockLLMProvider struct {
+	LLM *MockLLM
+}
+
+func (m *MockLLMProvider) ObtainLLM(_ context.Context, _ string) (conversation.LLM, error) {
+	return m.LLM, nil
+}
+
+// MockSlackSink implements SlackSink and SlackClient for testing
+type MockSlackSink struct {
+	state                sync.Mutex
+	PostedMessages       []string
+	UpdatedMessages      []string
+	postedMessageDetails []PostedMessage // detailed captures
+	authTestResponse     slack.AuthTestResponse
+}
+
+// PostedMessage captures details of a posted Slack message
+type PostedMessage struct {
+	ChannelID string
+	Timestamp string
+}
+
+func (m *MockSlackSink) UpdateMessageContext(_ context.Context, _, _ string, _ ...slack.MsgOption) (channel, timestamp, text string, err error) {
 	m.state.Lock()
 	defer m.state.Unlock()
 
 	// For testing purposes, we'll capture the fact that an update was attempted
-	// The actual message content testing will be done through other means
 	m.UpdatedMessages = append(m.UpdatedMessages, "updated")
-	return "channel", "timestamp", "text", nil
+	channel = "channel"
+	timestamp = "timestamp"
+	text = "text"
+	return
 }
 
-func (m *MockSlackSink) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
+func (m *MockSlackSink) PostMessageContext(_ context.Context, channelID string, _ ...slack.MsgOption) (channel, timestamp string, err error) {
 	m.state.Lock()
 	defer m.state.Unlock()
 
-	// For testing purposes, we'll capture the fact that a post was attempted
-	// The actual message content testing will be done through other means
+	// Record the channel ID for verification
+	m.postedMessageDetails = append(m.postedMessageDetails, PostedMessage{
+		ChannelID: channelID,
+		Timestamp: timestamp,
+	})
 	m.PostedMessages = append(m.PostedMessages, "posted")
-	return "channel", "test-timestamp", nil
+	channel = channelID
+	timestamp = "test-timestamp"
+	return
+}
+
+// GetPostedMessages returns all posted message details (thread-safe copy)
+func (m *MockSlackSink) GetPostedMessages() []PostedMessage {
+	m.state.Lock()
+	defer m.state.Unlock()
+	// Return a copy to avoid race conditions
+	result := make([]PostedMessage, len(m.postedMessageDetails))
+	copy(result, m.postedMessageDetails)
+	return result
+}
+
+// WaitForAnyPost blocks until at least one message is posted or timeout expires
+func (m *MockSlackSink) WaitForAnyPost(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		m.state.Lock()
+		count := len(m.postedMessageDetails)
+		m.state.Unlock()
+		if count > 0 {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
+func (m *MockSlackSink) GetUserInfo(userID string) (*slack.User, error) {
+	return &slack.User{
+		ID:   userID,
+		Name: "Mock User",
+	}, nil
+}
+
+func (m *MockSlackSink) OpenConversationContext(_ context.Context, _ *slack.OpenConversationParameters) (channel *slack.Channel, noSuchUser, noSuchChannel bool, err error) {
+	return &slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{
+				ID: "mock-channel",
+			},
+		},
+	}, false, false, nil
+}
+
+// AuthTest implements SlackClient. Returns configured response or a default.
+func (m *MockSlackSink) AuthTest() (*slack.AuthTestResponse, error) {
+	if m.authTestResponse.UserID != "" {
+		return &m.authTestResponse, nil
+	}
+	return &slack.AuthTestResponse{
+		UserID: "U123456789",
+		User:   "test-bot",
+		TeamID: "T123",
+		Team:   "test-team",
+	}, nil
 }
 
 // MockUserInterface captures user interface updates for testing
@@ -85,22 +173,22 @@ type MockUserInterface struct {
 	}
 }
 
-func (c *MockUserInterface) AddThought(ctx context.Context, thought string) error {
+func (c *MockUserInterface) AddThought(_ context.Context, thought string) error {
 	c.Thoughts = append(c.Thoughts, thought)
 	return nil
 }
 
-func (c *MockUserInterface) AddContent(ctx context.Context, message string) error {
+func (c *MockUserInterface) AddContent(_ context.Context, message string) error {
 	c.Content = append(c.Content, message)
 	return nil
 }
 
-func (c *MockUserInterface) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+func (c *MockUserInterface) AddToolCall(_ context.Context, toolCall api.ToolCall) error {
 	c.ToolCalls = append(c.ToolCalls, toolCall.Function.Name)
 	return nil
 }
 
-func (c *MockUserInterface) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (c *MockUserInterface) AddToolResult(_ context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
 	c.ToolResults = append(c.ToolResults, struct {
 		ToolCall api.ToolCall
 		Result   []api.Message
@@ -113,6 +201,14 @@ func (c *MockUserInterface) AddToolResult(ctx context.Context, toolCall api.Tool
 	return nil
 }
 
+func (c *MockUserInterface) UpdateStats(_ context.Context, _ conversation.Stats) error {
+	return nil
+}
+
+func (c *MockUserInterface) Flush(_ context.Context) error {
+	return nil
+}
+
 // Reset clears all captured data
 func (c *MockUserInterface) Reset() {
 	c.Thoughts = nil
@@ -120,3 +216,11 @@ func (c *MockUserInterface) Reset() {
 	c.ToolCalls = nil
 	c.ToolResults = nil
 }
+
+// noopSocketClient is a no-op implementation of SocketClient for testing.
+type noopSocketClient struct{}
+
+func (n *noopSocketClient) RunContext(_ context.Context) error { return nil }
+
+func (n *noopSocketClient) Ack(_ *socketmode.Request, _ ...interface{}) {}
+func (n *noopSocketClient) Events() <-chan socketmode.Event             { return nil }

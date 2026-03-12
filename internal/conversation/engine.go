@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/junk"
 	"github.com/ollama/ollama/api"
 )
 
@@ -57,8 +58,7 @@ func NewEngine(
 	}
 }
 
-// todo: merge with above with options
-// NewEngineWithCallback creates a conversation engine with a message callback
+// NewEngineWithCallback creates a conversation engine with a message callback.
 func NewEngineWithCallback(
 	client LLM,
 	configuration *config.File,
@@ -88,21 +88,26 @@ func (e *Engine) RunConversation(
 	model string,
 	updater StreamingUpdater,
 ) error {
+	ctx, span := tracer.Start(ctx, "Engine.RunConversation")
+	defer span.End()
+
 	updater = WrapWithOptionalStats(updater)
 
 	for {
+		span.AddEvent("turn.execute")
 		turnResult, err := e.executeTurn(ctx, model, updater)
 		if err != nil {
-			return err
+			return junk.RecordSpanError(span, err)
 		}
 
+		span.AddEvent("turn.complete")
 		if len(turnResult.PendingCalls) == 0 {
-			return updater.Flush(ctx)
+			return junk.MaybeRecordSpanError(span, updater.Flush(ctx))
 		}
 
 		_, err = e.executeToolCalls(ctx, turnResult.PendingCalls, updater)
 		if err != nil {
-			return err
+			return junk.RecordSpanError(span, err)
 		}
 	}
 }

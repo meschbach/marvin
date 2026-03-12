@@ -41,19 +41,15 @@ type Mark3labsTool struct {
 }
 
 func (m *Mark3labsTool) ensureRunning(ctx context.Context) (problem error) {
-	defer func() {
-		if raised := recover(); raised != nil {
-			if err, ok := raised.(error); ok {
-				problem = errors.Join(problem, &junk.OperationalError{Description: "panic during ensureRunning", Underlying: err})
-			} else {
-				panic(raised)
-			}
-		}
-	}()
 	if m.active != nil {
 		return nil
 	}
-	m.active, problem = m.spec.start(ctx)
+	var err error
+	m.active, err = m.spec.start(ctx)
+	if err != nil {
+		problem = err
+		return problem
+	}
 	m.mcpClient = client.NewClient(m.active.transport())
 	if err := m.mcpClient.Start(ctx); err != nil {
 		problem = errors.Join(problem, &junk.OperationalError{Description: "failed to start MCP client", Underlying: err})
@@ -82,6 +78,9 @@ func (m *Mark3labsTool) DefineAPI(ctx context.Context) (definitions *conversatio
 	if err := m.ensureRunning(ctx); err != nil {
 		return nil, err
 	}
+	// Clear any previously accumulated resource instructions and templates to ensure idempotency
+	m.resourceInstructions = nil
+	m.resourceTemplates = nil
 	definitions = &conversation.ToolDefinition{}
 
 	discoveryContext, done := context.WithTimeout(ctx, 15*time.Second)
@@ -159,7 +158,7 @@ func (m *Mark3labsTool) processResources(ctx context.Context, definitions *conve
 		}
 		m.resourceTemplates = append(m.resourceTemplates, template)
 	}
-	definitions.UriHandler = m
+	definitions.URIHandler = m
 	return nil
 }
 

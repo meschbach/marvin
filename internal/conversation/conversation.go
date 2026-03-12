@@ -1,3 +1,4 @@
+// Package conversation provides core logic for managing AI conversations and tools.
 package conversation
 
 import (
@@ -26,7 +27,12 @@ const (
 // This enables integration with external systems like Slack's session management.
 type MessageCallback func(ctx context.Context, msg api.Message) error
 
+// ChatResponseListener receives streaming chat responses from the LLM.
+type ChatResponseListener interface {
+	OnChatResponse(ctx context.Context, resp *api.ChatResponse) error
+}
+
 // LLM interface abstracts the underlying LLM client for testability and future provider support
 type LLM interface {
-	Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error
+	Chat(ctx context.Context, req *api.ChatRequest, listener ChatResponseListener) error
 }
