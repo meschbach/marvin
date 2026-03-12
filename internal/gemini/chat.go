@@ -274,7 +274,7 @@ func convertSchema(params api.ToolFunctionParameters) *genai.Schema {
 	return schema
 }
 
-//nolint:gocritic,hugeParam,gocyclo
+//nolint:gocritic,gocyclo
 func convertToolProperty(prop api.ToolProperty) *genai.Schema {
 	schema := &genai.Schema{}
 
