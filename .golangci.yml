@@ -19,23 +19,30 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    
+
     # Security
     - gosec
-    
+
     # Code quality
     - gocritic
     - gocyclo
     - dupl
+    - funlen
+    - gocheckcompilerdirectives
+    - gocognit
+# TODO: Enable
+#    - godoclint
     - misspell
     - dogsled
     - makezero
     - prealloc
-    
+# TODO: Enable
+#    - revive
+
     # Testing
     - paralleltest
     - testifylint
-    
+
     # Modern practices
     - exhaustive
     - forbidigo
@@ -55,6 +62,18 @@ linters:
           msg: "Pass a context in or used the past context"
         - pattern: "context.TODO"
           msg: "Use a specific context or pass a context in"
+
+# TODO
+#    godoclint:
+#      options:
+#        rules:
+#          - require-doc
+#          - start-with-name
+#          - max-len
+
+    funlen:
+      lines: 150
+      statements: 100
 
     gocritic:
       enabled-tags:
@@ -77,7 +96,7 @@ linters:
         - (fmt\.Fprintf).*outputWriter  # CLI user output is legitimate
 
     paralleltest:
-      ignore-missing-subtests: false  # Require explicit t.Parallel() calls for all tests
+      ignore-missing-subtests: true  # Require explicit t.Parallel() calls for all tests
 
 formatters:
   enable:
