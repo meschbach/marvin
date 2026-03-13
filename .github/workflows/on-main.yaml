@@ -17,11 +17,11 @@ jobs:
       matrix:
         go-version: [ '1.25', '1.26' ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Setup Go ${{ matrix.go-version }}
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: ${{ matrix.go-version }}
       - name: Build and run unit tests ${{ matrix.go-version }}
@@ -32,7 +32,7 @@ jobs:
       - name: Setup Ollama
         uses: ai-action/setup-ollama@v1
       - name: Set up Docker
-        uses: docker/setup-docker-action@v4
+        uses: docker/setup-docker-action@v5
       - name: Run integration tests
         run: |
           ollama pull mxbai-embed-large:latest
@@ -49,11 +49,11 @@ jobs:
       contents: write
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Setup Go 1.26
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 1.26
       - name: Bump version and push tag
@@ -82,17 +82,17 @@ jobs:
           files: |
             release/marvin_*.tgz
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push slacker
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: "linux/amd64,linux/arm64"
