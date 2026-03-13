@@ -8,9 +8,9 @@ import (
 	"github.com/meschbach/marvin/internal/junk"
 )
 
+// APIKeyBlock provides a standard way to access
 type APIKeyBlock struct {
-	// APIKey is the Google Gemini API key
-	//nolint
+	// APIKey is the key for accessing the API
 	APIKey string `hcl:"api_key,optional"`
 	// APIKeyFile is a path to a file containing the Gemini API key
 	APIKeyFile string `hcl:"api_key_file,optional"`

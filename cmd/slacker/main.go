@@ -15,7 +15,11 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/meschbach/marvin/internal/slacker"
+	"github.com/meschbach/marvin/internal/slacker/cron"
+	robfigcron "github.com/meschbach/marvin/internal/slacker/cron/robfig"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
+	"github.com/meschbach/marvin/internal/slacker/storage"
+	"github.com/slack-go/slack"
 
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 )
@@ -220,6 +224,41 @@ func main() {
 	)
 	if err != nil {
 		log.Fatalf("Error creating Slack bot: %v", err)
+	}
+
+	// === Cron setup ===
+	if cfg.MultiTenant != nil && len(cfg.MultiTenant.CronJobs) > 0 {
+		scheduler := robfigcron.NewScheduler()
+		dispatcher := slacker.NewCronDispatcher(bot.GetQueryProcessor(), bot.GetSessionManager(), bot.GetConnection())
+		userStorage := storage.NewMemoryUser()
+
+		mediator := cron.NewMediator(scheduler, dispatcher, userStorage)
+
+		for _, job := range cfg.MultiTenant.CronJobs {
+			channel, _, _, err := bot.GetConnection().GetClient().OpenConversation(&slack.OpenConversationParameters{Users: []string{job.SendTo}})
+			if err != nil {
+				log.Fatalf("Cron %q: failed to resolve user %s: %v", job.Title, job.SendTo, err)
+			}
+
+			trigger := &cron.Trigger{
+				Spec:    job.Schedule,
+				Target:  []string{job.SendTo, channel.ID},
+				Message: job.Message,
+			}
+
+			userKey := storage.UserKey{
+				UserID:  job.SendTo,
+				Channel: channel.ID,
+			}
+
+			if _, err := mediator.Register(ctx, userKey, trigger); err != nil {
+				log.Fatalf("Cron %q: failed to register: %v", job.Title, err)
+			}
+		}
+
+		if err := mediator.Start(ctx); err != nil {
+			log.Fatalf("Cron: failed to start: %v", err)
+		}
 	}
 
 	// Set up graceful shutdown

@@ -56,7 +56,7 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
 	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
-	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
+	userSession := sessionManager.GetOrCreateSession(t.Context(), "U123", "C456", userCtx)
 
 	// Process the query
 	ctx := t.Context()
@@ -130,7 +130,7 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
 	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
-	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
+	userSession := sessionManager.GetOrCreateSession(t.Context(), "U123", "C456", userCtx)
 
 	// Process the query
 	ctx := t.Context()
@@ -234,7 +234,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
 	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
-	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
+	userSession := sessionManager.GetOrCreateSession(t.Context(), "U123", "C456", userCtx)
 
 	// Process the query
 	ctx := t.Context()
@@ -298,7 +298,7 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
 	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
-	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
+	userSession := sessionManager.GetOrCreateSession(t.Context(), "U123", "C456", userCtx)
 
 	// Process the query
 	ctx := t.Context()
@@ -396,7 +396,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 	slackCtx := &SlackContext{UserID: "U123", ChannelID: "C456"}
 	updater := env.Updater
 	userCtx := &query.UserContext{UserID: "U123"}
-	userSession := sessionManager.GetOrCreateSession("U123", "C456", userCtx)
+	userSession := sessionManager.GetOrCreateSession(t.Context(), "U123", "C456", userCtx)
 
 	// Process the query
 	ctx := t.Context()

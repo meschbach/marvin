@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/ollama/ollama/api"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // SessionManager handles user sessions with persistence
@@ -40,17 +43,23 @@ func NewSessionManager(storePath string) (*SessionManager, error) {
 }
 
 // GetOrCreateSession gets an existing session or creates a new one
-func (sm *SessionManager) GetOrCreateSession(userID, channelID string, userContext *query.UserContext) *UserSession {
+func (sm *SessionManager) GetOrCreateSession(ctx context.Context, userID, channelID string, userContext *query.UserContext) *UserSession {
+	ctx, span := tracer.Start(ctx, "slacker.SessionManager.GetOrCreateSession",
+		trace.WithAttributes(attribute.String("user.id", userID), attribute.String("channel.id", channelID)),
+	)
+	defer span.End()
 	sessionKey := fmt.Sprintf("%s:%s", userID, channelID)
 
 	// Try to get existing session
 	if session, exists := sm.sessions.Load(sessionKey); exists {
 		if userSession, convertible := session.(*UserSession); convertible {
+			span.SetAttributes(attribute.Bool("found", true))
 			userSession.LastActivity = time.Now()
 			userSession.UserContext = userContext
 			return userSession
 		}
 	}
+	span.SetAttributes(attribute.Bool("found", false))
 
 	// Try to load existing preferences for this user
 	preferences := DefaultUserPreferences()

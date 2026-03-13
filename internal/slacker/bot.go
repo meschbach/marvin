@@ -214,6 +214,21 @@ func (sb *SlackBot) ValidateSlackSetup() error {
 	return nil
 }
 
+// GetConnection returns the Slack connection
+func (sb *SlackBot) GetConnection() *SlackConnection {
+	return sb.connection
+}
+
+// GetQueryProcessor returns the query processor
+func (sb *SlackBot) GetQueryProcessor() *QueryProcessor {
+	return sb.queryProcessor
+}
+
+// GetSessionManager returns the session manager
+func (sb *SlackBot) GetSessionManager() *SessionManager {
+	return sb.sessionManager
+}
+
 // notifyAdmins sends approval notifications to admin users
 func (sb *SlackBot) notifyAdmins(ctx context.Context, request *ToolApprovalRequest) error {
 	return sb.notificationSender.NotifyAdmins(ctx, request)

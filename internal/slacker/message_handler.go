@@ -98,7 +98,7 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 		return err
 	}
 
-	session := mh.getOrCreateUserSession(ev, slackCtx)
+	session := mh.getOrCreateUserSession(ctx, ev, slackCtx)
 
 	if err := mh.ensureToolsInitialized(ctx, slackCtx); err != nil {
 		return err
@@ -148,13 +148,13 @@ func (mh *MessageHandler) createSlackContext(ev *slackevents.MessageEvent, clean
 }
 
 // getOrCreateUserSession gets or creates a user session
-func (mh *MessageHandler) getOrCreateUserSession(ev *slackevents.MessageEvent, slackCtx *SlackContext) *UserSession {
+func (mh *MessageHandler) getOrCreateUserSession(ctx context.Context, ev *slackevents.MessageEvent, slackCtx *SlackContext) *UserSession {
 	userCtx := &query.UserContext{
 		UserID:      ev.User,
 		SlackTeamID: slackCtx.TeamID,
 		IsAdmin:     false,
 	}
-	return mh.sessionManager.GetOrCreateSession(ev.User, ev.Channel, userCtx)
+	return mh.sessionManager.GetOrCreateSession(ctx, ev.User, ev.Channel, userCtx)
 }
 
 // ensureToolsInitialized initializes tools if needed

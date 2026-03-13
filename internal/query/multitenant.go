@@ -138,6 +138,9 @@ func (tts *TenantToolSet) Initialize(ctx context.Context) error {
 
 // doInitialize performs the actual tool initialization
 func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "TenantToolSet.doInitialize")
+	defer span.End()
+
 	// Load global HTTP tools (no approval needed)
 	tts.loadGlobalHTTPTools(ctx)
 

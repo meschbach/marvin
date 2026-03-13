@@ -103,7 +103,7 @@ func TestPreferenceResolution_Integration(t *testing.T) {
 		userContext := &query.UserContext{
 			UserID: userID,
 		}
-		session := sessionManager.GetOrCreateSession(userID, "test-channel", userContext)
+		session := sessionManager.GetOrCreateSession(t.Context(), userID, "test-channel", userContext)
 
 		// Update preferences
 		newPrefs := UserPreferences{
@@ -123,7 +123,7 @@ func TestPreferenceResolution_Integration(t *testing.T) {
 		assert.Equal(t, newPrefs, retrievedPrefs, "Retrieved preferences should match set preferences")
 
 		// Test persistence across sessions
-		session2 := sessionManager.GetOrCreateSession(userID, "test-channel-2", userContext)
+		session2 := sessionManager.GetOrCreateSession(t.Context(), userID, "test-channel-2", userContext)
 		assert.Equal(t, newPrefs, session2.GetPreferences(), "Preferences should persist across sessions")
 	})
 }

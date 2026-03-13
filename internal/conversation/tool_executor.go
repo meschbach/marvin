@@ -6,15 +6,20 @@ import (
 	"fmt"
 
 	"github.com/ollama/ollama/api"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (e *Engine) executeToolCalls(ctx context.Context, pendingCalls []api.ToolCall, updater StreamingUpdater) ([]api.Message, error) {
+	ctx, span := tracer.Start(ctx, "Engine.executeToolCalls")
+	defer span.End()
+
 	var pendingCallsErrors error
 	for _, call := range pendingCalls {
-		e.logger.Debug("", "Engine", fmt.Sprintf("Invoking Tool %s", call.Function.Name))
+		span.AddEvent("tool-invocation", trace.WithAttributes(attribute.String("function.name", call.Function.Name)))
 		reply, herr := e.tools.HandleCall(ctx, call)
 		if herr != nil {
-			e.logger.Error("", "Engine", fmt.Sprintf("Error invoking Tool %s: %v", call.Function.Name, herr))
+			span.AddEvent("tool-invocation-failed", trace.WithAttributes(attribute.String("function.name", call.Function.Name), attribute.String("error", herr.Error())))
 			wrappedErr := &ToolInvocationError{
 				ToolName: call.Function.Name,
 				Message:  "Tool execution failed",
@@ -24,6 +29,7 @@ func (e *Engine) executeToolCalls(ctx context.Context, pendingCalls []api.ToolCa
 		}
 
 		if err := updater.AddToolResult(ctx, call, reply, herr); err != nil {
+			span.AddEvent("streaming-tool-result-failed", trace.WithAttributes(attribute.String("function.name", call.Function.Name), attribute.String("error", err.Error())))
 			wrappedErr := &StreamingUpdateError{
 				Component: "Engine.AddToolResult",
 				Message:   fmt.Sprintf("failed to stream Tool result for %s", call.Function.Name),
@@ -33,7 +39,6 @@ func (e *Engine) executeToolCalls(ctx context.Context, pendingCalls []api.ToolCa
 		}
 
 		e.messages = append(e.messages, reply...)
-		e.logger.Debug("", "Engine", fmt.Sprintf("Invoked Tool %s, received the following response:\n%#v\n", call.Function.Name, reply))
 	}
 	return e.messages, pendingCallsErrors
 }

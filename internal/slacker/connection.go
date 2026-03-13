@@ -18,6 +18,7 @@ type SlackConnection struct {
 	client         *slack.Client
 	socketClient   *socketmode.Client
 	botUserID      string
+	teamID         string
 	adminUsers     []string
 	securityLogger *sec.SecurityLogger
 }
@@ -67,6 +68,7 @@ func NewSlackConnection(
 		client:         client,
 		socketClient:   socketClient,
 		botUserID:      authResp.UserID,
+		teamID:         authResp.TeamID,
 		adminUsers:     adminUsers,
 		securityLogger: securityLogger,
 	}, nil
@@ -133,6 +135,11 @@ func (sc *SlackConnection) StartSocketMode(ctx context.Context) error {
 // GetBotUserID returns the bot user ID
 func (sc *SlackConnection) GetBotUserID() string {
 	return sc.botUserID
+}
+
+// GetTeamID returns the team ID
+func (sc *SlackConnection) GetTeamID() string {
+	return sc.teamID
 }
 
 // GetClient returns the Slack client

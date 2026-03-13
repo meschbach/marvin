@@ -34,7 +34,7 @@ func (hcb *HelpContextBuilder) BuildContext(ctx context.Context, userID, channel
 	}
 
 	// Get user session
-	session := hcb.sessionManager.GetOrCreateSession(userID, channelID, userContext)
+	session := hcb.sessionManager.GetOrCreateSession(ctx, userID, channelID, userContext)
 	if session == nil {
 		session = &UserSession{} // Fallback session
 	}

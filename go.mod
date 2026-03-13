@@ -6,12 +6,14 @@ require (
 	github.com/containerd/errdefs v1.0.0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/go-faker/faker/v4 v4.7.0
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/mark3labs/mcp-go v0.44.0-beta.2
 	github.com/meschbach/go-junk-bucket v0.1.7
 	github.com/ollama/ollama v0.15.2
 	github.com/philippgille/chromem-go v0.7.0
 	github.com/revrost/go-openrouter v1.1.5
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/slack-go/slack v0.17.3
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -47,7 +49,6 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.8 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect

@@ -74,11 +74,12 @@ func (s *SharingBlock) CanShareWithUser(userID string, adminUsers []string) bool
 
 // MultiTenantBlock describes the configuration for multi-tenant setup in scenarios like Slacker.
 type MultiTenantBlock struct {
-	AdminUsers        []string `hcl:"admin_users,optional"`
-	AdminChannel      string   `hcl:"admin_channel,optional"`
-	SessionStorePath  string   `hcl:"session_store_path,optional"`
-	CredentialStore   string   `hcl:"credential_store,optional"`
-	SlackerStatePath  string   `hcl:"slacker_state_path,optional"`
-	SecurityLogFormat string   `hcl:"security_log_format,optional"`
-	ApprovalTimeout   string   `hcl:"approval_timeout,optional"`
+	AdminUsers        []string     `hcl:"admin_users,optional"`
+	AdminChannel      string       `hcl:"admin_channel,optional"`
+	SessionStorePath  string       `hcl:"session_store_path,optional"`
+	CredentialStore   string       `hcl:"credential_store,optional"`
+	SlackerStatePath  string       `hcl:"slacker_state_path,optional"`
+	SecurityLogFormat string       `hcl:"security_log_format,optional"`
+	ApprovalTimeout   string       `hcl:"approval_timeout,optional"`
+	CronJobs          []CronStanza `hcl:"cron,block"`
 }
