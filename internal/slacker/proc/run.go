@@ -55,6 +55,7 @@ func Run(ctx context.Context, opts *Options) error {
 				Spec:    job.Schedule,
 				Target:  []string{job.SendTo, channel.ID},
 				Message: job.Message,
+				Source:  "config",
 			}
 
 			userKey := storage.UserKey{

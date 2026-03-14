@@ -6,6 +6,7 @@ type Trigger struct {
 	Spec    string
 	Target  []string
 	Message string
+	Source  string
 }
 
 type TriggerDispatcher interface {

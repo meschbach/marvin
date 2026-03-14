@@ -73,10 +73,12 @@ func (m *Mediator) Register(ctx context.Context, forUser storage.UserKey, t *Tri
 	if err != nil {
 		return id, err
 	}
-	// store
-	s := &persistenceLayer{storage: m.storage}
-	if err := s.appendTrigger(ctx, forUser, id, t); err != nil {
-		return id, err
+
+	if t.Source != "config" {
+		s := &persistenceLayer{storage: m.storage}
+		if err := s.appendTrigger(ctx, forUser, id, t); err != nil {
+			return id, err
+		}
 	}
 
 	//
@@ -122,14 +124,29 @@ func (m *Mediator) startedLocked(ctx context.Context) error {
 					problems = append(problems, err)
 				} else {
 					for _, alarm := range file.Alarms {
+						if alarm.Source == "" {
+							fmt.Printf("Removing legacy alarm %s during migration\n", alarm.ID)
+							persister := &persistenceLayer{storage: m.storage}
+							if err := persister.deleteTrigger(ctx, userKey, alarm.ID); err != nil {
+								problems = append(problems, err)
+							}
+							continue
+						}
+
+						if alarm.Source == "config" {
+							fmt.Printf("Skipping ephemeral config alarm %s (should not be in storage)\n", alarm.ID)
+							continue
+						}
+
 						fmt.Printf("Activating alarm %s", alarm.ID)
 						state := &triggerState{
-							id:             alarm.Spec,
+							id:             alarm.ID,
 							runtimeControl: nil,
 							descriptor: &Trigger{
 								Spec:    alarm.Spec,
 								Target:  alarm.Target,
 								Message: alarm.Message,
+								Source:  alarm.Source,
 							},
 							mediator: m,
 						}

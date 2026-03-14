@@ -57,6 +57,7 @@ func TestCronTrigger(t *testing.T) {
 		Spec:    "* * * * *",
 		Target:  target,
 		Message: message,
+		Source:  "user",
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
@@ -67,6 +68,32 @@ func TestCronTrigger(t *testing.T) {
 		assert.Equal(t, message, trigger.Message)
 		assert.Equal(t, target, trigger.Target)
 	}
+}
+
+func TestCronStoreAndReactivate_IDIsPreserved(t *testing.T) {
+	t.Parallel()
+
+	forUser := storagetest.FakeUserKey()
+	ctx := t.Context()
+
+	firstJig := NewJig()
+	registeringCron := firstJig.Mediator
+	originalID, err := registeringCron.Register(ctx, forUser, &Trigger{
+		Spec:    "* * * * *",
+		Target:  []string{faker.Word()},
+		Message: faker.Sentence(),
+		Source:  "user",
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, originalID)
+
+	require.NoError(t, registeringCron.Shutdown(ctx))
+
+	secondJig := NewJig(WithStorage(firstJig.Storage))
+	require.NoError(t, secondJig.Mediator.Start(t.Context()))
+
+	require.Len(t, secondJig.Mediator.triggers, 1)
+	assert.Equal(t, originalID, secondJig.Mediator.triggers[0].id, "recovered trigger should have the same ID as the original")
 }
 
 func TestCronStoreAndReactivate(t *testing.T) {
@@ -83,6 +110,7 @@ func TestCronStoreAndReactivate(t *testing.T) {
 		Spec:    "* * * * *",
 		Target:  target,
 		Message: message,
+		Source:  "user",
 	})
 	require.NoError(t, err)
 	assert.NotEmpty(t, id)
@@ -100,4 +128,44 @@ func TestCronStoreAndReactivate(t *testing.T) {
 		assert.Equal(t, message, trigger.Message)
 		assert.Equal(t, target, trigger.Target)
 	}
+}
+
+func TestCronConfigTrigger_NotPersisted(t *testing.T) {
+	t.Parallel()
+
+	userKey := storagetest.FakeUserKey()
+	ctx := t.Context()
+
+	jig := NewJig()
+	_, err := jig.Mediator.Register(ctx, userKey, &Trigger{
+		Spec:    "* * * * *",
+		Target:  []string{faker.Word()},
+		Message: faker.Sentence(),
+		Source:  "config",
+	})
+	require.NoError(t, err)
+
+	alarmsJSON, err := jig.Storage.GetUserKey(ctx, userKey, "alarms.json")
+	require.NoError(t, err)
+	assert.Empty(t, alarmsJSON, "config triggers should not be persisted")
+}
+
+func TestCronUserTrigger_IsPersisted(t *testing.T) {
+	t.Parallel()
+
+	userKey := storagetest.FakeUserKey()
+	ctx := t.Context()
+
+	jig := NewJig()
+	_, err := jig.Mediator.Register(ctx, userKey, &Trigger{
+		Spec:    "* * * * *",
+		Target:  []string{faker.Word()},
+		Message: faker.Sentence(),
+		Source:  "user",
+	})
+	require.NoError(t, err)
+
+	alarmsJSON, err := jig.Storage.GetUserKey(ctx, userKey, "alarms.json")
+	require.NoError(t, err)
+	assert.NotEmpty(t, alarmsJSON, "user triggers should be persisted")
 }

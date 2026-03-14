@@ -10,4 +10,5 @@ type UserPersistedAlarmStanza struct {
 	Spec    string   `json:"spec"`
 	Target  []string `json:"target"`
 	Message string   `json:"message"`
+	Source  string   `json:"source"`
 }
