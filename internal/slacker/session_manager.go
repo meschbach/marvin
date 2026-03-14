@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/config"
+	"github.com/meschbach/marvin/internal/junk"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/ollama/ollama/api"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,6 +76,7 @@ func (sm *SessionManager) GetOrCreateSession(ctx context.Context, userID, channe
 
 	// Persist to disk
 	if err := sm.saveSession(newSession); err != nil {
+		junk.RecordSpanErrorNoLint(span, err)
 		// Log error but continue
 		fmt.Fprintf(os.Stderr, "Warning: failed to save new session: %v\n", err)
 	}

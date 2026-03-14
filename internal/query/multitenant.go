@@ -9,6 +9,8 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/junk"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ToolInitializationError represents an error during tool initialization
@@ -154,18 +156,29 @@ func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
 // loadGlobalHTTPTools loads HTTP MCP tools that don't require approval
 func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) {
 	for _, httpCfg := range tts.httpConfigs {
-		tool := FromHTTPMCPService(httpCfg)
-		definition, err := tool.DefineAPI(ctx)
-		if err != nil {
-			tts.initWarnings = append(tts.initWarnings,
-				fmt.Sprintf("HTTP tool %q failed: %v", httpCfg.Name, err))
-			continue
-		}
+		func() {
+			ctx, span := tracer.Start(ctx, "TenantToolSet.loadGlobalHTTPTools",
+				trace.WithAttributes(
+					attribute.String("tool.name", httpCfg.Name),
+					attribute.String("tool.url", httpCfg.URL),
+				),
+			)
+			defer span.End()
 
-		// Register global tool with namespaced name
-		for _, toolDef := range definition.Tool {
-			tts.globalTools[toolDef.Function.Name] = tool
-		}
+			tool := FromHTTPMCPService(httpCfg)
+			definition, err := tool.DefineAPI(ctx)
+			if err != nil {
+				junk.RecordSpanErrorNoLint(span, err)
+				tts.initWarnings = append(tts.initWarnings,
+					fmt.Sprintf("HTTP tool %q failed: %v", httpCfg.Name, err))
+				return
+			}
+
+			// Register global tool with namespaced name
+			for _, toolDef := range definition.Tool {
+				tts.globalTools[toolDef.Function.Name] = tool
+			}
+		}()
 	}
 }
 
