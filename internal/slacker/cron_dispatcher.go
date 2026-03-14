@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/meschbach/marvin/internal/junk"
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/meschbach/marvin/internal/slacker/cron"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -66,9 +66,7 @@ func (d *CronDispatcher) OnTrigger(ctx context.Context, t cron.Trigger) error {
 
 	err := d.queryProcessor.HandleQueryWithUpdater(ctx, slackCtx, session, t.Message, updater)
 	if err != nil {
-		span.SetStatus(codes.Error, "failed with query processing")
-		span.SetAttributes(attribute.Bool("query.success", false))
-		return err
+		return junk.RecordSpanError(span, err)
 	}
 	span.SetAttributes(attribute.Bool("query.success", true))
 	return nil
