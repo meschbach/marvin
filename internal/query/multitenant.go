@@ -9,8 +9,8 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/junk"
+	"github.com/meschbach/marvin/internal/query/tooling"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ToolInitializationError represents an error during tool initialization
@@ -35,7 +35,7 @@ type UserContext struct {
 	Credentials map[string]string // decrypted credentials for this user
 }
 
-// ToolApproval represents a tool approval request
+// ToolApproval represents a tool approval request (kept for external slacker package compatibility)
 type ToolApproval struct {
 	ToolID      string
 	RequesterID string
@@ -55,37 +55,34 @@ const (
 	ApprovalStatusRejected ApprovalStatus = "rejected"
 )
 
-// ToolPermission represents sharing permissions for tools
-type ToolPermission struct {
-	ToolID    string
-	UserID    string
-	CanInvoke bool
-	CanShare  bool // can share with others
-	ExpiresAt *time.Time
+type toolFactory struct{}
+
+func (f *toolFactory) CreateHTTPTool(block *config.HttpMCPBlock) conversation.Tool {
+	return FromHTTPMCPService(block)
+}
+
+func (f *toolFactory) CreateLocalProgramTool(block config.LocalProgramBlock) conversation.Tool {
+	return FromLocalProgram(block)
+}
+
+func (f *toolFactory) CreateDockerTool(block *config.DockerMCPBlock) conversation.Tool {
+	return FromDockerSpec(block)
 }
 
 // TenantToolSet manages multi-tenant tool access and isolation
 type TenantToolSet struct {
-	// Isolation
-	globalTools map[string]conversation.Tool            // admin-approved shared tools
-	userTools   map[string]map[string]conversation.Tool // userID -> tools
+	registry *tooling.Registry
+	policy   *tooling.AccessPolicy
+	builder  *tooling.Builder
 
-	// Security
-	approvals       map[string]*ToolApproval   // toolId -> approval
-	permissions     map[string]*ToolPermission // toolId:userID -> permission
-	adminUsers      map[string]bool
-	httpTools       map[string]bool // tracks which tools are HTTP tools
-	restrictedTools map[string]bool // tracks tools that have sharing configured (restricted to specific users)
-
-	// Base functionality from Marvin
 	container *junk.Container
 	gateway   *conversation.McpResourceGateway
 	mutex     sync.RWMutex
 
-	// Lazy initialization
-	initOnce      sync.Once
-	initError     error
-	initWarnings  []string
+	initOnce     sync.RWMutex
+	initError    error
+	initWarnings []string
+
 	httpConfigs   []*config.HttpMCPBlock
 	localConfigs  []config.LocalProgramBlock
 	dockerConfigs []*config.DockerMCPBlock
@@ -94,28 +91,20 @@ type TenantToolSet struct {
 // NewTenantToolSet creates a new multi-tenant tool set with lazy initialization
 func NewTenantToolSet(ctx context.Context, cfg *config.File) (*TenantToolSet, error) {
 	tts := &TenantToolSet{
-		globalTools:     make(map[string]conversation.Tool),
-		userTools:       make(map[string]map[string]conversation.Tool),
-		approvals:       make(map[string]*ToolApproval),
-		permissions:     make(map[string]*ToolPermission),
-		adminUsers:      make(map[string]bool),
-		httpTools:       make(map[string]bool),
-		restrictedTools: make(map[string]bool),
-		container:       junk.NewContainer("tenant container"),
-		gateway:         conversation.NewMCPResourceGateway(),
-		httpConfigs:     cfg.HttpMCPBlock,
-		localConfigs:    cfg.LocalPrograms,
-		dockerConfigs:   cfg.DockerMCPBlock,
+		container:     junk.NewContainer("tenant container"),
+		gateway:       conversation.NewMCPResourceGateway(),
+		httpConfigs:   cfg.HttpMCPBlock,
+		localConfigs:  cfg.LocalPrograms,
+		dockerConfigs: cfg.DockerMCPBlock,
+
+		registry: tooling.NewRegistry(),
+		policy:   tooling.NewAccessPolicy(nil),
+		builder:  tooling.NewBuilder(),
 	}
 
-	// Set admin users
 	if cfg.MultiTenant != nil {
-		for _, adminID := range cfg.MultiTenant.AdminUsers {
-			tts.adminUsers[adminID] = true
-		}
+		tts.policy = tooling.NewAccessPolicy(cfg.MultiTenant.AdminUsers)
 	}
-
-	// Tools are loaded lazily on first use via Initialize()
 
 	return tts, nil
 }
@@ -124,7 +113,7 @@ func NewTenantToolSet(ctx context.Context, cfg *config.File) (*TenantToolSet, er
 func (tts *TenantToolSet) IsInitialized() bool {
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
-	return tts.initError == nil && len(tts.globalTools) > 0
+	return tts.initError == nil && tts.registry != nil && len(tts.registry.All()) > 0
 }
 
 // GetInitializationWarnings returns any warnings collected during tool initialization
@@ -136,9 +125,17 @@ func (tts *TenantToolSet) GetInitializationWarnings() []string {
 
 // Initialize loads all tools with a timeout. Safe to call multiple times.
 func (tts *TenantToolSet) Initialize(ctx context.Context) error {
-	tts.initOnce.Do(func() {
-		tts.initError = tts.doInitialize(ctx)
-	})
+	tts.initOnce.Lock()
+	defer tts.initOnce.Unlock()
+
+	if tts.initError == nil && len(tts.registry.All()) > 0 {
+		return nil // already initialized successfully
+	}
+	if tts.initError != nil {
+		tts.initError = nil // allow retry
+	}
+
+	tts.initError = tts.doInitialize(ctx)
 	return tts.initError
 }
 
@@ -147,142 +144,36 @@ func (tts *TenantToolSet) doInitialize(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "TenantToolSet.doInitialize")
 	defer span.End()
 
-	// Load global HTTP tools (no approval needed)
-	tts.loadGlobalHTTPTools(ctx)
+	loader := tooling.NewLoader(tts.container, &toolFactory{})
+	cfg := &config.File{
+		HttpMCPBlock:   tts.getHttpConfigs(),
+		LocalPrograms:  tts.getLocalConfigs(),
+		DockerMCPBlock: tts.getDockerConfigs(),
+	}
 
-	// Load approved local/docker tools from config
-	tts.loadApprovedRestrictedTools(ctx)
+	reg, warnings, err := loader.LoadTools(ctx, cfg)
+	if err != nil {
+		junk.RecordSpanErrorNoLint(span, err)
+		return err
+	}
 
-	// Always succeed - warnings stored in initWarnings
+	tts.registry = reg
+	tts.initWarnings = warnings
+
+	span.SetAttributes(attribute.Int("init.warnings.count", len(warnings)))
 	return nil
 }
 
-// loadGlobalHTTPTools loads HTTP MCP tools that don't require approval
-func (tts *TenantToolSet) loadGlobalHTTPTools(ctx context.Context) {
-	for _, httpCfg := range tts.httpConfigs {
-		func() {
-			ctx, span := tracer.Start(ctx, "TenantToolSet.loadGlobalHTTPTools",
-				trace.WithAttributes(
-					attribute.String("tool.name", httpCfg.Name),
-					attribute.String("tool.url", httpCfg.URL),
-				),
-			)
-			defer span.End()
-
-			tool := FromHTTPMCPService(httpCfg)
-			definition, err := tool.DefineAPI(ctx)
-			if err != nil {
-				junk.RecordSpanErrorNoLint(span, err)
-				tts.initWarnings = append(tts.initWarnings,
-					fmt.Sprintf("HTTP tool %q failed: %v", httpCfg.Name, err))
-				return
-			}
-
-			// Register global tool with namespaced name
-			for _, toolDef := range definition.Tool {
-				// Check for tool name collision
-				if existing, exists := tts.globalTools[toolDef.Function.Name]; exists {
-					tts.initWarnings = append(tts.initWarnings,
-						fmt.Sprintf("Tool name collision: %q being loaded from HTTP tool %q overwrites previous tool", toolDef.Function.Name, httpCfg.Name))
-					_ = existing // suppress unused variable
-				}
-
-				tts.globalTools[toolDef.Function.Name] = tool
-				tts.httpTools[toolDef.Function.Name] = true
-
-				// Set up sharing if configured
-				if httpCfg.Sharing != nil {
-					tts.restrictedTools[toolDef.Function.Name] = true
-
-					if len(httpCfg.Sharing.AllowedUsers) == 0 {
-						tts.initWarnings = append(tts.initWarnings,
-							fmt.Sprintf("HTTP tool %q has empty allowed_users - no access will be granted", httpCfg.Name))
-					} else {
-						for _, userID := range httpCfg.Sharing.AllowedUsers {
-							tts.setPermission(toolDef.Function.Name, userID, true, false, httpCfg.Sharing.ExpiresAt)
-						}
-					}
-				}
-			}
-		}()
-	}
+func (tts *TenantToolSet) getHttpConfigs() []*config.HttpMCPBlock {
+	return tts.httpConfigs
 }
 
-// loadApprovedRestrictedTools loads local and docker tools that are pre-approved in config
-func (tts *TenantToolSet) loadApprovedRestrictedTools(ctx context.Context) {
-	// Load approved local programs
-	for _, localCfg := range tts.localConfigs {
-		tool := FromLocalProgram(localCfg)
-		definition, err := tool.DefineAPI(ctx)
-		if err != nil {
-			tts.initWarnings = append(tts.initWarnings,
-				fmt.Sprintf("local_program tool %q failed: %v", localCfg.Name, err))
-			continue
-		}
+func (tts *TenantToolSet) getLocalConfigs() []config.LocalProgramBlock {
+	return tts.localConfigs
+}
 
-		// Register as global tool (these are pre-approved)
-		for _, toolDef := range definition.Tool {
-			// Check for tool name collision
-			if existing, exists := tts.globalTools[toolDef.Function.Name]; exists {
-				tts.initWarnings = append(tts.initWarnings,
-					fmt.Sprintf("Tool name collision: %q being loaded from local_program %q overwrites previous tool", toolDef.Function.Name, localCfg.Name))
-				_ = existing // suppress unused variable
-			}
-
-			tts.globalTools[toolDef.Function.Name] = tool
-
-			// Set up sharing if configured
-			if localCfg.Sharing != nil {
-				tts.restrictedTools[toolDef.Function.Name] = true
-
-				if len(localCfg.Sharing.AllowedUsers) == 0 {
-					tts.initWarnings = append(tts.initWarnings,
-						fmt.Sprintf("local_program %q has empty allowed_users - no access will be granted", localCfg.Name))
-				} else {
-					for _, userID := range localCfg.Sharing.AllowedUsers {
-						tts.setPermission(toolDef.Function.Name, userID, true, false, localCfg.Sharing.ExpiresAt)
-					}
-				}
-			}
-		}
-	}
-
-	// Load approved docker tools
-	for _, dockerCfg := range tts.dockerConfigs {
-		tool := FromDockerSpec(dockerCfg)
-		definition, err := tool.DefineAPI(ctx)
-		if err != nil {
-			tts.initWarnings = append(tts.initWarnings,
-				fmt.Sprintf("docker_mcp tool %q failed: %v", dockerCfg.Name, err))
-			continue
-		}
-
-		// Register as global tool (these are pre-approved)
-		for _, toolDef := range definition.Tool {
-			// Check for tool name collision
-			if existing, exists := tts.globalTools[toolDef.Function.Name]; exists {
-				tts.initWarnings = append(tts.initWarnings,
-					fmt.Sprintf("Tool name collision: %q being loaded from docker_mcp %q overwrites previous tool", toolDef.Function.Name, dockerCfg.Name))
-				_ = existing // suppress unused variable
-			}
-
-			tts.globalTools[toolDef.Function.Name] = tool
-
-			// Set up sharing if configured
-			if dockerCfg.Sharing != nil {
-				tts.restrictedTools[toolDef.Function.Name] = true
-
-				if len(dockerCfg.Sharing.AllowedUsers) == 0 {
-					tts.initWarnings = append(tts.initWarnings,
-						fmt.Sprintf("docker_mcp %q has empty allowed_users - no access will be granted", dockerCfg.Name))
-				} else {
-					for _, userID := range dockerCfg.Sharing.AllowedUsers {
-						tts.setPermission(toolDef.Function.Name, userID, true, false, dockerCfg.Sharing.ExpiresAt)
-					}
-				}
-			}
-		}
-	}
+func (tts *TenantToolSet) getDockerConfigs() []*config.DockerMCPBlock {
+	return tts.dockerConfigs
 }
 
 // GetUserTools creates a ToolSet for a specific user based on their permissions
@@ -290,59 +181,8 @@ func (tts *TenantToolSet) GetUserTools(ctx context.Context, userCtx *UserContext
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
 
-	userToolSet := conversation.NewToolSet()
-
-	// Always add global HTTP tools (available to everyone)
-	for name, tool := range tts.globalTools {
-		// Check user access - allows if:
-		// 1. User has permission (canUserAccessTool returns true)
-		// 2. Tool is HTTP and has no sharing restrictions (available to all)
-		// 3. Tool has no sharing config at all (available to all)
-		hasAccess := tts.canUserAccessTool(userCtx.UserID, name)
-		isOpenHTTP := tts.isHTTPTool(name) && !tts.restrictedTools[name]
-		if hasAccess || isOpenHTTP {
-			def, err := tool.DefineAPI(ctx)
-			if err != nil {
-				continue
-			}
-			// Deduplicate by function name
-			for _, toolDef := range def.Tool {
-				funcName := toolDef.Function.Name
-				if _, exists := userToolSet.ByName[funcName]; !exists {
-					userToolSet.ByName[funcName] = tool
-					userToolSet.Defs = append(userToolSet.Defs, toolDef)
-				}
-			}
-			if len(def.Instructions) > 0 {
-				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
-			}
-		}
-	}
-
-	// Add user-specific tools
-	if userTools, exists := tts.userTools[userCtx.UserID]; exists {
-		for name, tool := range userTools {
-			if tts.canUserAccessTool(userCtx.UserID, name) {
-				def, err := tool.DefineAPI(ctx)
-				if err != nil {
-					continue
-				}
-				// Deduplicate by function name
-				for _, toolDef := range def.Tool {
-					funcName := toolDef.Function.Name
-					if _, exists := userToolSet.ByName[funcName]; !exists {
-						userToolSet.ByName[funcName] = tool
-						userToolSet.Defs = append(userToolSet.Defs, toolDef)
-					}
-				}
-				if len(def.Instructions) > 0 {
-					userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
-				}
-			}
-		}
-	}
-
-	return userToolSet, nil
+	userInfo := &tooling.UserInfo{UserID: userCtx.UserID}
+	return tts.builder.Build(ctx, userInfo, tts.registry, tts.policy)
 }
 
 // GetUserToolsWithDeniedInfo returns both available tools and information about denied tools
@@ -350,132 +190,28 @@ func (tts *TenantToolSet) GetUserToolsWithDeniedInfo(ctx context.Context, userCt
 	tts.mutex.RLock()
 	defer tts.mutex.RUnlock()
 
-	userToolSet := conversation.NewToolSet()
-
-	var deniedTools []string
-
-	// Always add global HTTP tools (available to everyone)
-	for name, tool := range tts.globalTools {
-		// Check user access - allows if:
-		// 1. User has permission (canUserAccessTool returns true)
-		// 2. Tool is HTTP and has no sharing restrictions (available to all)
-		// 3. Tool has no sharing config at all (available to all)
-		hasAccess := tts.canUserAccessTool(userCtx.UserID, name)
-		isOpenHTTP := tts.isHTTPTool(name) && !tts.restrictedTools[name]
-		if hasAccess || isOpenHTTP {
-			def, err := tool.DefineAPI(ctx)
-			if err != nil {
-				continue
-			}
-			// Deduplicate by function name
-			for _, toolDef := range def.Tool {
-				funcName := toolDef.Function.Name
-				if _, exists := userToolSet.ByName[funcName]; !exists {
-					userToolSet.ByName[funcName] = tool
-					userToolSet.Defs = append(userToolSet.Defs, toolDef)
-				}
-			}
-			if len(def.Instructions) > 0 {
-				userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
-			}
-		} else if !tts.isHTTPTool(name) || tts.restrictedTools[name] {
-			// Track denied tools (non-HTTP tools or restricted HTTP tools that user can't access)
-			deniedTools = append(deniedTools, name)
-		}
-	}
-
-	// Add user-specific tools
-	if userTools, exists := tts.userTools[userCtx.UserID]; exists {
-		for name, tool := range userTools {
-			if tts.canUserAccessTool(userCtx.UserID, name) {
-				def, err := tool.DefineAPI(ctx)
-				if err != nil {
-					continue
-				}
-				// Deduplicate by function name
-				for _, toolDef := range def.Tool {
-					funcName := toolDef.Function.Name
-					if _, exists := userToolSet.ByName[funcName]; !exists {
-						userToolSet.ByName[funcName] = tool
-						userToolSet.Defs = append(userToolSet.Defs, toolDef)
-					}
-				}
-				if len(def.Instructions) > 0 {
-					userToolSet.Instructions = append(userToolSet.Instructions, def.Instructions...)
-				}
-			} else {
-				// Track denied user-specific tools
-				deniedTools = append(deniedTools, name)
-			}
-		}
-	}
-
-	return userToolSet, deniedTools, nil
-}
-
-// canUserAccessTool checks if a user has permission to access a tool
-func (tts *TenantToolSet) canUserAccessTool(userID, toolID string) bool {
-	// Admins can access all tools
-	if tts.adminUsers[userID] {
-		return true
-	}
-
-	// Check specific permission
-	permKey := fmt.Sprintf("%s:%s", toolID, userID)
-	if perm, exists := tts.permissions[permKey]; exists {
-		// Check expiration
-		if perm.ExpiresAt != nil && time.Now().After(*perm.ExpiresAt) {
-			return false
-		}
-		return perm.CanInvoke
-	}
-
-	// HTTP tools without sharing are always allowed
-	if tts.isHTTPTool(toolID) && !tts.restrictedTools[toolID] {
-		return true
-	}
-
-	// If tool has sharing config (restrictedTools) but no permission, deny access
-	// If tool does NOT have sharing config (not in restrictedTools), allow access
-	return !tts.restrictedTools[toolID]
-}
-
-// isHTTPTool checks if a tool is an HTTP tool
-func (tts *TenantToolSet) isHTTPTool(toolID string) bool {
-	return tts.httpTools[toolID]
-}
-
-// setPermission sets access permissions for a tool
-func (tts *TenantToolSet) setPermission(toolID, userID string, canInvoke, canShare bool, expiresAt string) {
-	permKey := fmt.Sprintf("%s:%s", toolID, userID)
-
-	var expiration *time.Time
-	if expiresAt != "" {
-		if exp, err := time.Parse(time.RFC3339, expiresAt); err == nil {
-			expiration = &exp
-		}
-	}
-
-	tts.permissions[permKey] = &ToolPermission{
-		ToolID:    toolID,
-		UserID:    userID,
-		CanInvoke: canInvoke,
-		CanShare:  canShare,
-		ExpiresAt: expiration,
-	}
+	userInfo := &tooling.UserInfo{UserID: userCtx.UserID}
+	return tts.builder.BuildWithDeniedInfo(ctx, userInfo, tts.registry, tts.policy)
 }
 
 // IsAdmin checks if a user is an admin
 func (tts *TenantToolSet) IsAdmin(userID string) bool {
-	return tts.adminUsers[userID]
+	return tts.policy.IsAdmin(userID)
 }
 
-// SetGlobalToolForTesting adds a tool directly to globalTools (for testing only)
+// SetGlobalToolForTesting adds a tool directly to registry (for testing only)
 func (tts *TenantToolSet) SetGlobalToolForTesting(name string, tool conversation.Tool) {
-	if tts.globalTools == nil {
-		tts.globalTools = make(map[string]conversation.Tool)
-	}
-	tts.globalTools[name] = tool
+	tts.registry.RegisterToolDef(context.Background(), tool, name, nil)
+}
+
+// InjectToolForTesting adds a tool with access restrictions (for testing only)
+func (tts *TenantToolSet) InjectToolForTesting(name string, tool conversation.Tool, allowedUsers []string) {
+	tts.registry.RegisterToolDef(context.Background(), tool, name, allowedUsers)
+}
+
+// SetAdminUsersForTesting sets admin users (for testing only)
+func (tts *TenantToolSet) SetAdminUsersForTesting(adminIDs []string) {
+	tts.policy = tooling.NewAccessPolicy(adminIDs)
 }
 
 // Shutdown implements the Container interface

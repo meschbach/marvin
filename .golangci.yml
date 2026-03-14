@@ -59,9 +59,9 @@ linters:
     forbidigo:
       forbid:
         - pattern: "context.Background"
-          msg: "Pass a context in or used the past context"
+          msg: "Pass a context in or used the past context.  In tests use t.Context()"
         - pattern: "context.TODO"
-          msg: "Use a specific context or pass a context in"
+          msg: "Use a specific context or pass a context in.  In tests use t.Context()"
 
 # TODO
 #    godoclint:

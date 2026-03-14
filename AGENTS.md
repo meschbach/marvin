@@ -5,7 +5,7 @@ This file provides guidelines for agentic coding agents working in this reposito
 ## Project Overview
 
 Marvin is a Go-based agentic workflow CLI that connects AI reasoning loops to Model Context Protocol (MCP) tools. It's built with:
-- **Language**: Go 1.25+
+- **Language**: Go 1.26+
 - **CLI Framework**: Cobra
 - **Configuration**: HCL (HashiCorp Configuration Language)
 - **LLM Integration**: Ollama API
