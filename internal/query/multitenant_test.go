@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
@@ -339,4 +340,276 @@ func TestTenantToolSet_GetUserTools_MultiToolAliasOverlap(t *testing.T) {
 		assert.True(t, names[n], "Should contain %s", n)
 	}
 	assert.Len(t, names, 3, "Should have exactly 3 unique tool names")
+}
+
+func TestTenantToolSet_IsHTTPTool_Classification(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"http_tool":   &mockToolForMultiTenant{name: "http_tool", description: "HTTP"},
+			"local_tool":  &mockToolForMultiTenant{name: "local_tool", description: "Local"},
+			"docker_tool": &mockToolForMultiTenant{name: "docker_tool", description: "Docker"},
+		},
+		httpTools: map[string]bool{
+			"http_tool": true,
+		},
+	}
+
+	assert.True(t, tts.isHTTPTool("http_tool"), "http_tool should be identified as HTTP tool")
+	assert.False(t, tts.isHTTPTool("local_tool"), "local_tool should not be identified as HTTP tool")
+	assert.False(t, tts.isHTTPTool("docker_tool"), "docker_tool should not be identified as HTTP tool")
+	assert.False(t, tts.isHTTPTool("nonexistent"), "nonexistent should not be identified as HTTP tool")
+}
+
+func TestTenantToolSet_Sharing_AllowedUsersCanAccess(t *testing.T) {
+	expTime := time.Now().Add(time.Hour).Format(time.RFC3339)
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"shared_tool": &mockToolForMultiTenant{name: "shared_tool", description: "Shared", toolCount: 1},
+		},
+		permissions: map[string]*ToolPermission{
+			"shared_tool:U123": {ToolID: "shared_tool", UserID: "U123", CanInvoke: true, CanShare: false, ExpiresAt: nil},
+		},
+		adminUsers: map[string]bool{},
+		httpTools:  map[string]bool{},
+		restrictedTools: map[string]bool{
+			"shared_tool": true,
+		},
+	}
+
+	allowedUser := &UserContext{UserID: "U123"}
+	toolSet, err := tts.GetUserTools(t.Context(), allowedUser)
+	require.NoError(t, err)
+
+	assert.Len(t, toolSet.Defs, 1, "Allowed user should have access to shared tool")
+	assert.Equal(t, "shared_tool", toolSet.Defs[0].Function.Name)
+	_ = expTime
+}
+
+func TestTenantToolSet_Sharing_NonAllowedUsersDenied(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"shared_tool": &mockToolForMultiTenant{name: "shared_tool", description: "Shared", toolCount: 1},
+		},
+		permissions: map[string]*ToolPermission{
+			"shared_tool:U123": {ToolID: "shared_tool", UserID: "U123", CanInvoke: true, CanShare: false, ExpiresAt: nil},
+		},
+		adminUsers: map[string]bool{},
+		httpTools:  map[string]bool{},
+		restrictedTools: map[string]bool{
+			"shared_tool": true,
+		},
+	}
+
+	deniedUser := &UserContext{UserID: "U456"}
+	toolSet, err := tts.GetUserTools(t.Context(), deniedUser)
+	require.NoError(t, err)
+
+	assert.Empty(t, toolSet.Defs, "Non-allowed user should not have access to shared tool")
+}
+
+func TestTenantToolSet_Sharing_Expiration(t *testing.T) {
+	t.Parallel()
+
+	pastTime := time.Now().Add(-time.Hour).Format(time.RFC3339)
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"expired_tool": &mockToolForMultiTenant{name: "expired_tool", description: "Expired", toolCount: 1},
+		},
+		permissions: map[string]*ToolPermission{},
+		adminUsers:  map[string]bool{},
+		httpTools:   map[string]bool{},
+		restrictedTools: map[string]bool{
+			"expired_tool": true,
+		},
+	}
+
+	expiredPerm := &ToolPermission{
+		ToolID:    "expired_tool",
+		UserID:    "U123",
+		CanInvoke: true,
+		CanShare:  false,
+	}
+	expTime, _ := time.Parse(time.RFC3339, pastTime)
+	expiredPerm.ExpiresAt = &expTime
+	tts.permissions["expired_tool:U123"] = expiredPerm
+
+	user := &UserContext{UserID: "U123"}
+	toolSet, err := tts.GetUserTools(t.Context(), user)
+	require.NoError(t, err)
+
+	assert.Empty(t, toolSet.Defs, "User with expired permission should not have access")
+}
+
+func TestTenantToolSet_Sharing_AdminBypass(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"restricted_tool": &mockToolForMultiTenant{name: "restricted_tool", description: "Restricted", toolCount: 1},
+		},
+		adminUsers: map[string]bool{
+			"admin1": true,
+		},
+		permissions: map[string]*ToolPermission{
+			"restricted_tool:U123": {ToolID: "restricted_tool", UserID: "U123", CanInvoke: true},
+		},
+		httpTools: map[string]bool{},
+		restrictedTools: map[string]bool{
+			"restricted_tool": true,
+		},
+	}
+
+	adminUser := &UserContext{UserID: "admin1", IsAdmin: true}
+	toolSet, err := tts.GetUserTools(t.Context(), adminUser)
+	require.NoError(t, err)
+
+	assert.Len(t, toolSet.Defs, 1, "Admin should have access to all tools regardless of permissions")
+}
+
+func TestTenantToolSet_Sharing_HTTP_ToolsRespectSharing(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"http_tool": &mockToolForMultiTenant{name: "http_tool", description: "HTTP", toolCount: 1},
+		},
+		httpTools: map[string]bool{
+			"http_tool": true,
+		},
+		permissions: map[string]*ToolPermission{
+			"http_tool:U123": {ToolID: "http_tool", UserID: "U123", CanInvoke: true},
+		},
+		adminUsers: map[string]bool{},
+		restrictedTools: map[string]bool{
+			"http_tool": true,
+		},
+	}
+
+	allowedUser := &UserContext{UserID: "U123"}
+	toolSet, err := tts.GetUserTools(t.Context(), allowedUser)
+	require.NoError(t, err)
+	assert.Len(t, toolSet.Defs, 1, "Allowed user should have access to HTTP tool")
+
+	deniedUser := &UserContext{UserID: "U456"}
+	toolSet2, err := tts.GetUserTools(t.Context(), deniedUser)
+	require.NoError(t, err)
+	assert.Empty(t, toolSet2.Defs, "Non-allowed user should not have access to HTTP tool")
+}
+
+func TestTenantToolSet_Sharing_EmptyAllowedUsersWarning(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools:     map[string]conversation.Tool{},
+		permissions:     map[string]*ToolPermission{},
+		adminUsers:      map[string]bool{},
+		httpTools:       map[string]bool{},
+		restrictedTools: map[string]bool{}, // Tool marked as restricted but with no allowed users
+		initWarnings: []string{
+			"local_program \"test_tool\" has empty allowed_users - no access will be granted",
+		},
+	}
+
+	warnings := tts.GetInitializationWarnings()
+	assert.NotEmpty(t, warnings, "Should have warning for empty allowed_users")
+
+	foundWarning := false
+	for _, w := range warnings {
+		if strings.Contains(w, "empty allowed_users") {
+			foundWarning = true
+			break
+		}
+	}
+	assert.True(t, foundWarning, "Should contain empty allowed_users warning")
+}
+
+func TestTenantToolSet_Sharing_NoSharingAvailableToAll(t *testing.T) {
+	t.Parallel()
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"open_tool": &mockToolForMultiTenant{name: "open_tool", description: "Open", toolCount: 1},
+		},
+		permissions:     map[string]*ToolPermission{},
+		adminUsers:      map[string]bool{},
+		httpTools:       map[string]bool{},
+		restrictedTools: map[string]bool{}, // Empty - no sharing configured
+	}
+
+	user := &UserContext{UserID: "random_user"}
+	toolSet, err := tts.GetUserTools(t.Context(), user)
+	require.NoError(t, err)
+
+	assert.Len(t, toolSet.Defs, 1, "Tool without sharing block should be available to all users")
+}
+
+func TestTenantToolSet_ToolNameCollision(t *testing.T) {
+	t.Parallel()
+
+	mockTool1 := &mockToolForMultiTenant{name: "colliding_tool", description: "First", toolCount: 1}
+	mockTool2 := &mockToolForMultiTenant{name: "colliding_tool", description: "Second", toolCount: 1}
+
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"colliding_tool": mockTool1,
+		},
+	}
+
+	tts.globalTools["colliding_tool"] = mockTool2
+
+	tts.initWarnings = nil
+	tts.initWarnings = append(tts.initWarnings, "Tool name collision: \"colliding_tool\" being loaded from local_program test overwrites previous tool")
+
+	warnings := tts.GetInitializationWarnings()
+	assert.NotEmpty(t, warnings, "Should have warning for tool name collision")
+
+	foundWarning := false
+	for _, w := range warnings {
+		if strings.Contains(w, "Tool name collision") {
+			foundWarning = true
+			break
+		}
+	}
+	assert.True(t, foundWarning, "Should contain tool name collision warning")
+}
+
+func TestTenantToolSet_Sharing_HTTP_ToolsWithSharing(t *testing.T) {
+	t.Parallel()
+
+	// HTTP tool marked as restricted with sharing config
+	tts := &TenantToolSet{
+		globalTools: map[string]conversation.Tool{
+			"http_tool": &mockToolForMultiTenant{name: "http_tool", description: "HTTP", toolCount: 1},
+		},
+		httpTools: map[string]bool{
+			"http_tool": true,
+		},
+		permissions: map[string]*ToolPermission{
+			"http_tool:U123": {ToolID: "http_tool", UserID: "U123", CanInvoke: true},
+			"http_tool:U456": {ToolID: "http_tool", UserID: "U456", CanInvoke: true},
+		},
+		adminUsers: map[string]bool{},
+		restrictedTools: map[string]bool{
+			"http_tool": true, // Marked as restricted (has sharing config)
+		},
+	}
+
+	allowedUser := &UserContext{UserID: "U123"}
+	toolSet, err := tts.GetUserTools(t.Context(), allowedUser)
+	require.NoError(t, err)
+	assert.Len(t, toolSet.Defs, 1, "Allowed user should have access to HTTP tool with sharing")
+
+	allowedUser2 := &UserContext{UserID: "U456"}
+	toolSet2, err := tts.GetUserTools(t.Context(), allowedUser2)
+	require.NoError(t, err)
+	assert.Len(t, toolSet2.Defs, 1, "Other allowed user should have access to HTTP tool with sharing")
+
+	deniedUser := &UserContext{UserID: "U789"}
+	toolSet3, err := tts.GetUserTools(t.Context(), deniedUser)
+	require.NoError(t, err)
+	assert.Empty(t, toolSet3.Defs, "Non-allowed user should not have access to HTTP tool with sharing")
 }
