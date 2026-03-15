@@ -26,6 +26,25 @@ type MessageProcessor interface {
 	ProcessMessage(ctx context.Context, ev *slackevents.MessageEvent) error
 }
 
+// CommandHandler defines the interface for handling commands
+type CommandHandler func(ctx context.Context, deps *CommandDeps, msg string) error
+
+// CommandRegistry defines the interface for command registration and matching
+type CommandRegistry interface {
+	Match(input string) (string, CommandHandler, bool)
+}
+
+// CommandDeps provides dependencies for command handlers
+type CommandDeps struct {
+	ChannelID      string
+	UserID         string
+	SlackClient    *slack.Client
+	Config         *config.File
+	ToolManager    *ToolManagerImpl
+	SessionManager *SessionManager
+	Connection     *SlackConnection
+}
+
 // MessageHandler processes incoming Slack messages and intents
 type MessageHandler struct {
 	intentProcessor    *IntentProcessor
@@ -36,6 +55,7 @@ type MessageHandler struct {
 	securityLogger     *sec.SecurityLogger
 	config             *config.File
 	tenantToolSet      *query.TenantToolSet
+	commandRegistry    CommandRegistry
 	helpAnalyzer       *HelpAnalyzer       // New: Intelligent help system
 	helpContextBuilder *HelpContextBuilder // New: Help context builder
 }
@@ -75,6 +95,11 @@ func (mh *MessageHandler) SetHelpContextBuilder(helpContextBuilder *HelpContextB
 	mh.helpContextBuilder = helpContextBuilder
 }
 
+// SetCommandRegistry sets the command registry for command processing
+func (mh *MessageHandler) SetCommandRegistry(registry CommandRegistry) {
+	mh.commandRegistry = registry
+}
+
 // ProcessMessage processes incoming Slack messages
 func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.MessageEvent) error {
 	ctx, span := tracer.Start(ctx, "MessageHandler.ProcessMessage",
@@ -86,6 +111,10 @@ func (mh *MessageHandler) ProcessMessage(ctx context.Context, ev *slackevents.Me
 
 	if !mh.shouldProcessMessage(ctx, ev) {
 		return nil
+	}
+
+	if mh.hasCommandPrefix(ev) {
+		return mh.handleCommand(ctx, ev)
 	}
 
 	cleanMessage := mh.extractBotMention(ev)
@@ -124,6 +153,22 @@ func (mh *MessageHandler) extractBotMention(ev *slackevents.MessageEvent) string
 	mention := fmt.Sprintf("<@%s>", mh.connection.GetBotUserID())
 	cleanMessage := strings.ReplaceAll(ev.Text, mention, "")
 	return strings.TrimSpace(cleanMessage)
+}
+
+// hasCommandPrefix checks if the message has a command prefix in a DM
+func (mh *MessageHandler) hasCommandPrefix(ev *slackevents.MessageEvent) bool {
+	if ev.ChannelType != "im" {
+		return false
+	}
+	mention := fmt.Sprintf("<@%s>", mh.connection.GetBotUserID())
+	return strings.HasPrefix(ev.Text, mention)
+}
+
+// extractCommand extracts the command portion after the prefix
+func (mh *MessageHandler) extractCommand(ev *slackevents.MessageEvent) string {
+	mention := fmt.Sprintf("<@%s>", mh.connection.GetBotUserID())
+	command := strings.ReplaceAll(ev.Text, mention, "")
+	return strings.TrimSpace(command)
 }
 
 // createSlackContext creates a SlackContext from a message event
@@ -206,6 +251,84 @@ func (mh *MessageHandler) ensureToolsInitialized(ctx context.Context, slackCtx *
 	}
 
 	return nil
+}
+
+// handleCommand processes a command from a DM with prefix
+func (mh *MessageHandler) handleCommand(ctx context.Context, ev *slackevents.MessageEvent) error {
+	ctx, span := tracer.Start(ctx, "MessageHandler.handleCommand")
+	defer span.End()
+
+	if mh.commandRegistry == nil {
+		mh.securityLogger.LogError(ev.User, "Command", "Command registry not configured")
+		_, _, err := mh.connection.client.PostMessageContext(
+			ctx,
+			ev.Channel,
+			slack.MsgOptionText("⚠️ Commands not configured. Please contact an administrator.", true),
+		)
+		return err
+	}
+
+	command := mh.extractCommand(ev)
+	mh.securityLogger.LogSessionEvent(ev.User, ev.Channel, fmt.Sprintf("Command: %s", command))
+
+	cmdName, handler, found := mh.commandRegistry.Match(command)
+	if !found {
+		return mh.handleUnknownCommand(ctx, ev, command)
+	}
+
+	if !mh.isAdminCommand(cmdName) || mh.tenantToolSet.IsAdmin(ev.User) {
+		deps := &CommandDeps{
+			ChannelID:      ev.Channel,
+			UserID:         ev.User,
+			SlackClient:    mh.connection.client,
+			Config:         mh.config,
+			ToolManager:    mh.toolManager,
+			SessionManager: mh.sessionManager,
+			Connection:     mh.connection,
+		}
+		return handler(ctx, deps, command)
+	}
+
+	mh.securityLogger.LogError(ev.User, "Command", fmt.Sprintf("Unauthorized admin command: %s", cmdName))
+	_, _, err := mh.connection.client.PostMessageContext(
+		ctx,
+		ev.Channel,
+		slack.MsgOptionText("❌ You don't have permission to run admin commands.", true),
+	)
+	return err
+}
+
+// isAdminCommand checks if a command requires admin permissions
+func (mh *MessageHandler) isAdminCommand(cmdName string) bool {
+	adminCommands := map[string]bool{
+		"admin":        true,
+		"model access": true,
+		"add tool":     true,
+		"remove tool":  true,
+	}
+	return adminCommands[cmdName]
+}
+
+// handleUnknownCommand shows help when command is not recognized
+func (mh *MessageHandler) handleUnknownCommand(ctx context.Context, ev *slackevents.MessageEvent, command string) error {
+	helpText := "⚠️ Unknown command. Here are available commands:\n\n" +
+		"• `help` - Show this help message\n" +
+		"• `tools` - List available tools\n" +
+		"• `thinking` - Show current thinking preference\n" +
+		"• `preferences` - Manage your preferences\n" +
+		"• `reset session` - Reset the current conversation session\n\n" +
+		"Admin commands:\n" +
+		"• `admin` - Show admin help\n" +
+		"• `model access` - Manage model access\n" +
+		"• `add tool` - Add a new tool\n" +
+		"• `remove tool` - Remove a tool\n"
+
+	_, _, err := mh.connection.client.PostMessageContext(
+		ctx,
+		ev.Channel,
+		slack.MsgOptionText(helpText, true),
+	)
+	return err
 }
 
 // routeMessage routes the message to the appropriate handler

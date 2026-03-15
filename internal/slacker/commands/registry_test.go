@@ -152,3 +152,100 @@ func TestCommandRegistry_EmptyInput(t *testing.T) {
 		t.Error("expected no match for whitespace-only input")
 	}
 }
+
+func TestCommandRegistry_HandlerDelegation(t *testing.T) {
+	t.Parallel()
+	registry := NewCommandRegistry()
+
+	var executedCmd string
+	var executedMsg string
+
+	registry.Register("help", func(ctx context.Context, deps *CommandsDependencies, msg string) error {
+		executedCmd = "help"
+		executedMsg = msg
+		return nil
+	})
+
+	registry.Register("tools", func(ctx context.Context, deps *CommandsDependencies, msg string) error {
+		executedCmd = "tools"
+		executedMsg = msg
+		return nil
+	})
+
+	registry.Register("admin", func(ctx context.Context, deps *CommandsDependencies, msg string) error {
+		executedCmd = "admin"
+		executedMsg = msg
+		return nil
+	})
+
+	tests := []struct {
+		name      string
+		input     string
+		wantCmd   string
+		wantMsg   string
+		wantFound bool
+	}{
+		{
+			name:      "Match help command",
+			input:     "help",
+			wantCmd:   "help",
+			wantMsg:   "",
+			wantFound: true,
+		},
+		{
+			name:      "Match tools command with args",
+			input:     "tools list",
+			wantCmd:   "tools",
+			wantMsg:   "list",
+			wantFound: true,
+		},
+		{
+			name:      "Match admin command",
+			input:     "admin",
+			wantCmd:   "admin",
+			wantMsg:   "",
+			wantFound: true,
+		},
+		{
+			name:      "No match for unknown",
+			input:     "unknown",
+			wantFound: false,
+		},
+		{
+			name:      "Longest match wins",
+			input:     "admin help",
+			wantCmd:   "admin",
+			wantMsg:   "help",
+			wantFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			executedCmd = ""
+			executedMsg = ""
+
+			cmdName, handler, found := registry.Match(tt.input)
+
+			if found != tt.wantFound {
+				t.Errorf("Match(%q) found = %v, want %v", tt.input, found, tt.wantFound)
+			}
+			if found {
+				if cmdName != tt.wantCmd {
+					t.Errorf("Match(%q) = %q, want %q", tt.input, cmdName, tt.wantCmd)
+				}
+
+				err := handler(t.Context(), &CommandsDependencies{}, tt.wantMsg)
+				if err != nil {
+					t.Errorf("Handler error: %v", err)
+				}
+				if executedCmd != tt.wantCmd {
+					t.Errorf("Handler execution = %q, want %q", executedCmd, tt.wantCmd)
+				}
+				if executedMsg != tt.wantMsg {
+					t.Errorf("Handler message = %q, want %q", executedMsg, tt.wantMsg)
+				}
+			}
+		})
+	}
+}
