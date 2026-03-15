@@ -47,17 +47,15 @@ type CommandDeps struct {
 
 // MessageHandler processes incoming Slack messages and intents
 type MessageHandler struct {
-	intentProcessor    *IntentProcessor
-	connection         *SlackConnection
-	queryHandler       QueryHandler
-	toolManager        *ToolManagerImpl
-	sessionManager     *SessionManager
-	securityLogger     *sec.SecurityLogger
-	config             *config.File
-	tenantToolSet      *query.TenantToolSet
-	commandRegistry    CommandRegistry
-	helpAnalyzer       *HelpAnalyzer       // New: Intelligent help system
-	helpContextBuilder *HelpContextBuilder // New: Help context builder
+	intentProcessor *IntentProcessor
+	connection      *SlackConnection
+	queryHandler    QueryHandler
+	toolManager     *ToolManagerImpl
+	sessionManager  *SessionManager
+	securityLogger  *sec.SecurityLogger
+	config          *config.File
+	tenantToolSet   *query.TenantToolSet
+	commandRegistry CommandRegistry
 }
 
 // NewMessageHandler creates a new message handler
@@ -72,27 +70,15 @@ func NewMessageHandler(
 	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
 	return &MessageHandler{
-		intentProcessor:    intentProcessor,
-		connection:         connection,
-		queryHandler:       queryHandler,
-		toolManager:        toolManager,
-		sessionManager:     sessionManager,
-		securityLogger:     securityLogger,
-		config:             config,
-		tenantToolSet:      tenantToolSet,
-		helpAnalyzer:       nil, // HelpAnalyzer will be added separately
-		helpContextBuilder: nil, // HelpContextBuilder will be added separately
+		intentProcessor: intentProcessor,
+		connection:      connection,
+		queryHandler:    queryHandler,
+		toolManager:     toolManager,
+		sessionManager:  sessionManager,
+		securityLogger:  securityLogger,
+		config:          config,
+		tenantToolSet:   tenantToolSet,
 	}
-}
-
-// SetHelpAnalyzer adds intelligent help analysis to the message handler
-func (mh *MessageHandler) SetHelpAnalyzer(helpAnalyzer *HelpAnalyzer) {
-	mh.helpAnalyzer = helpAnalyzer
-}
-
-// SetHelpContextBuilder adds help context building to the message handler
-func (mh *MessageHandler) SetHelpContextBuilder(helpContextBuilder *HelpContextBuilder) {
-	mh.helpContextBuilder = helpContextBuilder
 }
 
 // SetCommandRegistry sets the command registry for command processing
@@ -683,38 +669,6 @@ func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *Slack
 }
 
 func (mh *MessageHandler) handleAdminHelp(ctx context.Context, slackCtx *SlackContext, intent *ToolManagementIntent) error {
-	var helpIntegrator *HelpIntegrator
-	if mh.helpAnalyzer != nil && mh.helpContextBuilder != nil {
-		helpIntegrator = NewHelpIntegrator(mh.helpAnalyzer, mh.helpContextBuilder)
-	}
-
-	if helpIntegrator != nil {
-		request, convertable := intent.Config.(string)
-		if !convertable {
-			return errors.New("config not convertable to string")
-		}
-		analysis, err := helpIntegrator.HandleAdminRequest(ctx, slackCtx.UserID, slackCtx.ChannelID, request)
-		if err != nil {
-			mh.securityLogger.LogError(slackCtx.UserID, "admin_help", fmt.Sprintf("Failed to analyze admin request: %v", err))
-			_, _, err := mh.connection.client.PostMessageContext(
-				ctx,
-				slackCtx.ChannelID,
-				slack.MsgOptionText("❌ Error processing admin help request.", true),
-			)
-			return err
-		}
-
-		if ShouldShowHelp(analysis) {
-			helpResponse := helpIntegrator.CreateHelpResponse(analysis)
-			_, _, err := mh.connection.client.PostMessageContext(
-				ctx,
-				slackCtx.ChannelID,
-				slack.MsgOptionText(helpResponse.Text, true),
-			)
-			return err
-		}
-	}
-
 	return mh.sendFallbackAdminHelp(ctx, slackCtx)
 }
 
@@ -766,64 +720,12 @@ func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *Sla
 
 	updater := mh.createHelpUpdater(session, ev)
 
-	if !mh.shouldShowHelpOnIntentFailure() {
-		return mh.handleHelpDisabled(ctx, updater)
-	}
-
-	if mh.helpAnalyzer != nil && mh.helpContextBuilder != nil {
-		return mh.handleIntelligentHelp(ctx, slackCtx, updater, message)
-	}
-
 	return mh.sendBasicHelpAndFlush(ctx, updater, message)
 }
 
 func (mh *MessageHandler) createHelpUpdater(session *UserSession, ev *slackevents.MessageEvent) *SlackUpdater {
 	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
 	return NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
-}
-
-func (mh *MessageHandler) shouldShowHelpOnIntentFailure() bool {
-	return mh.config.HelpSystemEnabled() && mh.config.HelpSystemShouldHelpOnIntentFailure()
-}
-
-func (mh *MessageHandler) handleHelpDisabled(ctx context.Context, updater *SlackUpdater) error {
-	if mh.config.HelpSystemEnabled() {
-		if err := mh.sendBasicHelp(ctx, updater, ""); err != nil {
-			return fmt.Errorf("failed to send basic help: %w", err)
-		}
-		return updater.Flush(ctx)
-	}
-	return nil
-}
-
-func (mh *MessageHandler) handleIntelligentHelp(ctx context.Context, slackCtx *SlackContext, updater *SlackUpdater, message string) error {
-	helpCtx := mh.helpContextBuilder.BuildContext(ctx, slackCtx.UserID, slackCtx.ChannelID, message)
-
-	analysis, err := mh.helpAnalyzer.AnalyzeIntentFailure(ctx, message, helpCtx)
-	if err != nil {
-		if sendErr := mh.sendBasicHelp(ctx, updater, message); sendErr != nil {
-			return fmt.Errorf("failed to send basic help: %w", sendErr)
-		}
-		return fmt.Errorf("help analysis failed: %w", err)
-	}
-
-	if analysis.Confidence < float64(mh.config.HelpSystemMinConfidenceThreshold()) {
-		if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
-			return fmt.Errorf("failed to send basic help: %w", err)
-		}
-		return nil
-	}
-
-	helpMessage := mh.formatHelpMessage(analysis)
-	if err := updater.AddContent(ctx, helpMessage); err != nil {
-		return fmt.Errorf("sending help message: %w", err)
-	}
-
-	if err := updater.Flush(ctx); err != nil {
-		return fmt.Errorf("flushing help message: %w", err)
-	}
-
-	return nil
 }
 
 func (mh *MessageHandler) sendBasicHelpAndFlush(ctx context.Context, updater *SlackUpdater, message string) error {

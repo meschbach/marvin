@@ -34,13 +34,9 @@ func TestMessageFlow_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	// Create a simple test configuration with a model and disabled help for integration tests
-	helpDisabled := false
+	// Create a simple test configuration with a model for integration tests
 	cfg := &config.File{
 		Model: "test-model", // Set a model name
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &helpDisabled, // Disable help system in integration tests
-		},
 	}
 
 	// Create tenant tool set with context
@@ -79,15 +75,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
 	}
 
-	// Disable help system for integration tests
-	testHelpDisabled := false
-	testConfig := &config.File{
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &testHelpDisabled,
-		},
-	}
-
-	// Create message handler with help disabled
+	// Create message handler for integration tests
 	messageHandler := NewMessageHandler(
 		intentProcessor,
 		conn,
@@ -95,7 +83,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 		toolManager,
 		sessionManager,
 		logger,
-		testConfig,
+		cfg,
 		tenantToolSet,
 	)
 
@@ -219,12 +207,8 @@ func TestEventRouter_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	helpDisabled := false
 	cfg := &config.File{
 		Model: "test-model",
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &helpDisabled, // Disable help system in integration tests
-		},
 	}
 	ctx := t.Context()
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
@@ -232,20 +216,14 @@ func TestEventRouter_Integration(t *testing.T) {
 
 	formatter := NewSlackFormatter()
 
-	// Create help integrator for tests
-	mockLLM := &MockLLM{}
-	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
-	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
-
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, nil)
 	require.NoError(t, err)
 	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
 	// Create mock notification sender to avoid nil pointer issues
 	notificationSender := NewMockNotificationSender()
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, nil)
 
 	conn := &SlackConnection{
 		botUserID: "U123456789",

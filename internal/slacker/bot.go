@@ -48,18 +48,13 @@ func NewSlackBot(
 	approvalWorkflow.SetNotificationSender(notificationSender)
 	approvalWorkflow.SetSessionManager(sessionManager)
 
-	// Create help system components
-	helpAnalyzer := NewHelpAnalyzer(nil, config, sessionManager, nil, tenantToolSet)
-	helpContextBuilder := NewHelpContextBuilder(sessionManager, config, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, helpContextBuilder)
-
 	// Create message handler dependencies
 	intentProcessor := NewIntentProcessor()
-	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, connection, config, securityLogger, formatter, helpIntegrator)
+	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, connection, config, securityLogger, formatter, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating query processor: %w", err)
 	}
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, securityLogger, notificationSender, sessionManager, helpIntegrator)
+	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, securityLogger, notificationSender, sessionManager, nil)
 
 	messageHandler := NewMessageHandler(
 		intentProcessor,
@@ -71,10 +66,6 @@ func NewSlackBot(
 		config,
 		tenantToolSet,
 	)
-
-	// Set help system components
-	messageHandler.SetHelpAnalyzer(helpAnalyzer)
-	messageHandler.SetHelpContextBuilder(helpContextBuilder)
 
 	// Create event router
 	eventRouter := NewEventRouter(connection, messageHandler, securityLogger)
