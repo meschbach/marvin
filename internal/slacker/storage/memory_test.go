@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/go-faker/faker/v4"
@@ -10,11 +9,12 @@ import (
 )
 
 func TestMemoryStorage(t *testing.T) {
+	t.Parallel()
 	exampleUser := UserKey{
 		UserID:  faker.Word(),
 		Channel: faker.Word(),
 	}
-	exampleKey := strings.Join([]string{faker.Word(), faker.Word()}, "/")
+	exampleKey := faker.Word() + "/" + faker.Word()
 	content := faker.Sentence()
 
 	m := NewMemoryUser()
