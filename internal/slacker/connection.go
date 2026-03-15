@@ -17,6 +17,7 @@ import (
 type SlackConnection struct {
 	client         *slack.Client
 	socketClient   *socketmode.Client
+	botName        string
 	botUserID      string
 	teamID         string
 	adminUsers     []string
@@ -67,6 +68,7 @@ func NewSlackConnection(
 	return &SlackConnection{
 		client:         client,
 		socketClient:   socketClient,
+		botName:        authResp.User,
 		botUserID:      authResp.UserID,
 		teamID:         authResp.TeamID,
 		adminUsers:     adminUsers,
@@ -103,6 +105,7 @@ func (sc *SlackConnection) ValidateSetup() error {
 	}
 
 	sc.botUserID = authResp.UserID
+	sc.botName = authResp.User
 	sc.securityLogger.LogInfo("system", "SlackAuth", fmt.Sprintf("Bot token valid - Bot: %s (%s), Team: %s (%s)",
 		authResp.User, authResp.UserID, authResp.Team, authResp.TeamID))
 
@@ -135,6 +138,11 @@ func (sc *SlackConnection) StartSocketMode(ctx context.Context) error {
 // GetBotUserID returns the bot user ID
 func (sc *SlackConnection) GetBotUserID() string {
 	return sc.botUserID
+}
+
+// GetBotName returns the bot name
+func (sc *SlackConnection) GetBotName() string {
+	return sc.botName
 }
 
 // GetTeamID returns the team ID
