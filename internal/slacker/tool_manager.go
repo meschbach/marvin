@@ -2,13 +2,10 @@ package slacker
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
-	"time"
 
-	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
+	"github.com/meschbach/marvin/internal/slacker/commands"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 )
 
@@ -41,150 +38,96 @@ func NewToolManager(
 	}
 }
 
+// GetApprovalWorkflow returns the approval workflow
+func (tm *ToolManagerImpl) GetApprovalWorkflow() *ApprovalWorkflow {
+	return tm.approvalWorkflow
+}
+
 // HandleToolIntent processes tool management intents
 func (tm *ToolManagerImpl) HandleToolIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
+	deps := &commands.CommandsDependencies{
+		Context:          &intentContextAdapter{slackCtx: slackCtx},
+		ApprovalWorkflow: &approvalWorkflowAdapterForToolManager{tm.approvalWorkflow},
+		TenantToolSet:    tm.tenantToolSet,
+		SecurityLogger:   tm.securityLogger,
+		SessionManager:   &sessionManagerAdapterForToolManager{tm.sessionManager},
+		SlackClient:      tm.notificationSender.GetClient(),
+		ToolParser:       &toolParserAdapter{},
+		MessageSender:    tm.notificationSender,
+	}
+
 	switch intent.Action {
 	case "add_tool":
-		return tm.handleAddTool(ctx, slackCtx, session, intent)
+		configStr, _ := intent.Config.(string)
+		return commands.HandleAddTool(ctx, deps, "http "+intent.ToolType+" "+configStr)
 	case "share_tool":
-		return tm.handleShareTool(ctx, slackCtx, session, intent)
+		return commands.HandleShareTool(ctx, deps, "")
 	case "list_tools":
-		return tm.handleListTools(ctx, slackCtx, session)
+		return commands.HandleListTools(ctx, deps, "")
 	case "remove_tool":
-		return tm.handleRemoveTool(ctx, slackCtx, session, intent)
+		return commands.HandleRemoveTool(ctx, deps, "")
 	case "approve_tool":
-		return tm.handleApprovalCommand(ctx, slackCtx, session, intent, "approve")
+		return commands.HandleApprove(ctx, deps, "approve "+intent.Target)
 	case "reject_tool":
-		return tm.handleApprovalCommand(ctx, slackCtx, session, intent, "reject")
+		return commands.HandleReject(ctx, deps, "reject "+intent.Target)
 	case "reset_session":
-		return tm.handleResetSession(ctx, slackCtx, session)
+		return commands.HandleResetSession(ctx, deps, "")
 	default:
 		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("I don't know how to handle: %s", intent.Action))
 	}
 }
 
-// handleAddTool handles adding new tools
-func (tm *ToolManagerImpl) handleAddTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	// Parse tool configuration
-	configString, convertible := intent.Config.(string)
-	if !convertible {
-		return errors.New("config is not a string")
-	}
-	toolConfig, err := ParseToolConfig(intent.ToolType, configString)
-	if err != nil {
-		// Provide intelligent help for tool configuration errors
-		if tm.helpIntegrator != nil {
-			go tm.provideToolConfigHelp(ctx, slackCtx, intent.ToolType, configString, err)
-		}
-
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error parsing tool configuration: %s", err.Error()))
-	}
-
-	// Check if approval is needed
-	if config.RequiresApproval(intent.ToolType) {
-		// Submit for approval
-		request := &ToolApprovalRequest{
-			ToolID:        GenerateToolID(slackCtx.UserID, intent.ToolType, getNameFromConfig(toolConfig)),
-			RequesterID:   slackCtx.UserID,
-			ToolType:      intent.ToolType,
-			Config:        toolConfig,
-			RequesterName: slackCtx.UserName,
-			Timestamp:     time.Now(),
-		}
-
-		requestID, err := tm.approvalWorkflow.RequestToolApproval(ctx, request)
-		if err != nil {
-			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error submitting approval request: %s", err.Error()))
-		}
-
-		tm.securityLogger.LogToolRequest(slackCtx.UserID, intent.ToolType, fmt.Sprintf("%+v", toolConfig))
-
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("📋 Tool approval request submitted:\n• Tool ID: %s\n• Status: Pending approval\n• I'll notify you when it's approved.", requestID))
-	} else {
-		// HTTP tools can be added directly
-		toolID := GenerateToolID(slackCtx.UserID, intent.ToolType, getNameFromConfig(toolConfig))
-
-		// TODO: Add tool directly to user's tool set
-		// This would require extending the TenantToolSet to support dynamic tool addition
-
-		tm.securityLogger.LogToolAdded(slackCtx.UserID, toolID, intent.ToolType)
-
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("✅ Added %s tool successfully. You can now use it in your conversations.", intent.ToolType))
-	}
+type intentContextAdapter struct {
+	slackCtx *SlackContext
 }
 
-// handleShareTool handles sharing tools with other users
-func (tm *ToolManagerImpl) handleShareTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	// TODO: Implement tool sharing logic
-	tm.securityLogger.LogToolShare(slackCtx.UserID, intent.TargetUser, intent.Target)
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "🔄 Tool sharing requested. Feature coming soon!")
+func (a *intentContextAdapter) UserID() string    { return a.slackCtx.UserID }
+func (a *intentContextAdapter) UserName() string  { return a.slackCtx.UserName }
+func (a *intentContextAdapter) ChannelID() string { return a.slackCtx.ChannelID }
+func (a *intentContextAdapter) TeamID() string    { return a.slackCtx.TeamID }
+
+type sessionManagerAdapterForToolManager struct {
+	sm *SessionManager
 }
 
-// handleListTools lists available tools for the user
-func (tm *ToolManagerImpl) handleListTools(ctx context.Context, slackCtx *SlackContext, session *UserSession) error {
-	tools := session.GetAvailableTools()
-
-	if len(tools) == 0 {
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "You don't have any tools available yet. Try adding an HTTP MCP tool!")
-	}
-
-	var toolList strings.Builder
-	toolList.WriteString("🔧 **Your Available Tools:**\n\n")
-
-	for i, tool := range tools {
-		fmt.Fprintf(&toolList, "%d. `%s`\n", i+1, tool)
-	}
-
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, toolList.String())
+func (s *sessionManagerAdapterForToolManager) ClearSession(userID, channelID string) error {
+	return s.sm.ClearSession(userID, channelID)
 }
 
-// handleRemoveTool handles removing tools
-func (tm *ToolManagerImpl) handleRemoveTool(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	// TODO: Implement tool removal logic
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "🗑️ Tool removal requested. Feature coming soon!")
+func (s *sessionManagerAdapterForToolManager) GetOrCreateSession(ctx context.Context, userID, channelID string, userCtx *query.UserContext) (*commands.UserSession, error) {
+	session := s.sm.GetOrCreateSession(ctx, userID, channelID, userCtx)
+	return &commands.UserSession{
+		UserID:         session.UserID,
+		Context:        session.UserContext,
+		AvailableTools: session.AvailableTools,
+	}, nil
 }
 
-// handleApprovalCommand handles approve/reject commands via natural language
-func (tm *ToolManagerImpl) handleApprovalCommand(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent, action string) error {
-	// Verify admin permissions
-	if !tm.approvalWorkflow.IsAdmin(slackCtx.UserID) {
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "❌ Only admins can approve/reject tool requests")
-	}
-
-	requestID := intent.Target
-	if requestID == "" {
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "❌ Please specify a request ID")
-	}
-
-	if action == "approve" {
-		if err := tm.approvalWorkflow.ApproveTool(ctx, slackCtx.UserID, requestID, "Approved via natural language"); err != nil {
-			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error approving request: %s", err.Error()))
-		}
-		// Send approval notification via notification sender
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("✅ Tool request %s approved", requestID))
-	} else {
-		reason := "No reason provided"
-		if intent.Config != nil {
-			if configString, convertible := intent.Config.(string); convertible {
-				reason = configString
-			}
-		}
-		if err := tm.approvalWorkflow.RejectTool(ctx, slackCtx.UserID, requestID, reason); err != nil {
-			return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error rejecting request: %s", err.Error()))
-		}
-		// Send rejection notification via notification sender
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Tool request %s rejected", requestID))
-	}
+type approvalWorkflowAdapterForToolManager struct {
+	aw *ApprovalWorkflow
 }
 
-// handleResetSession handles resetting user session context
-func (tm *ToolManagerImpl) handleResetSession(ctx context.Context, slackCtx *SlackContext, session *UserSession) error {
-	if err := tm.sessionManager.ClearSession(slackCtx.UserID, slackCtx.ChannelID); err != nil {
-		return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, fmt.Sprintf("❌ Error resetting session: %s", err.Error()))
+func (a *approvalWorkflowAdapterForToolManager) RequestToolApproval(ctx context.Context, request *commands.ToolApprovalRequest) (string, error) {
+	toolReq := &ToolApprovalRequest{
+		ToolID:        request.ToolID,
+		RequesterID:   request.RequesterID,
+		ToolType:      request.ToolType,
+		Config:        request.Config,
+		RequesterName: request.RequesterName,
 	}
+	return a.aw.RequestToolApproval(ctx, toolReq)
+}
 
-	tm.securityLogger.LogSessionEvent(slackCtx.UserID, slackCtx.ChannelID, "Session reset by user")
-	return tm.notificationSender.SendMessage(ctx, slackCtx.UserID, "✅ Your conversation history has been cleared")
+func (a *approvalWorkflowAdapterForToolManager) ApproveTool(ctx context.Context, approverID, requestID, reason string) error {
+	return a.aw.ApproveTool(ctx, approverID, requestID, reason)
+}
+
+func (a *approvalWorkflowAdapterForToolManager) RejectTool(ctx context.Context, approverID, requestID, reason string) error {
+	return a.aw.RejectTool(ctx, approverID, requestID, reason)
+}
+
+func (a *approvalWorkflowAdapterForToolManager) IsAdmin(userID string) bool {
+	return a.aw.IsAdmin(userID)
 }
 
 // provideToolConfigHelp provides intelligent help when tool configuration fails

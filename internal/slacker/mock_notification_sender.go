@@ -3,6 +3,8 @@ package slacker
 import (
 	"context"
 	"fmt"
+
+	"github.com/slack-go/slack"
 )
 
 // MockNotificationCall represents a captured call to the notification sender
@@ -13,14 +15,21 @@ type MockNotificationCall struct {
 
 // MockNotificationSender is a mock implementation that captures calls without making Slack API calls
 type MockNotificationSender struct {
-	calls []MockNotificationCall
+	calls  []MockNotificationCall
+	client *slack.Client
 }
 
 // NewMockNotificationSender creates a mock notification sender for testing
 func NewMockNotificationSender() *MockNotificationSender {
 	return &MockNotificationSender{
-		calls: make([]MockNotificationCall, 0),
+		calls:  make([]MockNotificationCall, 0),
+		client: slack.New("test-token"),
 	}
+}
+
+// GetClient returns the mock client
+func (m *MockNotificationSender) GetClient() *slack.Client {
+	return m.client
 }
 
 // SendMessage captures the call parameters without making Slack API calls

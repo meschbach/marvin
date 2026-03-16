@@ -9,6 +9,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/query"
+	"github.com/meschbach/marvin/internal/slacker/commands"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -34,15 +35,58 @@ type CommandRegistry interface {
 	Match(input string) (string, CommandHandler, bool)
 }
 
+// SimpleCommandRegistry is a basic implementation of CommandRegistry
+type SimpleCommandRegistry struct {
+	handlers map[string]CommandHandler
+}
+
+func NewSimpleCommandRegistry() *SimpleCommandRegistry {
+	return &SimpleCommandRegistry{
+		handlers: make(map[string]CommandHandler),
+	}
+}
+
+func (r *SimpleCommandRegistry) Register(name string, handler CommandHandler) {
+	r.handlers[name] = handler
+}
+
+func (r *SimpleCommandRegistry) Match(input string) (string, CommandHandler, bool) {
+	if input == "" {
+		return "", nil, false
+	}
+
+	input = strings.ToLower(strings.TrimSpace(input))
+
+	longestMatch := ""
+	var handler CommandHandler
+
+	for cmd := range r.handlers {
+		if strings.HasPrefix(input, cmd) {
+			if len(cmd) > len(longestMatch) {
+				longestMatch = cmd
+				handler = r.handlers[cmd]
+			}
+		}
+	}
+
+	if handler != nil {
+		return longestMatch, handler, true
+	}
+	return "", nil, false
+}
+
 // CommandDeps provides dependencies for command handlers
 type CommandDeps struct {
-	ChannelID      string
-	UserID         string
-	SlackClient    *slack.Client
-	Config         *config.File
-	ToolManager    *ToolManagerImpl
-	SessionManager *SessionManager
-	Connection     *SlackConnection
+	ChannelID        string
+	UserID           string
+	SlackClient      *slack.Client
+	Config           *config.File
+	ToolManager      *ToolManagerImpl
+	SessionManager   *SessionManager
+	Connection       *SlackConnection
+	ApprovalWorkflow *ApprovalWorkflow
+	TenantToolSet    *query.TenantToolSet
+	SecurityLogger   *sec.SecurityLogger
 }
 
 // MessageHandler processes incoming Slack messages and intents
@@ -69,7 +113,7 @@ func NewMessageHandler(
 	config *config.File,
 	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
-	return &MessageHandler{
+	mh := &MessageHandler{
 		intentProcessor: intentProcessor,
 		connection:      connection,
 		queryHandler:    queryHandler,
@@ -79,6 +123,185 @@ func NewMessageHandler(
 		config:          config,
 		tenantToolSet:   tenantToolSet,
 	}
+
+	registry := NewSimpleCommandRegistry()
+	registry.Register("help", mh.wrapCommandsHandler(commands.HandleHelp))
+	registry.Register("tools", mh.wrapCommandsHandler(commands.HandleTools))
+	registry.Register("list tools", mh.wrapCommandsHandler(commands.HandleListTools))
+	registry.Register("add tool", mh.wrapCommandsHandler(commands.HandleAddTool))
+	registry.Register("remove tool", mh.wrapCommandsHandler(commands.HandleRemoveTool))
+	registry.Register("reset session", mh.wrapCommandsHandler(commands.HandleResetSession))
+	registry.Register("approve", mh.wrapCommandsHandler(commands.HandleApprove))
+	registry.Register("reject", mh.wrapCommandsHandler(commands.HandleReject))
+	registry.Register("share tool", mh.wrapCommandsHandler(commands.HandleShareTool))
+	registry.Register("thinking", mh.wrapCommandsHandler(commands.HandleThinking))
+	registry.Register("preferences", mh.wrapCommandsHandler(commands.HandlePreferences))
+	registry.Register("admin", mh.wrapCommandsHandler(commands.HandleAdminHelp))
+	registry.Register("model access", mh.wrapCommandsHandler(commands.HandleModelAccess))
+
+	mh.commandRegistry = registry
+
+	return mh
+}
+
+// wrapCommandHandler wraps a command handler function to work with the registry
+func (mh *MessageHandler) wrapCommandHandler(handler func(ctx context.Context, deps *CommandDeps, msg string) error) CommandHandler {
+	return handler
+}
+
+// wrapCommandsHandler wraps a commands handler to work with CommandDeps
+func (mh *MessageHandler) wrapCommandsHandler(handler func(ctx context.Context, deps *commands.CommandsDependencies, msg string) error) CommandHandler {
+	return func(ctx context.Context, deps *CommandDeps, msg string) error {
+		return handler(ctx, mh.commandDepsToCommandsDepsAdapter(deps), msg)
+	}
+}
+
+// commandDepsToCommandsDepsAdapter converts CommandDeps to commands.CommandsDependencies
+func (mh *MessageHandler) commandDepsToCommandsDepsAdapter(deps *CommandDeps) *commands.CommandsDependencies {
+	return &commands.CommandsDependencies{
+		Context: &slackContextAdapter{
+			userID:    deps.UserID,
+			userName:  "", // TODO: populate if needed
+			channelID: deps.ChannelID,
+			teamID:    "",
+		},
+		ApprovalWorkflow: &approvalWorkflowAdapter{deps.ApprovalWorkflow},
+		TenantToolSet:    deps.TenantToolSet,
+		ToolSet:          &toolSetAdapter{tts: deps.TenantToolSet},
+		SecurityLogger:   &securityLoggerAdapter{deps.SecurityLogger},
+		SessionManager:   &sessionManagerAdapter{deps.SessionManager},
+		SlackClient:      deps.SlackClient,
+		Config:           deps.Config,
+		Connection:       &slackConnectionAdapter{deps.Connection},
+		ToolParser:       &toolParserAdapter{},
+	}
+}
+
+// slackContextAdapter implements commands.Context
+type slackContextAdapter struct {
+	userID    string
+	userName  string
+	channelID string
+	teamID    string
+}
+
+func (s *slackContextAdapter) UserID() string    { return s.userID }
+func (s *slackContextAdapter) UserName() string  { return s.userName }
+func (s *slackContextAdapter) ChannelID() string { return s.channelID }
+func (s *slackContextAdapter) TeamID() string    { return s.teamID }
+
+// slackConnectionAdapter implements commands.Connection
+type slackConnectionAdapter struct {
+	conn *SlackConnection
+}
+
+func (s *slackConnectionAdapter) GetBotUserID() string { return s.conn.GetBotUserID() }
+
+// approvalWorkflowAdapter implements commands.ApprovalWorkflow
+type approvalWorkflowAdapter struct {
+	aw *ApprovalWorkflow
+}
+
+func (a *approvalWorkflowAdapter) RequestToolApproval(ctx context.Context, request *commands.ToolApprovalRequest) (string, error) {
+	toolReq := &ToolApprovalRequest{
+		ToolID:        request.ToolID,
+		RequesterID:   request.RequesterID,
+		ToolType:      request.ToolType,
+		Config:        request.Config,
+		RequesterName: request.RequesterName,
+	}
+	return a.aw.RequestToolApproval(ctx, toolReq)
+}
+
+func (a *approvalWorkflowAdapter) ApproveTool(ctx context.Context, approverID, requestID, reason string) error {
+	return a.aw.ApproveTool(ctx, approverID, requestID, reason)
+}
+
+func (a *approvalWorkflowAdapter) RejectTool(ctx context.Context, approverID, requestID, reason string) error {
+	return a.aw.RejectTool(ctx, approverID, requestID, reason)
+}
+
+func (a *approvalWorkflowAdapter) IsAdmin(userID string) bool {
+	return a.aw.IsAdmin(userID)
+}
+
+// securityLoggerAdapter implements commands.SecurityLogger
+type securityLoggerAdapter struct {
+	sl *sec.SecurityLogger
+}
+
+func (s *securityLoggerAdapter) LogError(userID, operation, message string) {
+	s.sl.LogError(userID, operation, message)
+}
+
+func (s *securityLoggerAdapter) LogSessionEvent(userID, channelID, event string) {
+	s.sl.LogSessionEvent(userID, channelID, event)
+}
+
+func (s *securityLoggerAdapter) LogToolRequest(userID, toolType, config string) {
+	s.sl.LogToolRequest(userID, toolType, config)
+}
+
+func (s *securityLoggerAdapter) LogToolAdded(userID, toolID, toolType string) {
+	s.sl.LogToolAdded(userID, toolID, toolType)
+}
+
+func (s *securityLoggerAdapter) LogToolRemoved(userID, toolID string) {
+	s.sl.LogToolRemoved(userID, toolID)
+}
+
+func (s *securityLoggerAdapter) LogToolShare(userID, toolID, targetWorkspace string) {
+	s.sl.LogToolShare(userID, toolID, targetWorkspace)
+}
+
+// sessionManagerAdapter implements commands.SessionManager
+type sessionManagerAdapter struct {
+	sm *SessionManager
+}
+
+func (s *sessionManagerAdapter) ClearSession(userID, channelID string) error {
+	return s.sm.ClearSession(userID, channelID)
+}
+
+func (s *sessionManagerAdapter) GetOrCreateSession(ctx context.Context, userID, channelID string, userCtx *query.UserContext) (*commands.UserSession, error) {
+	session := s.sm.GetOrCreateSession(ctx, userID, channelID, userCtx)
+	return &commands.UserSession{
+		UserID:         session.UserID,
+		Context:        session.UserContext,
+		AvailableTools: session.AvailableTools,
+	}, nil
+}
+
+// toolParserAdapter implements commands.ToolParser
+type toolParserAdapter struct{}
+
+func (t *toolParserAdapter) ParseToolConfig(toolType, config string) (interface{}, error) {
+	return ParseToolConfig(toolType, config)
+}
+
+func (t *toolParserAdapter) GenerateToolID(userID, toolType, name string) string {
+	return GenerateToolID(userID, toolType, name)
+}
+
+// toolSetAdapter implements commands.ToolSet for TenantToolSet
+type toolSetAdapter struct {
+	tts *query.TenantToolSet
+}
+
+func (t *toolSetAdapter) ToolsForUser(ctx context.Context, userID string) ([]string, error) {
+	return nil, nil // Not implemented - use GetUserTools instead
+}
+
+func (t *toolSetAdapter) AddTool(ctx context.Context, userID, toolID string, toolType string, config interface{}) error {
+	return nil // Not implemented
+}
+
+func (t *toolSetAdapter) RemoveTool(ctx context.Context, userID, toolID string) error {
+	return t.tts.RemoveUserTool(ctx, userID, toolID)
+}
+
+func (t *toolSetAdapter) ShareTool(ctx context.Context, toolID, targetUserID string) error {
+	return t.tts.ShareToolToUser(ctx, toolID, targetUserID)
 }
 
 // SetCommandRegistry sets the command registry for command processing
@@ -264,13 +487,16 @@ func (mh *MessageHandler) handleCommand(ctx context.Context, ev *slackevents.Mes
 
 	if !mh.isAdminCommand(cmdName) || mh.tenantToolSet.IsAdmin(ev.User) {
 		deps := &CommandDeps{
-			ChannelID:      ev.Channel,
-			UserID:         ev.User,
-			SlackClient:    mh.connection.client,
-			Config:         mh.config,
-			ToolManager:    mh.toolManager,
-			SessionManager: mh.sessionManager,
-			Connection:     mh.connection,
+			ChannelID:        ev.Channel,
+			UserID:           ev.User,
+			SlackClient:      mh.connection.client,
+			Config:           mh.config,
+			ToolManager:      mh.toolManager,
+			SessionManager:   mh.sessionManager,
+			Connection:       mh.connection,
+			ApprovalWorkflow: mh.toolManager.GetApprovalWorkflow(),
+			TenantToolSet:    mh.tenantToolSet,
+			SecurityLogger:   mh.securityLogger,
 		}
 		return handler(ctx, deps, command)
 	}
@@ -785,4 +1011,272 @@ func (mh *MessageHandler) formatHelpMessage(analysis *HelpAnalysis) string {
 // LogSessionEvent logs a session event
 func (mh *MessageHandler) LogSessionEvent(userID, channelID, event string) {
 	mh.securityLogger.LogSessionEvent(userID, channelID, event)
+}
+
+// Command handler implementations
+
+func handleHelpCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	helpText := "🤖 **Available Commands:**\n\n" +
+		"• `help` - Show this help message\n" +
+		"• `tools` or `list tools` - List available tools\n" +
+		"• `thinking` - Show current thinking preference\n" +
+		"• `preferences` - Manage your preferences\n" +
+		"• `reset session` - Reset the current conversation session\n\n" +
+		"Admin commands:\n" +
+		"• `admin` - Show admin help\n" +
+		"• `model access` - Manage model access\n" +
+		"• `add tool` - Add a new tool\n" +
+		"• `remove tool` - Remove a tool\n" +
+		"• `approve <request-id>` - Approve a tool request\n" +
+		"• `reject <request-id>` - Reject a tool request\n"
+
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(helpText, false),
+	)
+	return err
+}
+
+func handleToolsCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	return handleListToolsCommand(ctx, deps, msg)
+}
+
+func handleListToolsCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	session := deps.SessionManager.GetOrCreateSession(ctx, deps.UserID, deps.Connection.GetBotUserID(), &query.UserContext{
+		UserID:      deps.UserID,
+		SlackTeamID: "",
+		IsAdmin:     deps.TenantToolSet.IsAdmin(deps.UserID),
+	})
+	tools := session.GetAvailableTools()
+
+	if len(tools) == 0 {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("You don't have any tools available yet. Try adding an HTTP MCP tool!", false),
+		)
+		return err
+	}
+
+	var toolList strings.Builder
+	toolList.WriteString("🔧 **Your Available Tools:**\n\n")
+
+	for i, tool := range tools {
+		fmt.Fprintf(&toolList, "%d. `%s`\n", i+1, tool)
+	}
+
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(toolList.String(), false),
+	)
+	return err
+}
+
+func handleAddToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("To add a tool, please use natural language like: \"add an HTTP MCP tool with config...\"", false),
+	)
+	return err
+}
+
+func handleRemoveToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("🗑️ Tool removal requested. Feature coming soon!", false),
+	)
+	return err
+}
+
+func handleResetSessionCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	if err := deps.SessionManager.ClearSession(deps.UserID, deps.Connection.GetBotUserID()); err != nil {
+		deps.SecurityLogger.LogError(deps.UserID, "session", fmt.Sprintf("Failed to reset session: %v", err))
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText(fmt.Sprintf("❌ Error resetting session: %v", err), false),
+		)
+		return err
+	}
+
+	deps.SecurityLogger.LogSessionEvent(deps.UserID, deps.Connection.GetBotUserID(), "Session reset by user")
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("✅ Your conversation history has been cleared", false),
+	)
+	return err
+}
+
+func handleApproveCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	if !deps.ApprovalWorkflow.IsAdmin(deps.UserID) {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Only admins can approve/reject tool requests", false),
+		)
+		return err
+	}
+
+	parts := strings.Fields(msg)
+	if len(parts) < 2 {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Please specify a request ID", false),
+		)
+		return err
+	}
+
+	requestID := parts[1]
+	if err := deps.ApprovalWorkflow.ApproveTool(ctx, deps.UserID, requestID, "Approved via command"); err != nil {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText(fmt.Sprintf("❌ Error approving request: %s", err.Error()), false),
+		)
+		return err
+	}
+
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(fmt.Sprintf("✅ Tool request %s approved", requestID), false),
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func handleRejectCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	if !deps.ApprovalWorkflow.IsAdmin(deps.UserID) {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Only admins can approve/reject tool requests", false),
+		)
+		return err
+	}
+
+	parts := strings.Fields(msg)
+	if len(parts) < 2 {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Please specify a request ID", false),
+		)
+		return err
+	}
+
+	requestID := parts[1]
+	reason := "No reason provided"
+	if len(parts) > 2 {
+		reason = strings.Join(parts[2:], " ")
+	}
+
+	if err := deps.ApprovalWorkflow.RejectTool(ctx, deps.UserID, requestID, reason); err != nil {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText(fmt.Sprintf("❌ Error rejecting request: %s", err.Error()), false),
+		)
+		return err
+	}
+
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(fmt.Sprintf("❌ Tool request %s rejected", requestID), false),
+	)
+	return err
+}
+
+func handleShareToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	deps.SecurityLogger.LogToolShare(deps.UserID, "", "")
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("🔄 Tool sharing requested. Feature coming soon!", false),
+	)
+	return err
+}
+
+func handleThinkingCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("To change your thinking preference, please use natural language like: \"turn on thinking\" or \"turn off thinking\"", false),
+	)
+	return err
+}
+
+func handlePreferencesCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText("To manage your preferences, please use natural language like: \"show my preferences\"", false),
+	)
+	return err
+}
+
+func handleAdminCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	if !deps.TenantToolSet.IsAdmin(deps.UserID) {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Only admins can use admin commands", false),
+		)
+		return err
+	}
+
+	adminHelp := "👑 **Admin Help**\n\n" +
+		"Here are some admin commands you can use:\n\n" +
+		"• `list pending requests` - See tool approval requests\n" +
+		"• `approve tool <request-id>` - Approve a tool request\n" +
+		"• `reject tool <request-id>` - Reject a tool request\n" +
+		"• `model access list` - Show model access settings\n" +
+		"• `allow model <model-name>` - Allow a model\n" +
+		"• `deny model <model-name>` - Deny a model\n" +
+		"• `admin help <topic>` - Get admin-specific help\n" +
+		"• `escalate <issue>` - Escalate to support"
+
+	_, _, err := deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(adminHelp, false),
+	)
+	return err
+}
+
+func handleModelAccessCommand(ctx context.Context, deps *CommandDeps, msg string) error {
+	if !deps.TenantToolSet.IsAdmin(deps.UserID) {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText("❌ Only admins can manage model access", false),
+		)
+		return err
+	}
+
+	state, err := deps.Config.GetEffectiveModelAccess()
+	if err != nil {
+		_, _, err := deps.SlackClient.PostMessage(
+			deps.UserID,
+			slack.MsgOptionText(fmt.Sprintf("❌ Error getting model access config: %s", err.Error()), false),
+		)
+		return err
+	}
+
+	var response strings.Builder
+	fmt.Fprintf(&response, "🤖 **Model Access Configuration**\n\n")
+
+	hasNoRestrictions := len(state.AllowedModels) == 0 && len(state.DeniedModels) == 0
+	if hasNoRestrictions {
+		response.WriteString("No restrictions in place - all models are allowed.\n")
+	} else {
+		if len(state.AllowedModels) > 0 {
+			response.WriteString("✅ **Allowed Models:**\n")
+			for _, model := range state.AllowedModels {
+				fmt.Fprintf(&response, "  • %s\n", model)
+			}
+		}
+		if len(state.DeniedModels) > 0 {
+			response.WriteString("❌ **Denied Models:**\n")
+			for _, model := range state.DeniedModels {
+				fmt.Fprintf(&response, "  • %s\n", model)
+			}
+		}
+	}
+
+	fmt.Fprintf(&response, "\n🔧 **Default Model:** %s\n", state.DefaultModel)
+
+	_, _, err = deps.SlackClient.PostMessage(
+		deps.UserID,
+		slack.MsgOptionText(response.String(), false),
+	)
+	return err
 }

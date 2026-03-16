@@ -124,6 +124,14 @@ func (sl *SecurityLogger) LogToolShare(ownerID, targetID, toolID string) {
 	}
 }
 
+// LogToolRemoved logs when a tool is removed from a user's workspace
+func (sl *SecurityLogger) LogToolRemoved(userID, toolID string) {
+	if _, err := fmt.Fprintf(sl.output, "[SECURITY] %s - Tool Removed - User: %s, Tool: %s\n",
+		time.Now().Format(time.RFC3339), userID, toolID); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write security log: %v\n", err)
+	}
+}
+
 // LogToolAccess logs when a user invokes a tool
 func (sl *SecurityLogger) LogToolAccess(userID, toolID, operation string) {
 	if _, err := fmt.Fprintf(sl.output, "[SECURITY] %s - Tool Access - User: %s, ToolID: %s, Operation: %s\n",

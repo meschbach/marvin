@@ -23,6 +23,11 @@ func NewNotificationSender(client *slack.Client, adminUsers []string) *Notificat
 	}
 }
 
+// GetClient returns the underlying Slack client
+func (ns *NotificationSender) GetClient() *slack.Client {
+	return ns.client
+}
+
 // NotifyAdmins sends approval notifications to admin users
 func (ns *NotificationSender) NotifyAdmins(ctx context.Context, request *ToolApprovalRequest) error {
 	message := ns.formatApprovalForSlack(request)

@@ -199,6 +199,38 @@ func (tts *TenantToolSet) IsAdmin(userID string) bool {
 	return tts.policy.IsAdmin(userID)
 }
 
+// RemoveUserTool removes a user's access to a specific tool.
+// Returns an error if the tool is not found or if the user doesn't have access.
+func (tts *TenantToolSet) RemoveUserTool(ctx context.Context, userID, toolID string) error {
+	tts.mutex.Lock()
+	defer tts.mutex.Unlock()
+
+	if tts.registry == nil {
+		return fmt.Errorf("tools not initialized")
+	}
+
+	if !tts.registry.RemoveUserFromTool(toolID, userID) {
+		return fmt.Errorf("tool %q not found or user does not have access", toolID)
+	}
+	return nil
+}
+
+// ShareToolToUser shares a tool with another user.
+// Returns an error if the tool is not found.
+func (tts *TenantToolSet) ShareToolToUser(ctx context.Context, toolID, targetUserID string) error {
+	tts.mutex.Lock()
+	defer tts.mutex.Unlock()
+
+	if tts.registry == nil {
+		return fmt.Errorf("tools not initialized")
+	}
+
+	if !tts.registry.AddUserToTool(toolID, targetUserID) {
+		return fmt.Errorf("tool %q not found", toolID)
+	}
+	return nil
+}
+
 // SetGlobalToolForTesting adds a tool directly to registry (for testing only)
 func (tts *TenantToolSet) SetGlobalToolForTesting(name string, tool conversation.Tool) {
 	tts.registry.RegisterToolDef(context.Background(), tool, name, nil)
