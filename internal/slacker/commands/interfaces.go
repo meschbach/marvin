@@ -60,6 +60,7 @@ type SecurityLogger interface {
 	LogToolRemoved(userID, toolID string)
 	LogToolShare(userID, toolID, targetWorkspace string)
 	LogConfigChange(userID, configType, details string)
+	LogAdminAction(adminID, action, target string)
 }
 
 type SessionManager interface {

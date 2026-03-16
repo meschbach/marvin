@@ -63,14 +63,8 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create approval workflow
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
-	// Create mock notification sender to avoid actual Slack calls
-	notificationSender := NewMockNotificationSender()
-
 	// Create a test client adapter that wraps *slack.Client to implement SlackClientAPI
 	testClient := &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))}
-
-	// Create tool manager
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
 
 	// Create a mock connection (use adapter to implement interface)
 	conn := &SlackConnection{
@@ -83,7 +77,7 @@ func TestMessageFlow_Integration(t *testing.T) {
 		intentProcessor,
 		conn,
 		queryProcessor,
-		toolManager,
+		approvalWorkflow,
 		sessionManager,
 		logger,
 		cfg,
@@ -133,19 +127,10 @@ func TestMessageFlow_Integration(t *testing.T) {
 			TimeStamp:   "1234567890.123456",
 		}
 
-		// Step 2: Process the message
+		// Step 2: Process the message - tool intents now return an error since toolManager is removed
 		err := messageHandler.ProcessMessage(ctx, event)
-		assert.NoError(t, err, "Tool intent processing should not return error")
-
-		// Step 3: Verify session was created but no user message added (tool intent handled differently)
-		session, exists := sessionManager.GetSession("U987654321", "D1234567891")
-		assert.True(t, exists, "Session should be created for tool intent")
-		assert.NotNil(t, session)
-		// Tool intent messages are not added to session history
-		assert.Empty(t, session.Messages, "Tool intent messages should not be added to session")
-
-		// Additional verification: Check that approval workflow was triggered
-		// We can't easily verify this without mocks, but the lack of panic is good
+		assert.Error(t, err, "Tool intent should return error since toolManager is removed")
+		assert.Contains(t, err.Error(), "unknown intent action: add_tool")
 	})
 
 	t.Run("ChannelMentionFlow", func(t *testing.T) {
@@ -224,10 +209,6 @@ func TestEventRouter_Integration(t *testing.T) {
 	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
-	// Create mock notification sender to avoid nil pointer issues
-	notificationSender := NewMockNotificationSender()
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, nil)
-
 	conn := &SlackConnection{
 		botUserID: "U123456789",
 		client:    &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))},
@@ -237,7 +218,7 @@ func TestEventRouter_Integration(t *testing.T) {
 		intentProcessor,
 		conn,
 		queryProcessor,
-		toolManager,
+		approvalWorkflow,
 		sessionManager,
 		logger,
 		cfg, // Use config with help disabled

@@ -81,7 +81,6 @@ type CommandDeps struct {
 	UserID           string
 	SlackClient      SlackClientAPI
 	Config           *config.File
-	ToolManager      *ToolManagerImpl
 	SessionManager   *SessionManager
 	Connection       *SlackConnection
 	ApprovalWorkflow *ApprovalWorkflow
@@ -91,15 +90,15 @@ type CommandDeps struct {
 
 // MessageHandler processes incoming Slack messages and intents
 type MessageHandler struct {
-	intentProcessor *IntentProcessor
-	connection      *SlackConnection
-	queryHandler    QueryHandler
-	toolManager     *ToolManagerImpl
-	sessionManager  *SessionManager
-	securityLogger  *sec.SecurityLogger
-	config          *config.File
-	tenantToolSet   *query.TenantToolSet
-	commandRegistry CommandRegistry
+	intentProcessor  *IntentProcessor
+	connection       *SlackConnection
+	queryHandler     QueryHandler
+	approvalWorkflow *ApprovalWorkflow
+	sessionManager   *SessionManager
+	securityLogger   *sec.SecurityLogger
+	config           *config.File
+	tenantToolSet    *query.TenantToolSet
+	commandRegistry  CommandRegistry
 }
 
 // NewMessageHandler creates a new message handler
@@ -107,21 +106,21 @@ func NewMessageHandler(
 	intentProcessor *IntentProcessor,
 	connection *SlackConnection,
 	queryHandler QueryHandler,
-	toolManager *ToolManagerImpl,
+	approvalWorkflow *ApprovalWorkflow,
 	sessionManager *SessionManager,
 	securityLogger *sec.SecurityLogger,
 	config *config.File,
 	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
 	mh := &MessageHandler{
-		intentProcessor: intentProcessor,
-		connection:      connection,
-		queryHandler:    queryHandler,
-		toolManager:     toolManager,
-		sessionManager:  sessionManager,
-		securityLogger:  securityLogger,
-		config:          config,
-		tenantToolSet:   tenantToolSet,
+		intentProcessor:  intentProcessor,
+		connection:       connection,
+		queryHandler:     queryHandler,
+		approvalWorkflow: approvalWorkflow,
+		sessionManager:   sessionManager,
+		securityLogger:   securityLogger,
+		config:           config,
+		tenantToolSet:    tenantToolSet,
 	}
 
 	registry := NewSimpleCommandRegistry()
@@ -258,6 +257,10 @@ func (s *securityLoggerAdapter) LogToolShare(userID, toolID, targetWorkspace str
 
 func (s *securityLoggerAdapter) LogConfigChange(userID, configType, details string) {
 	s.sl.LogConfigChange(userID, configType, details)
+}
+
+func (s *securityLoggerAdapter) LogAdminAction(adminID, action, target string) {
+	s.sl.LogAdminAction(adminID, action, target)
 }
 
 // sessionManagerAdapter implements commands.SessionManager
@@ -523,10 +526,9 @@ func (mh *MessageHandler) handleCommand(ctx context.Context, ev *slackevents.Mes
 			UserID:           ev.User,
 			SlackClient:      mh.connection.client,
 			Config:           mh.config,
-			ToolManager:      mh.toolManager,
 			SessionManager:   mh.sessionManager,
 			Connection:       mh.connection,
-			ApprovalWorkflow: mh.toolManager.GetApprovalWorkflow(),
+			ApprovalWorkflow: mh.approvalWorkflow,
 			TenantToolSet:    mh.tenantToolSet,
 			SecurityLogger:   mh.securityLogger,
 		}
@@ -618,10 +620,9 @@ func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackC
 			UserID:           slackCtx.UserID,
 			SlackClient:      mh.connection.client,
 			Config:           mh.config,
-			ToolManager:      mh.toolManager,
 			SessionManager:   mh.sessionManager,
 			Connection:       mh.connection,
-			ApprovalWorkflow: mh.toolManager.GetApprovalWorkflow(),
+			ApprovalWorkflow: mh.approvalWorkflow,
 			TenantToolSet:    mh.tenantToolSet,
 			SecurityLogger:   mh.securityLogger,
 		}
@@ -629,11 +630,7 @@ func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackC
 		return commands.HandleModelAccess(ctx, cmdDeps, msg)
 	}
 
-	if strings.HasPrefix(intent.Action, "admin_") {
-		return mh.handleAdminIntent(ctx, slackCtx, session, intent)
-	}
-
-	return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
+	return fmt.Errorf("unknown intent action: %s", intent.Action)
 }
 
 func modelAccessIntentToMessage(intent *ToolManagementIntent) string {
@@ -666,74 +663,6 @@ func (mh *MessageHandler) handleQuery(ctx context.Context, ev *slackevents.Messa
 	updater := NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
 	queryError := mh.queryHandler.HandleQueryWithUpdater(ctx, slackCtx, session, message, updater)
 	return queryError
-}
-
-// handleAdminIntent provides admin-specific help and escalation
-func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
-		_, _, err := mh.connection.GetClient().PostMessageContext(
-			ctx,
-			slackCtx.ChannelID,
-			slack.MsgOptionText("❌ Only admins can use admin commands.", true),
-		)
-		return err
-	}
-
-	switch intent.Action {
-	case "admin_help":
-		return mh.handleAdminHelp(ctx, slackCtx, intent)
-	case "admin_escalation":
-		return mh.handleAdminEscalation(ctx, slackCtx, intent)
-	default:
-		_, _, err := mh.connection.GetClient().PostMessageContext(
-			ctx,
-			slackCtx.ChannelID,
-			slack.MsgOptionText("❌ Unknown admin command.", true),
-		)
-		return err
-	}
-}
-
-func (mh *MessageHandler) handleAdminHelp(ctx context.Context, slackCtx *SlackContext, intent *ToolManagementIntent) error {
-	return mh.sendFallbackAdminHelp(ctx, slackCtx)
-}
-
-func (mh *MessageHandler) sendFallbackAdminHelp(ctx context.Context, slackCtx *SlackContext) error {
-	fallbackHelp := "👑 **Admin Help**\n\n" +
-		"Here are some admin commands you can use:\n\n" +
-		"• `list pending requests` - See tool approval requests\n" +
-		"• `approve tool <request-id>` - Approve a tool request\n" +
-		"• `reject tool <request-id>` - Reject a tool request\n" +
-		"• `model access list` - Show model access settings\n" +
-		"• `allow model <model-name>` - Allow a model\n" +
-		"• `deny model <model-name>` - Deny a model\n" +
-		"• `admin help <topic>` - Get admin-specific help\n" +
-		"• `escalate <issue>` - Escalate to support"
-
-	_, _, err := mh.connection.GetClient().PostMessageContext(
-		ctx,
-		slackCtx.ChannelID,
-		slack.MsgOptionText(fallbackHelp, true),
-	)
-	return err
-}
-
-func (mh *MessageHandler) handleAdminEscalation(ctx context.Context, slackCtx *SlackContext, intent *ToolManagementIntent) error {
-	issue, convertible := intent.Config.(string)
-	if !convertible {
-		return errors.New("config is not a string")
-	}
-	escalationMessage := fmt.Sprintf("🚨 **Admin Escalation**\n\n**User:** @%s\n**Issue:** %s\n\n"+
-		"This escalation has been logged and support will contact you shortly.", slackCtx.UserID, issue)
-
-	mh.securityLogger.LogAdminAction(slackCtx.UserID, "escalation", issue)
-
-	_, _, err := mh.connection.GetClient().PostMessageContext(
-		ctx,
-		slackCtx.ChannelID,
-		slack.MsgOptionText(escalationMessage, true),
-	)
-	return err
 }
 
 // handleIntentFailure provides intelligent help when intent recognition fails
@@ -1002,33 +931,6 @@ func handlePreferencesCommand(ctx context.Context, deps *CommandDeps, msg string
 	_, _, err := deps.SlackClient.PostMessage(
 		deps.UserID,
 		slack.MsgOptionText("To manage your preferences, please use natural language like: \"show my preferences\"", false),
-	)
-	return err
-}
-
-func handleAdminCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	if !deps.TenantToolSet.IsAdmin(deps.UserID) {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Only admins can use admin commands", false),
-		)
-		return err
-	}
-
-	adminHelp := "👑 **Admin Help**\n\n" +
-		"Here are some admin commands you can use:\n\n" +
-		"• `list pending requests` - See tool approval requests\n" +
-		"• `approve tool <request-id>` - Approve a tool request\n" +
-		"• `reject tool <request-id>` - Reject a tool request\n" +
-		"• `model access list` - Show model access settings\n" +
-		"• `allow model <model-name>` - Allow a model\n" +
-		"• `deny model <model-name>` - Deny a model\n" +
-		"• `admin help <topic>` - Get admin-specific help\n" +
-		"• `escalate <issue>` - Escalate to support"
-
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(adminHelp, false),
 	)
 	return err
 }

@@ -9,11 +9,19 @@ import (
 )
 
 func HandleAdminHelp(ctx context.Context, deps *CommandsDependencies, msg string) error {
-	return nil
-}
+	deps.SecurityLogger.LogAdminAction(deps.Context.UserID(), "admin_help", "")
 
-func HandleEscalate(ctx context.Context, deps *CommandsDependencies, msg string) error {
-	return nil
+	adminHelp := "👑 **Admin Help**\n\n" +
+		"Here are some admin commands you can use:\n\n" +
+		"• `list pending requests` - See tool approval requests\n" +
+		"• `approve tool <request-id>` - Approve a tool request\n" +
+		"• `reject tool <request-id>` - Reject a tool request\n" +
+		"• `model access list` - Show model access settings\n" +
+		"• `allow model <model-name>` - Allow a model\n" +
+		"• `deny model <model-name>` - Deny a model\n" +
+		"• `admin help <topic>` - Get admin-specific help"
+
+	return deps.MessageSender.SendMessage(ctx, deps.Context.UserID(), adminHelp)
 }
 
 func SendMessage(client *slack.Client, channelID, message string) error {
