@@ -1,0 +1,39 @@
+name: PR request
+
+on: pull_request
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        go-version: [ '1.25', '1.26' ]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Build and run unit tests ${{ matrix.go-version }}
+        run: |
+          go test -count 1 ./internal/...
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+      - name: Setup Ollama
+        uses: ai-action/setup-ollama@v1
+      - name: Set up Docker
+        uses: docker/setup-docker-action@v5
+      - name: Run integration tests
+        run: |
+          ollama pull mxbai-embed-large:latest
+          ollama pull qwen3:0.6b
+          sed -i 's/3b/0.6b/g' ./marvin.test.hcl
+          sed -i 's/ministral/qwen3/g' ./marvin.test.hcl
+          ./test.sh
