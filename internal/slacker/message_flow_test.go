@@ -66,13 +66,16 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create mock notification sender to avoid actual Slack calls
 	notificationSender := NewMockNotificationSender()
 
+	// Create a test client adapter that wraps *slack.Client to implement SlackClientAPI
+	testClient := &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))}
+
 	// Create tool manager
 	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
 
-	// Create a mock connection (create a real client to avoid panics in GetUserInfo)
+	// Create a mock connection (use adapter to implement interface)
 	conn := &SlackConnection{
 		botUserID: "U123456789",
-		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
+		client:    testClient,
 	}
 
 	// Create message handler for integration tests
@@ -227,7 +230,7 @@ func TestEventRouter_Integration(t *testing.T) {
 
 	conn := &SlackConnection{
 		botUserID: "U123456789",
-		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
+		client:    &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))},
 	}
 
 	messageHandler := NewMessageHandler(

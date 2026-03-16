@@ -7,6 +7,37 @@ import (
 	"github.com/slack-go/slack"
 )
 
+// mockClientForNotificationSender is a minimal mock for SlackClientAPI
+type mockClientForNotificationSender struct{}
+
+func (m *mockClientForNotificationSender) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
+	return channelID, "timestamp", nil
+}
+
+func (m *mockClientForNotificationSender) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+	return channelID, "timestamp", nil
+}
+
+func (m *mockClientForNotificationSender) GetUserInfo(userID string) (*slack.User, error) {
+	return &slack.User{ID: userID, Name: "test"}, nil
+}
+
+func (m *mockClientForNotificationSender) AuthTest() (*slack.AuthTestResponse, error) {
+	return &slack.AuthTestResponse{UserID: "U123", User: "test"}, nil
+}
+
+func (m *mockClientForNotificationSender) OpenConversation(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
+	return &slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{ID: "C123"},
+		},
+	}, false, false, nil
+}
+
+func (m *mockClientForNotificationSender) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+	return channelID, timestamp, "updated", nil
+}
+
 // MockNotificationCall represents a captured call to the notification sender
 type MockNotificationCall struct {
 	UserID  string
@@ -16,19 +47,19 @@ type MockNotificationCall struct {
 // MockNotificationSender is a mock implementation that captures calls without making Slack API calls
 type MockNotificationSender struct {
 	calls  []MockNotificationCall
-	client *slack.Client
+	client SlackClientAPI
 }
 
 // NewMockNotificationSender creates a mock notification sender for testing
 func NewMockNotificationSender() *MockNotificationSender {
 	return &MockNotificationSender{
 		calls:  make([]MockNotificationCall, 0),
-		client: slack.New("test-token"),
+		client: &mockClientForNotificationSender{},
 	}
 }
 
-// GetClient returns the mock client
-func (m *MockNotificationSender) GetClient() *slack.Client {
+// GetClient returns the mock client API
+func (m *MockNotificationSender) GetClient() SlackClientAPI {
 	return m.client
 }
 

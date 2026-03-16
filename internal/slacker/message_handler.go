@@ -79,7 +79,7 @@ func (r *SimpleCommandRegistry) Match(input string) (string, CommandHandler, boo
 type CommandDeps struct {
 	ChannelID        string
 	UserID           string
-	SlackClient      *slack.Client
+	SlackClient      SlackClientAPI
 	Config           *config.File
 	ToolManager      *ToolManagerImpl
 	SessionManager   *SessionManager
@@ -135,6 +135,8 @@ func NewMessageHandler(
 	registry.Register("reject", mh.wrapCommandsHandler(commands.HandleReject))
 	registry.Register("share tool", mh.wrapCommandsHandler(commands.HandleShareTool))
 	registry.Register("thinking", mh.wrapCommandsHandler(commands.HandleThinking))
+	registry.Register("done", mh.wrapCommandsHandler(commands.HandleDone))
+	registry.Register("verbose", mh.wrapCommandsHandler(commands.HandleVerbose))
 	registry.Register("preferences", mh.wrapCommandsHandler(commands.HandlePreferences))
 	registry.Register("admin", mh.wrapCommandsHandler(commands.HandleAdminHelp))
 	registry.Register("model access", mh.wrapCommandsHandler(commands.HandleModelAccess))
@@ -254,6 +256,10 @@ func (s *securityLoggerAdapter) LogToolShare(userID, toolID, targetWorkspace str
 	s.sl.LogToolShare(userID, toolID, targetWorkspace)
 }
 
+func (s *securityLoggerAdapter) LogConfigChange(userID, configType, details string) {
+	s.sl.LogConfigChange(userID, configType, details)
+}
+
 // sessionManagerAdapter implements commands.SessionManager
 type sessionManagerAdapter struct {
 	sm *SessionManager
@@ -261,6 +267,32 @@ type sessionManagerAdapter struct {
 
 func (s *sessionManagerAdapter) ClearSession(userID, channelID string) error {
 	return s.sm.ClearSession(userID, channelID)
+}
+
+func (s *sessionManagerAdapter) GetPreferences(userID string) (commands.UserPreferences, bool) {
+	prefs, found := s.sm.GetPreferences(userID)
+	if !found {
+		return commands.UserPreferences{}, false
+	}
+	return commands.UserPreferences{
+		ShowThinking:   prefs.ShowThinking,
+		ShowTools:      prefs.ShowTools,
+		ShowDone:       prefs.ShowDone,
+		ThinkingFormat: prefs.ThinkingFormat,
+		ToolFormat:     prefs.ToolFormat,
+		Verbose:        prefs.Verbose,
+	}, true
+}
+
+func (s *sessionManagerAdapter) UpdatePreferences(userID string, preferences commands.UserPreferences) error {
+	return s.sm.UpdatePreferences(userID, UserPreferences{
+		ShowThinking:   preferences.ShowThinking,
+		ShowTools:      preferences.ShowTools,
+		ShowDone:       preferences.ShowDone,
+		ThinkingFormat: preferences.ThinkingFormat,
+		ToolFormat:     preferences.ToolFormat,
+		Verbose:        preferences.Verbose,
+	})
 }
 
 func (s *sessionManagerAdapter) GetOrCreateSession(ctx context.Context, userID, channelID string, userCtx *query.UserContext) (*commands.UserSession, error) {
@@ -417,7 +449,7 @@ func (mh *MessageHandler) ensureToolsInitialized(ctx context.Context, slackCtx *
 		return nil
 	}
 
-	_, _, err := mh.connection.client.PostMessageContext(
+	_, _, err := mh.connection.GetClient().PostMessageContext(
 		ctx,
 		slackCtx.ChannelID,
 		slack.MsgOptionText("🔧 Initializing tools for first use, please wait...", true),
@@ -439,7 +471,7 @@ func (mh *MessageHandler) ensureToolsInitialized(ctx context.Context, slackCtx *
 		}
 
 		mh.securityLogger.LogError(slackCtx.UserID, "ToolInit", initErrMsg)
-		_, _, err = mh.connection.client.PostMessageContext(
+		_, _, err = mh.connection.GetClient().PostMessageContext(
 			ctx,
 			slackCtx.ChannelID,
 			slack.MsgOptionText(initErrMsg, true),
@@ -450,7 +482,7 @@ func (mh *MessageHandler) ensureToolsInitialized(ctx context.Context, slackCtx *
 		return fmt.Errorf("tool initialization failed: %w", initErr)
 	}
 
-	_, _, err = mh.connection.client.PostMessageContext(
+	_, _, err = mh.connection.GetClient().PostMessageContext(
 		ctx,
 		slackCtx.ChannelID,
 		slack.MsgOptionText("✅ Tools ready!", true),
@@ -469,7 +501,7 @@ func (mh *MessageHandler) handleCommand(ctx context.Context, ev *slackevents.Mes
 
 	if mh.commandRegistry == nil {
 		mh.securityLogger.LogError(ev.User, "Command", "Command registry not configured")
-		_, _, err := mh.connection.client.PostMessageContext(
+		_, _, err := mh.connection.GetClient().PostMessageContext(
 			ctx,
 			ev.Channel,
 			slack.MsgOptionText("⚠️ Commands not configured. Please contact an administrator.", true),
@@ -502,7 +534,7 @@ func (mh *MessageHandler) handleCommand(ctx context.Context, ev *slackevents.Mes
 	}
 
 	mh.securityLogger.LogError(ev.User, "Command", fmt.Sprintf("Unauthorized admin command: %s", cmdName))
-	_, _, err := mh.connection.client.PostMessageContext(
+	_, _, err := mh.connection.GetClient().PostMessageContext(
 		ctx,
 		ev.Channel,
 		slack.MsgOptionText("❌ You don't have permission to run admin commands.", true),
@@ -535,7 +567,7 @@ func (mh *MessageHandler) handleUnknownCommand(ctx context.Context, ev *slackeve
 		"• `add tool` - Add a new tool\n" +
 		"• `remove tool` - Remove a tool\n"
 
-	_, _, err := mh.connection.client.PostMessageContext(
+	_, _, err := mh.connection.GetClient().PostMessageContext(
 		ctx,
 		ev.Channel,
 		slack.MsgOptionText(helpText, true),
@@ -579,12 +611,22 @@ func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackC
 		))
 	defer span.End()
 
-	if mh.isPreferenceIntent(intent) {
-		return mh.handlePreferenceIntent(ctx, slackCtx, session, intent)
-	}
-
 	if strings.HasPrefix(intent.Action, "model_access_") {
-		return mh.handleModelAccessIntent(ctx, slackCtx, session, intent)
+		msg := modelAccessIntentToMessage(intent)
+		deps := &CommandDeps{
+			ChannelID:        slackCtx.ChannelID,
+			UserID:           slackCtx.UserID,
+			SlackClient:      mh.connection.client,
+			Config:           mh.config,
+			ToolManager:      mh.toolManager,
+			SessionManager:   mh.sessionManager,
+			Connection:       mh.connection,
+			ApprovalWorkflow: mh.toolManager.GetApprovalWorkflow(),
+			TenantToolSet:    mh.tenantToolSet,
+			SecurityLogger:   mh.securityLogger,
+		}
+		cmdDeps := mh.commandDepsToCommandsDepsAdapter(deps)
+		return commands.HandleModelAccess(ctx, cmdDeps, msg)
 	}
 
 	if strings.HasPrefix(intent.Action, "admin_") {
@@ -594,13 +636,21 @@ func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackC
 	return mh.toolManager.HandleToolIntent(ctx, slackCtx, session, intent)
 }
 
-// isPreferenceIntent determines if the intent is a preference management intent
-func (mh *MessageHandler) isPreferenceIntent(intent *ToolManagementIntent) bool {
-	return strings.Contains(intent.Action, "thinking") ||
-		strings.Contains(intent.Action, "tools") ||
-		strings.Contains(intent.Action, "done") ||
-		strings.Contains(intent.Action, "verbose") ||
-		intent.Action == "show_preferences"
+func modelAccessIntentToMessage(intent *ToolManagementIntent) string {
+	switch intent.Action {
+	case "model_access_list":
+		return "list"
+	case "model_access_allow":
+		return "allow " + intent.Target
+	case "model_access_deny":
+		return "deny " + intent.Target
+	case "model_access_clear":
+		return "clear"
+	case "model_access_status":
+		return "status " + intent.TargetUser
+	default:
+		return ""
+	}
 }
 
 // handleQuery processes a regular query
@@ -618,260 +668,10 @@ func (mh *MessageHandler) handleQuery(ctx context.Context, ev *slackevents.Messa
 	return queryError
 }
 
-// handlePreferenceIntent processes preference management commands
-func (mh *MessageHandler) handlePreferenceIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	// Process the intent and get response message
-	response, err := HandlePreferenceIntent(intent, mh.sessionManager, session.UserID)
-	if err != nil {
-		mh.securityLogger.LogError(slackCtx.UserID, "PreferenceIntent", err.Error())
-		response = "❌ Error processing preference command. Please try again."
-	}
-
-	// Send response to user
-	_, _, err = mh.connection.client.PostMessageContext(
-		ctx,
-		slackCtx.ChannelID,
-		slack.MsgOptionText(response, true),
-	)
-	return err
-}
-
-// handleModelAccessIntent processes model access management commands
-func (mh *MessageHandler) handleModelAccessIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	// Check if user is admin
-	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
-		mh.securityLogger.LogError(slackCtx.UserID, "ModelAccess", "Unauthorized model access attempt")
-		response := "❌ Only administrators can manage model access."
-		_, _, err := mh.connection.client.PostMessageContext(
-			ctx,
-			slackCtx.ChannelID,
-			slack.MsgOptionText(response, true),
-		)
-		return err
-	}
-
-	var response string
-	var err error
-
-	switch intent.Action {
-	case "model_access_list":
-		response, err = mh.handleModelAccessList(ctx, slackCtx)
-	case "model_access_allow":
-		response, err = mh.handleModelAccessAllow(ctx, slackCtx, intent.Target)
-	case "model_access_deny":
-		response, err = mh.handleModelAccessDeny(ctx, slackCtx, intent.Target)
-	case "model_access_clear":
-		response, err = mh.handleModelAccessClear(ctx, slackCtx)
-	case "model_access_status":
-		response, err = mh.handleModelAccessStatus(ctx, slackCtx, intent.TargetUser)
-	default:
-		response = "❌ Unknown model access command."
-	}
-
-	if err != nil {
-		mh.securityLogger.LogError(slackCtx.UserID, "ModelAccess", err.Error())
-		response = fmt.Sprintf("❌ Error processing model access command: %v", err)
-	}
-
-	// Send response to user
-	_, _, err = mh.connection.client.PostMessageContext(
-		ctx,
-		slackCtx.ChannelID,
-		slack.MsgOptionText(response, true),
-	)
-	return err
-}
-
-// handleModelAccessList shows current model access configuration
-func (mh *MessageHandler) handleModelAccessList(ctx context.Context, slackCtx *SlackContext) (string, error) {
-	state, err := mh.config.GetEffectiveModelAccess()
-	if err != nil {
-		return "", fmt.Errorf("getting model access config: %w", err)
-	}
-
-	return formatModelAccessResponse(state), nil
-}
-
-// formatModelAccessResponse formats model access state into a response string
-func formatModelAccessResponse(state *config.ModelAccessState) string {
-	var response strings.Builder
-	fmt.Fprintf(&response, "🤖 **Model Access Configuration**\n\n")
-
-	hasNoRestrictions := len(state.AllowedModels) == 0 && len(state.DeniedModels) == 0
-	if hasNoRestrictions {
-		response.WriteString("No restrictions in place - all models are allowed.\n")
-	} else {
-		formatModelList(&response, state.AllowedModels, "✅ **Allowed Models:**")
-		formatModelList(&response, state.DeniedModels, "❌ **Denied Models:**")
-	}
-
-	fmt.Fprintf(&response, "\n🔧 **Default Model:** %s\n", state.DefaultModel)
-
-	if state.UpdatedBy != "" && state.LastUpdated != "" {
-		fmt.Fprintf(&response, "📝 **Last Updated:** %s by %s\n", state.LastUpdated, state.UpdatedBy)
-	}
-
-	return response.String()
-}
-
-func formatModelList(builder *strings.Builder, models []string, header string) {
-	if len(models) == 0 {
-		return
-	}
-	fmt.Fprintf(builder, "%s\n", header)
-	for _, model := range models {
-		fmt.Fprintf(builder, "  • %s\n", model)
-	}
-}
-
-// handleModelAccessAllow adds a model to the allowed list
-func (mh *MessageHandler) handleModelAccessAllow(ctx context.Context, slackCtx *SlackContext, model string) (string, error) {
-	state, err := mh.config.GetEffectiveModelAccess()
-	if err != nil {
-		return "", fmt.Errorf("getting current model access config: %w", err)
-	}
-
-	// Remove from denied list if present
-	deniedModels := []string{}
-	for _, denied := range state.DeniedModels {
-		if denied != model {
-			deniedModels = append(deniedModels, denied)
-		}
-	}
-
-	// Add to allowed list if not already present
-	allowedModels := state.AllowedModels
-	for _, allowed := range allowedModels {
-		if allowed == model {
-			return fmt.Sprintf("ℹ️ Model '%s' is already allowed.", model), nil
-		}
-	}
-	allowedModels = append(allowedModels, model)
-
-	// Save updated state
-	newState := &config.ModelAccessState{
-		AllowedModels: allowedModels,
-		DeniedModels:  deniedModels,
-		DefaultModel:  state.DefaultModel,
-		LastUpdated:   "", // Will be set by SaveModelAccessState
-		UpdatedBy:     "", // Will be set by SaveModelAccessState
-	}
-
-	err = mh.config.SaveModelAccessState(newState, slackCtx.UserID)
-	if err != nil {
-		return "", fmt.Errorf("saving model access state: %w", err)
-	}
-
-	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access",
-		fmt.Sprintf("Allowed model: %s", model))
-
-	return fmt.Sprintf("✅ Model '%s' has been added to the allowed list.", model), nil
-}
-
-// handleModelAccessDeny adds a model to the denied list
-func (mh *MessageHandler) handleModelAccessDeny(ctx context.Context, slackCtx *SlackContext, model string) (string, error) {
-	state, err := mh.config.GetEffectiveModelAccess()
-	if err != nil {
-		return "", fmt.Errorf("getting current model access config: %w", err)
-	}
-
-	// Remove from allowed list if present
-	allowedModels := []string{}
-	for _, allowed := range state.AllowedModels {
-		if allowed != model {
-			allowedModels = append(allowedModels, allowed)
-		}
-	}
-
-	// Add to denied list if not already present
-	deniedModels := state.DeniedModels
-	for _, denied := range deniedModels {
-		if denied == model {
-			return fmt.Sprintf("ℹ️ Model '%s' is already denied.", model), nil
-		}
-	}
-	deniedModels = append(deniedModels, model)
-
-	// Save updated state
-	newState := &config.ModelAccessState{
-		AllowedModels: allowedModels,
-		DeniedModels:  deniedModels,
-		DefaultModel:  state.DefaultModel,
-		LastUpdated:   "", // Will be set by SaveModelAccessState
-		UpdatedBy:     "", // Will be set by SaveModelAccessState
-	}
-
-	err = mh.config.SaveModelAccessState(newState, slackCtx.UserID)
-	if err != nil {
-		return "", fmt.Errorf("saving model access state: %w", err)
-	}
-
-	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access",
-		fmt.Sprintf("Denied model: %s", model))
-
-	return fmt.Sprintf("❌ Model '%s' has been added to the denied list.", model), nil
-}
-
-// handleModelAccessClear clears all model access restrictions
-func (mh *MessageHandler) handleModelAccessClear(ctx context.Context, slackCtx *SlackContext) (string, error) {
-	// Create empty state (no restrictions)
-	newState := &config.ModelAccessState{
-		AllowedModels: []string{},
-		DeniedModels:  []string{},
-		DefaultModel:  config.DefaultLanguageModel,
-		LastUpdated:   "", // Will be set by SaveModelAccessState
-		UpdatedBy:     "", // Will be set by SaveModelAccessState
-	}
-
-	err := mh.config.SaveModelAccessState(newState, slackCtx.UserID)
-	if err != nil {
-		return "", fmt.Errorf("saving model access state: %w", err)
-	}
-
-	mh.securityLogger.LogConfigChange(slackCtx.UserID, "model_access", "Cleared all restrictions")
-
-	return "✅ All model access restrictions have been cleared. All models are now allowed.", nil
-}
-
-// handleModelAccessStatus shows model access status for a specific user
-func (mh *MessageHandler) handleModelAccessStatus(ctx context.Context, slackCtx *SlackContext, targetUserID string) (string, error) {
-	// Get target user info
-	user, err := mh.connection.GetClient().GetUserInfo(targetUserID)
-	if err != nil {
-		return "", fmt.Errorf("getting user info: %w", err)
-	}
-
-	// Check if user is admin
-	isAdmin := mh.tenantToolSet.IsAdmin(targetUserID)
-
-	response := fmt.Sprintf("👤 **Model Access Status for @%s**\n\n", user.Name)
-
-	if isAdmin {
-		response += "👑 **Administrator** - Can bypass all model access restrictions.\n"
-	} else {
-		response += "👤 **Regular User** - Subject to model access restrictions.\n"
-	}
-
-	// Show current model configuration
-	model := mh.config.LanguageModel()
-	allowed, reason := mh.config.ValidateModelAccess(model, targetUserID)
-
-	response += fmt.Sprintf("🤖 **Current Model:** %s\n", model)
-
-	if allowed {
-		response += "✅ **Access:** Allowed\n"
-	} else {
-		response += fmt.Sprintf("❌ **Access:** Denied\n📝 **Reason:** %s\n", reason)
-		response += fmt.Sprintf("🔄 **Fallback:** Would use %s\n", config.DefaultLanguageModel)
-	}
-
-	return response, nil
-}
-
 // handleAdminIntent provides admin-specific help and escalation
 func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
 	if !mh.tenantToolSet.IsAdmin(slackCtx.UserID) {
-		_, _, err := mh.connection.client.PostMessageContext(
+		_, _, err := mh.connection.GetClient().PostMessageContext(
 			ctx,
 			slackCtx.ChannelID,
 			slack.MsgOptionText("❌ Only admins can use admin commands.", true),
@@ -885,7 +685,7 @@ func (mh *MessageHandler) handleAdminIntent(ctx context.Context, slackCtx *Slack
 	case "admin_escalation":
 		return mh.handleAdminEscalation(ctx, slackCtx, intent)
 	default:
-		_, _, err := mh.connection.client.PostMessageContext(
+		_, _, err := mh.connection.GetClient().PostMessageContext(
 			ctx,
 			slackCtx.ChannelID,
 			slack.MsgOptionText("❌ Unknown admin command.", true),
@@ -910,7 +710,7 @@ func (mh *MessageHandler) sendFallbackAdminHelp(ctx context.Context, slackCtx *S
 		"• `admin help <topic>` - Get admin-specific help\n" +
 		"• `escalate <issue>` - Escalate to support"
 
-	_, _, err := mh.connection.client.PostMessageContext(
+	_, _, err := mh.connection.GetClient().PostMessageContext(
 		ctx,
 		slackCtx.ChannelID,
 		slack.MsgOptionText(fallbackHelp, true),
@@ -928,7 +728,7 @@ func (mh *MessageHandler) handleAdminEscalation(ctx context.Context, slackCtx *S
 
 	mh.securityLogger.LogAdminAction(slackCtx.UserID, "escalation", issue)
 
-	_, _, err := mh.connection.client.PostMessageContext(
+	_, _, err := mh.connection.GetClient().PostMessageContext(
 		ctx,
 		slackCtx.ChannelID,
 		slack.MsgOptionText(escalationMessage, true),

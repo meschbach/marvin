@@ -15,7 +15,7 @@ import (
 
 // SlackConnection handles Slack API and Socket Mode connections
 type SlackConnection struct {
-	client         *slack.Client
+	client         SlackClientAPI
 	socketClient   *socketmode.Client
 	botName        string
 	botUserID      string
@@ -66,7 +66,7 @@ func NewSlackConnection(
 	}
 
 	return &SlackConnection{
-		client:         client,
+		client:         &slackClientAdapter{client: client},
 		socketClient:   socketClient,
 		botName:        authResp.User,
 		botUserID:      authResp.UserID,
@@ -150,8 +150,8 @@ func (sc *SlackConnection) GetTeamID() string {
 	return sc.teamID
 }
 
-// GetClient returns the Slack client
-func (sc *SlackConnection) GetClient() *slack.Client {
+// GetClient returns the Slack client API
+func (sc *SlackConnection) GetClient() SlackClientAPI {
 	return sc.client
 }
 

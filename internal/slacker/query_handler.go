@@ -150,10 +150,10 @@ func (qp *QueryProcessor) provideToolAccessHelp(ctx context.Context, slackCtx *S
 
 // sendErrorMessage sends an error message to the specified channel
 func (qp *QueryProcessor) sendErrorMessage(ctx context.Context, channelID, message string) error {
-	if qp.connection == nil || qp.connection.client == nil {
+	if qp.connection == nil || qp.connection.GetClient() == nil {
 		return nil
 	}
-	_, _, err := qp.connection.client.PostMessageContext(
+	_, _, err := qp.connection.GetClient().PostMessageContext(
 		ctx,
 		channelID,
 		slack.MsgOptionText(message, true),

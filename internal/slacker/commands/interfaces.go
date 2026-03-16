@@ -8,6 +8,36 @@ import (
 	"github.com/slack-go/slack"
 )
 
+// SlackClientAPI abstracts Slack API operations for testing.
+type SlackClientAPI interface {
+	PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error)
+	PostMessage(channelID string, options ...slack.MsgOption) (string, string, error)
+	GetUserInfo(userID string) (*slack.User, error)
+	AuthTest() (*slack.AuthTestResponse, error)
+	OpenConversation(context.Context, *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
+	UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+}
+
+type UserPreferences struct {
+	ShowThinking   bool
+	ShowTools      bool
+	ShowDone       bool
+	ThinkingFormat string
+	ToolFormat     string
+	Verbose        bool
+}
+
+func DefaultUserPreferences() UserPreferences {
+	return UserPreferences{
+		ShowThinking:   false,
+		ShowTools:      true,
+		ShowDone:       true,
+		ThinkingFormat: "plain",
+		ToolFormat:     "detailed",
+		Verbose:        false,
+	}
+}
+
 type Context interface {
 	UserID() string
 	UserName() string
@@ -29,11 +59,14 @@ type SecurityLogger interface {
 	LogToolAdded(userID, toolID, toolType string)
 	LogToolRemoved(userID, toolID string)
 	LogToolShare(userID, toolID, targetWorkspace string)
+	LogConfigChange(userID, configType, details string)
 }
 
 type SessionManager interface {
 	ClearSession(userID, channelID string) error
 	GetOrCreateSession(ctx context.Context, userID, channelID string, userCtx *query.UserContext) (*UserSession, error)
+	GetPreferences(userID string) (UserPreferences, bool)
+	UpdatePreferences(userID string, preferences UserPreferences) error
 }
 
 type ToolSet interface {
@@ -63,7 +96,7 @@ type CommandsDependencies struct {
 	ToolSet          ToolSet
 	SecurityLogger   SecurityLogger
 	SessionManager   SessionManager
-	SlackClient      *slack.Client
+	SlackClient      SlackClientAPI
 	Config           *config.File
 	Connection       Connection
 	ToolParser       ToolParser

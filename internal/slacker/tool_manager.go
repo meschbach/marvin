@@ -7,7 +7,37 @@ import (
 	"github.com/meschbach/marvin/internal/query"
 	"github.com/meschbach/marvin/internal/slacker/commands"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
+	"github.com/slack-go/slack"
 )
+
+// commandsSlackClientAdapter wraps slacker.SlackClientAPI to implement commands.SlackClientAPI
+type commandsSlackClientAdapter struct {
+	api SlackClientAPI
+}
+
+func (a *commandsSlackClientAdapter) PostMessageContext(ctx context.Context, channelID string, options ...slack.MsgOption) (string, string, error) {
+	return a.api.PostMessageContext(ctx, channelID, options...)
+}
+
+func (a *commandsSlackClientAdapter) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+	return a.api.PostMessage(channelID, options...)
+}
+
+func (a *commandsSlackClientAdapter) GetUserInfo(userID string) (*slack.User, error) {
+	return a.api.GetUserInfo(userID)
+}
+
+func (a *commandsSlackClientAdapter) AuthTest() (*slack.AuthTestResponse, error) {
+	return a.api.AuthTest()
+}
+
+func (a *commandsSlackClientAdapter) OpenConversation(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
+	return a.api.OpenConversation(ctx, params)
+}
+
+func (a *commandsSlackClientAdapter) UpdateMessageContext(ctx context.Context, channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error) {
+	return a.api.UpdateMessageContext(ctx, channelID, timestamp, options...)
+}
 
 // ToolManagerImpl handles tool management operations
 type ToolManagerImpl struct {
@@ -51,7 +81,7 @@ func (tm *ToolManagerImpl) HandleToolIntent(ctx context.Context, slackCtx *Slack
 		TenantToolSet:    tm.tenantToolSet,
 		SecurityLogger:   tm.securityLogger,
 		SessionManager:   &sessionManagerAdapterForToolManager{tm.sessionManager},
-		SlackClient:      tm.notificationSender.GetClient(),
+		SlackClient:      &commandsSlackClientAdapter{api: tm.notificationSender.GetClient()},
 		ToolParser:       &toolParserAdapter{},
 		MessageSender:    tm.notificationSender,
 	}
@@ -92,6 +122,32 @@ type sessionManagerAdapterForToolManager struct {
 
 func (s *sessionManagerAdapterForToolManager) ClearSession(userID, channelID string) error {
 	return s.sm.ClearSession(userID, channelID)
+}
+
+func (s *sessionManagerAdapterForToolManager) GetPreferences(userID string) (commands.UserPreferences, bool) {
+	prefs, found := s.sm.GetPreferences(userID)
+	if !found {
+		return commands.UserPreferences{}, false
+	}
+	return commands.UserPreferences{
+		ShowThinking:   prefs.ShowThinking,
+		ShowTools:      prefs.ShowTools,
+		ShowDone:       prefs.ShowDone,
+		ThinkingFormat: prefs.ThinkingFormat,
+		ToolFormat:     prefs.ToolFormat,
+		Verbose:        prefs.Verbose,
+	}, true
+}
+
+func (s *sessionManagerAdapterForToolManager) UpdatePreferences(userID string, preferences commands.UserPreferences) error {
+	return s.sm.UpdatePreferences(userID, UserPreferences{
+		ShowThinking:   preferences.ShowThinking,
+		ShowTools:      preferences.ShowTools,
+		ShowDone:       preferences.ShowDone,
+		ThinkingFormat: preferences.ThinkingFormat,
+		ToolFormat:     preferences.ToolFormat,
+		Verbose:        preferences.Verbose,
+	})
 }
 
 func (s *sessionManagerAdapterForToolManager) GetOrCreateSession(ctx context.Context, userID, channelID string, userCtx *query.UserContext) (*commands.UserSession, error) {
