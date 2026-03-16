@@ -90,7 +90,6 @@ type CommandDeps struct {
 
 // MessageHandler processes incoming Slack messages and intents
 type MessageHandler struct {
-	intentProcessor  *IntentProcessor
 	connection       *SlackConnection
 	queryHandler     QueryHandler
 	approvalWorkflow *ApprovalWorkflow
@@ -103,7 +102,6 @@ type MessageHandler struct {
 
 // NewMessageHandler creates a new message handler
 func NewMessageHandler(
-	intentProcessor *IntentProcessor,
 	connection *SlackConnection,
 	queryHandler QueryHandler,
 	approvalWorkflow *ApprovalWorkflow,
@@ -113,7 +111,6 @@ func NewMessageHandler(
 	tenantToolSet *query.TenantToolSet,
 ) *MessageHandler {
 	mh := &MessageHandler{
-		intentProcessor:  intentProcessor,
 		connection:       connection,
 		queryHandler:     queryHandler,
 		approvalWorkflow: approvalWorkflow,
@@ -143,11 +140,6 @@ func NewMessageHandler(
 	mh.commandRegistry = registry
 
 	return mh
-}
-
-// wrapCommandHandler wraps a command handler function to work with the registry
-func (mh *MessageHandler) wrapCommandHandler(handler func(ctx context.Context, deps *CommandDeps, msg string) error) CommandHandler {
-	return handler
 }
 
 // wrapCommandsHandler wraps a commands handler to work with CommandDeps
@@ -582,39 +574,9 @@ func (mh *MessageHandler) routeMessage(ctx context.Context, ev *slackevents.Mess
 	ctx, span := tracer.Start(ctx, "MessageHandler.routeMessage")
 	defer span.End()
 
-	intent, err := mh.intentProcessor.ProcessMessage(message)
-	if err != nil {
-		return fmt.Errorf("processing intent: %w", err)
-	}
-
-	if intent != nil {
-		span.SetAttributes(
-			attribute.String("intent.action", intent.Action),
-			attribute.Float64("intent.confidence", intent.Confidence),
-		)
-	}
-
-	if intent != nil && intent.Confidence >= 0.7 {
-		return mh.handleHighConfidenceIntent(ctx, slackCtx, session, intent)
-	}
-
-	if intent != nil && intent.Confidence < 0.7 {
-		return mh.handleIntentFailure(ctx, slackCtx, session, message, ev)
-	}
-
-	return mh.handleQuery(ctx, ev, slackCtx, session, message)
-}
-
-// handleHighConfidenceIntent routes high-confidence intents to appropriate handlers
-func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackCtx *SlackContext, session *UserSession, intent *ToolManagementIntent) error {
-	ctx, span := tracer.Start(ctx, "MessageHandler.handleHighConfidenceIntent",
-		trace.WithAttributes(
-			attribute.String("intent.action", intent.Action),
-		))
-	defer span.End()
-
-	if strings.HasPrefix(intent.Action, "model_access_") {
-		msg := modelAccessIntentToMessage(intent)
+	// First try to match against the command registry
+	if cmd, handler, ok := mh.commandRegistry.Match(message); ok {
+		span.SetAttributes(attribute.String("command.matched", cmd))
 		deps := &CommandDeps{
 			ChannelID:        slackCtx.ChannelID,
 			UserID:           slackCtx.UserID,
@@ -626,28 +588,11 @@ func (mh *MessageHandler) handleHighConfidenceIntent(ctx context.Context, slackC
 			TenantToolSet:    mh.tenantToolSet,
 			SecurityLogger:   mh.securityLogger,
 		}
-		cmdDeps := mh.commandDepsToCommandsDepsAdapter(deps)
-		return commands.HandleModelAccess(ctx, cmdDeps, msg)
+		return handler(ctx, deps, message)
 	}
 
-	return fmt.Errorf("unknown intent action: %s", intent.Action)
-}
-
-func modelAccessIntentToMessage(intent *ToolManagementIntent) string {
-	switch intent.Action {
-	case "model_access_list":
-		return "list"
-	case "model_access_allow":
-		return "allow " + intent.Target
-	case "model_access_deny":
-		return "deny " + intent.Target
-	case "model_access_clear":
-		return "clear"
-	case "model_access_status":
-		return "status " + intent.TargetUser
-	default:
-		return ""
-	}
+	// No command matched, treat as a regular query
+	return mh.handleQuery(ctx, ev, slackCtx, session, message)
 }
 
 // handleQuery processes a regular query
@@ -665,320 +610,7 @@ func (mh *MessageHandler) handleQuery(ctx context.Context, ev *slackevents.Messa
 	return queryError
 }
 
-// handleIntentFailure provides intelligent help when intent recognition fails
-func (mh *MessageHandler) handleIntentFailure(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, ev *slackevents.MessageEvent) error {
-	ctx, span := tracer.Start(ctx, "MessageHandler.handleIntentFailure",
-		trace.WithAttributes(
-			attribute.String("message", message),
-		))
-	defer span.End()
-
-	updater := mh.createHelpUpdater(session, ev)
-
-	return mh.sendBasicHelpAndFlush(ctx, updater, message)
-}
-
-func (mh *MessageHandler) createHelpUpdater(session *UserSession, ev *slackevents.MessageEvent) *SlackUpdater {
-	preferences := mh.sessionManager.ResolveUserPreferences(session.UserID, mh.config)
-	return NewSlackUpdater(mh.connection.client, ev.Channel, NewSlackFormatter(), preferences)
-}
-
-func (mh *MessageHandler) sendBasicHelpAndFlush(ctx context.Context, updater *SlackUpdater, message string) error {
-	if err := mh.sendBasicHelp(ctx, updater, message); err != nil {
-		return fmt.Errorf("failed to send basic help: %w", err)
-	}
-	if err := updater.Flush(ctx); err != nil {
-		return fmt.Errorf("flushing help message: %w", err)
-	}
-	return nil
-}
-
-// sendBasicHelp sends a basic help message when intelligent help is unavailable
-func (mh *MessageHandler) sendBasicHelp(ctx context.Context, updater *SlackUpdater, message string) error {
-	fallbackMessage := "🤖 I'm not sure what you're trying to do. Here are some things you can ask me:\n\n" +
-		"• `list my tools` - See available tools\n" +
-		"• `add http tool at <url>` - Add a new HTTP tool\n" +
-		"• `show preferences` - Display your current settings\n" +
-		"• `thinking on/off` - Toggle thinking display\n" +
-		"• Just ask me anything! - I can help with many tasks\n\n" +
-		"If you were trying a specific command, I can provide more targeted help."
-
-	return updater.AddContent(ctx, fallbackMessage)
-}
-
-// formatHelpMessage formats a help analysis into a user-friendly message
-func (mh *MessageHandler) formatHelpMessage(analysis *HelpAnalysis) string {
-	var builder strings.Builder
-
-	fmt.Fprintf(&builder, "🤖 **Intelligent Help**\n\n")
-	fmt.Fprintf(&builder, "**Issue:** %s\n\n", analysis.Diagnosis)
-
-	if len(analysis.Suggestions) > 0 {
-		builder.WriteString("💡 **Suggestions:**\n")
-		for i, suggestion := range analysis.Suggestions {
-			fmt.Fprintf(&builder, "%d. %s\n", i+1, suggestion)
-		}
-		builder.WriteString("\n")
-	}
-
-	if len(analysis.Examples) > 0 {
-		builder.WriteString("📋 **Examples:**\n")
-		for _, example := range analysis.Examples {
-			fmt.Fprintf(&builder, "• `%s`\n", example)
-		}
-		builder.WriteString("\n")
-	}
-
-	if analysis.ContextHelp != "" {
-		builder.WriteString("ℹ️ **Additional Help:**\n")
-		fmt.Fprintf(&builder, "%s\n\n", analysis.ContextHelp)
-	}
-
-	return builder.String()
-}
-
 // LogSessionEvent logs a session event
 func (mh *MessageHandler) LogSessionEvent(userID, channelID, event string) {
 	mh.securityLogger.LogSessionEvent(userID, channelID, event)
-}
-
-// Command handler implementations
-
-func handleHelpCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	helpText := "🤖 **Available Commands:**\n\n" +
-		"• `help` - Show this help message\n" +
-		"• `tools` or `list tools` - List available tools\n" +
-		"• `thinking` - Show current thinking preference\n" +
-		"• `preferences` - Manage your preferences\n" +
-		"• `reset session` - Reset the current conversation session\n\n" +
-		"Admin commands:\n" +
-		"• `admin` - Show admin help\n" +
-		"• `model access` - Manage model access\n" +
-		"• `add tool` - Add a new tool\n" +
-		"• `remove tool` - Remove a tool\n" +
-		"• `approve <request-id>` - Approve a tool request\n" +
-		"• `reject <request-id>` - Reject a tool request\n"
-
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(helpText, false),
-	)
-	return err
-}
-
-func handleToolsCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	return handleListToolsCommand(ctx, deps, msg)
-}
-
-func handleListToolsCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	session := deps.SessionManager.GetOrCreateSession(ctx, deps.UserID, deps.Connection.GetBotUserID(), &query.UserContext{
-		UserID:      deps.UserID,
-		SlackTeamID: "",
-		IsAdmin:     deps.TenantToolSet.IsAdmin(deps.UserID),
-	})
-	tools := session.GetAvailableTools()
-
-	if len(tools) == 0 {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("You don't have any tools available yet. Try adding an HTTP MCP tool!", false),
-		)
-		return err
-	}
-
-	var toolList strings.Builder
-	toolList.WriteString("🔧 **Your Available Tools:**\n\n")
-
-	for i, tool := range tools {
-		fmt.Fprintf(&toolList, "%d. `%s`\n", i+1, tool)
-	}
-
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(toolList.String(), false),
-	)
-	return err
-}
-
-func handleAddToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("To add a tool, please use natural language like: \"add an HTTP MCP tool with config...\"", false),
-	)
-	return err
-}
-
-func handleRemoveToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("🗑️ Tool removal requested. Feature coming soon!", false),
-	)
-	return err
-}
-
-func handleResetSessionCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	if err := deps.SessionManager.ClearSession(deps.UserID, deps.Connection.GetBotUserID()); err != nil {
-		deps.SecurityLogger.LogError(deps.UserID, "session", fmt.Sprintf("Failed to reset session: %v", err))
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText(fmt.Sprintf("❌ Error resetting session: %v", err), false),
-		)
-		return err
-	}
-
-	deps.SecurityLogger.LogSessionEvent(deps.UserID, deps.Connection.GetBotUserID(), "Session reset by user")
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("✅ Your conversation history has been cleared", false),
-	)
-	return err
-}
-
-func handleApproveCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	if !deps.ApprovalWorkflow.IsAdmin(deps.UserID) {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Only admins can approve/reject tool requests", false),
-		)
-		return err
-	}
-
-	parts := strings.Fields(msg)
-	if len(parts) < 2 {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Please specify a request ID", false),
-		)
-		return err
-	}
-
-	requestID := parts[1]
-	if err := deps.ApprovalWorkflow.ApproveTool(ctx, deps.UserID, requestID, "Approved via command"); err != nil {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText(fmt.Sprintf("❌ Error approving request: %s", err.Error()), false),
-		)
-		return err
-	}
-
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(fmt.Sprintf("✅ Tool request %s approved", requestID), false),
-	)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func handleRejectCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	if !deps.ApprovalWorkflow.IsAdmin(deps.UserID) {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Only admins can approve/reject tool requests", false),
-		)
-		return err
-	}
-
-	parts := strings.Fields(msg)
-	if len(parts) < 2 {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Please specify a request ID", false),
-		)
-		return err
-	}
-
-	requestID := parts[1]
-	reason := "No reason provided"
-	if len(parts) > 2 {
-		reason = strings.Join(parts[2:], " ")
-	}
-
-	if err := deps.ApprovalWorkflow.RejectTool(ctx, deps.UserID, requestID, reason); err != nil {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText(fmt.Sprintf("❌ Error rejecting request: %s", err.Error()), false),
-		)
-		return err
-	}
-
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(fmt.Sprintf("❌ Tool request %s rejected", requestID), false),
-	)
-	return err
-}
-
-func handleShareToolCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	deps.SecurityLogger.LogToolShare(deps.UserID, "", "")
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("🔄 Tool sharing requested. Feature coming soon!", false),
-	)
-	return err
-}
-
-func handleThinkingCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("To change your thinking preference, please use natural language like: \"turn on thinking\" or \"turn off thinking\"", false),
-	)
-	return err
-}
-
-func handlePreferencesCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	_, _, err := deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText("To manage your preferences, please use natural language like: \"show my preferences\"", false),
-	)
-	return err
-}
-
-func handleModelAccessCommand(ctx context.Context, deps *CommandDeps, msg string) error {
-	if !deps.TenantToolSet.IsAdmin(deps.UserID) {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText("❌ Only admins can manage model access", false),
-		)
-		return err
-	}
-
-	state, err := deps.Config.GetEffectiveModelAccess()
-	if err != nil {
-		_, _, err := deps.SlackClient.PostMessage(
-			deps.UserID,
-			slack.MsgOptionText(fmt.Sprintf("❌ Error getting model access config: %s", err.Error()), false),
-		)
-		return err
-	}
-
-	var response strings.Builder
-	fmt.Fprintf(&response, "🤖 **Model Access Configuration**\n\n")
-
-	hasNoRestrictions := len(state.AllowedModels) == 0 && len(state.DeniedModels) == 0
-	if hasNoRestrictions {
-		response.WriteString("No restrictions in place - all models are allowed.\n")
-	} else {
-		if len(state.AllowedModels) > 0 {
-			response.WriteString("✅ **Allowed Models:**\n")
-			for _, model := range state.AllowedModels {
-				fmt.Fprintf(&response, "  • %s\n", model)
-			}
-		}
-		if len(state.DeniedModels) > 0 {
-			response.WriteString("❌ **Denied Models:**\n")
-			for _, model := range state.DeniedModels {
-				fmt.Fprintf(&response, "  • %s\n", model)
-			}
-		}
-	}
-
-	fmt.Fprintf(&response, "\n🔧 **Default Model:** %s\n", state.DefaultModel)
-
-	_, _, err = deps.SlackClient.PostMessage(
-		deps.UserID,
-		slack.MsgOptionText(response.String(), false),
-	)
-	return err
 }

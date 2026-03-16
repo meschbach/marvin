@@ -47,18 +47,9 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create formatter
 	formatter := NewSlackFormatter()
 
-	// Create help integrator for tests
-	mockLLM := &MockLLM{}
-	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
-	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
-
 	// Create query processor
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter)
 	require.NoError(t, err)
-
-	// Create intent processor
-	intentProcessor := NewIntentProcessor()
 
 	// Create approval workflow
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
@@ -74,7 +65,6 @@ func TestMessageFlow_Integration(t *testing.T) {
 
 	// Create message handler for integration tests
 	messageHandler := NewMessageHandler(
-		intentProcessor,
 		conn,
 		queryProcessor,
 		approvalWorkflow,
@@ -127,10 +117,9 @@ func TestMessageFlow_Integration(t *testing.T) {
 			TimeStamp:   "1234567890.123456",
 		}
 
-		// Step 2: Process the message - tool intents now return an error since toolManager is removed
+		// Step 2: Process the message - tool commands now go through command registry
 		err := messageHandler.ProcessMessage(ctx, event)
-		assert.Error(t, err, "Tool intent should return error since toolManager is removed")
-		assert.Contains(t, err.Error(), "unknown intent action: add_tool")
+		assert.NoError(t, err, "Tool command should be processed successfully")
 	})
 
 	t.Run("ChannelMentionFlow", func(t *testing.T) {
@@ -204,9 +193,8 @@ func TestEventRouter_Integration(t *testing.T) {
 
 	formatter := NewSlackFormatter()
 
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, nil)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter)
 	require.NoError(t, err)
-	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
 	conn := &SlackConnection{
@@ -215,7 +203,6 @@ func TestEventRouter_Integration(t *testing.T) {
 	}
 
 	messageHandler := NewMessageHandler(
-		intentProcessor,
 		conn,
 		queryProcessor,
 		approvalWorkflow,
@@ -252,11 +239,11 @@ func TestEventRouter_Integration(t *testing.T) {
 				User:        "U987654321",
 				Channel:     "C1234567890",
 				ChannelType: "channel",
-				Text:        "<@U123456789> help me",
+				Text:        "<@U123456789> what's the weather?", // Non-command message goes to LLM
 				TimeStamp:   "1234567890.123456",
 			},
 			shouldProcess: true,
-			expectedClean: "help me",
+			expectedClean: "what's the weather?",
 			description:   "Channel message with bot mention should be processed",
 		},
 		{
