@@ -6,10 +6,15 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/slacker/commands"
 	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 )
+
+// Compile-time check: MockSlackSink implements both SlackClientAPI interfaces
+var _ SlackClientAPI = (*MockSlackSink)(nil)
+var _ commands.SlackClientAPI = (*MockSlackSink)(nil)
 
 // MockLLM simulates an LLM that can be configured to return specific responses
 // and track the requests it receives for verification
@@ -146,6 +151,26 @@ func (m *MockSlackSink) OpenConversationContext(_ context.Context, _ *slack.Open
 			},
 		},
 	}, false, false, nil
+}
+
+func (m *MockSlackSink) OpenConversation(_ context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error) {
+	if params == nil || len(params.Users) == 0 {
+		return nil, false, false, nil
+	}
+	return &slack.Channel{
+		GroupConversation: slack.GroupConversation{
+			Conversation: slack.Conversation{
+				ID: "mock-channel",
+			},
+		},
+	}, false, false, nil
+}
+
+func (m *MockSlackSink) PostMessage(channelID string, options ...slack.MsgOption) (string, string, error) {
+	m.state.Lock()
+	defer m.state.Unlock()
+	m.PostedMessages = append(m.PostedMessages, "posted")
+	return channelID, "test-timestamp", nil
 }
 
 // AuthTest implements SlackClient. Returns configured response or a default.

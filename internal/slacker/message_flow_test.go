@@ -34,13 +34,9 @@ func TestMessageFlow_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	// Create a simple test configuration with a model and disabled help for integration tests
-	helpDisabled := false
+	// Create a simple test configuration with a model for integration tests
 	cfg := &config.File{
 		Model: "test-model", // Set a model name
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &helpDisabled, // Disable help system in integration tests
-		},
 	}
 
 	// Create tenant tool set with context
@@ -51,51 +47,30 @@ func TestMessageFlow_Integration(t *testing.T) {
 	// Create formatter
 	formatter := NewSlackFormatter()
 
-	// Create help integrator for tests
-	mockLLM := &MockLLM{}
-	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
-	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
-
 	// Create query processor
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter)
 	require.NoError(t, err)
-
-	// Create intent processor
-	intentProcessor := NewIntentProcessor()
 
 	// Create approval workflow
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
 
-	// Create mock notification sender to avoid actual Slack calls
-	notificationSender := NewMockNotificationSender()
+	// Create a test client adapter that wraps *slack.Client to implement SlackClientAPI
+	testClient := &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))}
 
-	// Create tool manager
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
-
-	// Create a mock connection (create a real client to avoid panics in GetUserInfo)
+	// Create a mock connection (use adapter to implement interface)
 	conn := &SlackConnection{
 		botUserID: "U123456789",
-		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
+		client:    testClient,
 	}
 
-	// Disable help system for integration tests
-	testHelpDisabled := false
-	testConfig := &config.File{
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &testHelpDisabled,
-		},
-	}
-
-	// Create message handler with help disabled
+	// Create message handler for integration tests
 	messageHandler := NewMessageHandler(
-		intentProcessor,
 		conn,
 		queryProcessor,
-		toolManager,
+		approvalWorkflow,
 		sessionManager,
 		logger,
-		testConfig,
+		cfg,
 		tenantToolSet,
 	)
 
@@ -142,19 +117,9 @@ func TestMessageFlow_Integration(t *testing.T) {
 			TimeStamp:   "1234567890.123456",
 		}
 
-		// Step 2: Process the message
+		// Step 2: Process the message - tool commands now go through command registry
 		err := messageHandler.ProcessMessage(ctx, event)
-		assert.NoError(t, err, "Tool intent processing should not return error")
-
-		// Step 3: Verify session was created but no user message added (tool intent handled differently)
-		session, exists := sessionManager.GetSession("U987654321", "D1234567891")
-		assert.True(t, exists, "Session should be created for tool intent")
-		assert.NotNil(t, session)
-		// Tool intent messages are not added to session history
-		assert.Empty(t, session.Messages, "Tool intent messages should not be added to session")
-
-		// Additional verification: Check that approval workflow was triggered
-		// We can't easily verify this without mocks, but the lack of panic is good
+		assert.NoError(t, err, "Tool command should be processed successfully")
 	})
 
 	t.Run("ChannelMentionFlow", func(t *testing.T) {
@@ -219,12 +184,8 @@ func TestEventRouter_Integration(t *testing.T) {
 	sessionManager, err := NewSessionManager(tempDir)
 	require.NoError(t, err)
 
-	helpDisabled := false
 	cfg := &config.File{
 		Model: "test-model",
-		HelpSystem: &config.HelpSystemBlock{
-			Enabled: &helpDisabled, // Disable help system in integration tests
-		},
 	}
 	ctx := t.Context()
 	tenantToolSet, err := query.NewTenantToolSet(ctx, cfg)
@@ -232,31 +193,19 @@ func TestEventRouter_Integration(t *testing.T) {
 
 	formatter := NewSlackFormatter()
 
-	// Create help integrator for tests
-	mockLLM := &MockLLM{}
-	helpAnalyzer := NewHelpAnalyzer(mockLLM, cfg, sessionManager, tenantToolSet, tenantToolSet)
-	contextBuilder := NewHelpContextBuilder(sessionManager, cfg, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, contextBuilder)
-
-	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter, helpIntegrator)
+	queryProcessor, err := NewQueryProcessor(tenantToolSet, sessionManager, nil, cfg, logger, formatter)
 	require.NoError(t, err)
-	intentProcessor := NewIntentProcessor()
 	approvalWorkflow := NewApprovalWorkflow([]string{}, logger)
-
-	// Create mock notification sender to avoid nil pointer issues
-	notificationSender := NewMockNotificationSender()
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, logger, notificationSender, sessionManager, helpIntegrator)
 
 	conn := &SlackConnection{
 		botUserID: "U123456789",
-		client:    slack.New("test-token", slack.OptionAppLevelToken("test-app-token")),
+		client:    &slackClientAdapter{client: slack.New("test-token", slack.OptionAppLevelToken("test-app-token"))},
 	}
 
 	messageHandler := NewMessageHandler(
-		intentProcessor,
 		conn,
 		queryProcessor,
-		toolManager,
+		approvalWorkflow,
 		sessionManager,
 		logger,
 		cfg, // Use config with help disabled
@@ -290,11 +239,11 @@ func TestEventRouter_Integration(t *testing.T) {
 				User:        "U987654321",
 				Channel:     "C1234567890",
 				ChannelType: "channel",
-				Text:        "<@U123456789> help me",
+				Text:        "<@U123456789> what's the weather?", // Non-command message goes to LLM
 				TimeStamp:   "1234567890.123456",
 			},
 			shouldProcess: true,
-			expectedClean: "help me",
+			expectedClean: "what's the weather?",
 			description:   "Channel message with bot mention should be processed",
 		},
 		{

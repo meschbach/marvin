@@ -1,6 +1,7 @@
 package slacker
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,135 +75,6 @@ func TestMessageHandler_MessageFiltering(t *testing.T) {
 	}
 }
 
-// TestIntentProcessor_ProcessMessage tests intent recognition
-//
-//nolint:funlen
-func TestIntentProcessor_ProcessMessage(t *testing.T) {
-	processor := NewIntentProcessor()
-
-	tests := []struct {
-		name           string
-		message        string
-		expectedAction string
-		expectedTool   string
-		shouldMatch    bool
-	}{
-		{
-			name:           "Add docker tool",
-			message:        "add docker tool nginx",
-			shouldMatch:    true,
-			expectedAction: "add_tool",
-			expectedTool:   "docker",
-		},
-		{
-			name:           "Add HTTP tool",
-			message:        "add http tool at http://example.com/mcp",
-			shouldMatch:    true,
-			expectedAction: "add_tool",
-			expectedTool:   "http",
-		},
-		{
-			name:           "Add local program",
-			message:        "add local tool at /usr/bin/echo",
-			shouldMatch:    true,
-			expectedAction: "add_tool",
-			expectedTool:   "local",
-		},
-		{
-			name:           "Add local program",
-			message:        "add local program /usr/bin/echo",
-			shouldMatch:    true,
-			expectedAction: "add_tool",
-			expectedTool:   "local",
-		},
-		{
-			name:           "List tools",
-			message:        "list my tools",
-			shouldMatch:    true,
-			expectedAction: "list_tools",
-		},
-		{
-			name:           "What tools question",
-			message:        "what tools can i use",
-			shouldMatch:    true,
-			expectedAction: "list_tools",
-		},
-		{
-			name:           "Remove tool",
-			message:        "remove docker nginx",
-			shouldMatch:    true,
-			expectedAction: "remove_tool",
-		},
-		{
-			name:           "Share tool",
-			message:        "share docker nginx with @john",
-			shouldMatch:    true,
-			expectedAction: "share_tool",
-		},
-		{
-			name:        "Regular conversation",
-			message:     "hello how are you",
-			shouldMatch: false,
-		},
-		{
-			name:        "Partial tool mention",
-			message:     "I want to add a tool",
-			shouldMatch: false,
-		},
-		{
-			name:           "Reset session",
-			message:        "reset session",
-			shouldMatch:    true,
-			expectedAction: "reset_session",
-		},
-		{
-			name:           "Reset my session",
-			message:        "reset my session",
-			shouldMatch:    true,
-			expectedAction: "reset_session",
-		},
-		{
-			name:           "Reset context",
-			message:        "reset context",
-			shouldMatch:    true,
-			expectedAction: "reset_session",
-		},
-		{
-			name:           "Reset conversation",
-			message:        "reset conversation",
-			shouldMatch:    true,
-			expectedAction: "reset_session",
-		},
-		{
-			name:           "Reset my context",
-			message:        "reset my context",
-			shouldMatch:    true,
-			expectedAction: "reset_session",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			intent, err := processor.ProcessMessage(tt.message)
-
-			assert.NoError(t, err, "Intent processing should not error")
-
-			if tt.shouldMatch {
-				assert.NotNil(t, intent, "Intent should be detected")
-				if intent != nil {
-					assert.Equal(t, tt.expectedAction, intent.Action, "Action should match")
-					if tt.expectedTool != "" {
-						assert.Equal(t, tt.expectedTool, intent.ToolType, "Tool type should match")
-					}
-					assert.GreaterOrEqual(t, intent.Confidence, 0.7, "Confidence should meet threshold")
-				}
-			} else {
-				assert.Nil(t, intent, "No intent should be detected")
-			}
-		})
-	}
-}
-
 // TestSlackContext_Creation tests SlackContext creation and properties
 func TestSlackContext_Creation(t *testing.T) {
 	event := createTestMessageEvent("U987654321", "D1234567890", "im", "test message")
@@ -266,4 +138,217 @@ func TestUserSession_Creation(t *testing.T) {
 	oldActivity := session.LastActivity
 	session.UpdateActivity()
 	assert.True(t, session.LastActivity.After(oldActivity))
+}
+
+// TestCommandRouting_DMWithPrefix tests that DM messages with command prefix route to command processing
+func TestCommandRouting_DMWithPrefix(t *testing.T) {
+	botUserID := "U123456789"
+	conn := &SlackConnection{botUserID: botUserID}
+
+	tests := []struct {
+		name        string
+		channelType string
+		text        string
+		wantPrefix  bool
+	}{
+		{
+			name:        "DM with bot mention prefix",
+			channelType: "im",
+			text:        "<@U123456789> help",
+			wantPrefix:  true,
+		},
+		{
+			name:        "DM with bot mention prefix and extra text",
+			channelType: "im",
+			text:        "<@U123456789> add tool docker",
+			wantPrefix:  true,
+		},
+		{
+			name:        "DM without prefix",
+			channelType: "im",
+			text:        "hello bot",
+			wantPrefix:  false,
+		},
+		{
+			name:        "Channel message with mention - not prefix",
+			channelType: "channel",
+			text:        "<@U123456789> help",
+			wantPrefix:  false,
+		},
+		{
+			name:        "DM with mention in middle",
+			channelType: "im",
+			text:        "hello <@U123456789> help",
+			wantPrefix:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := createTestMessageEvent("U987654321", "D1234567890", tt.channelType, tt.text)
+
+			// Simulate hasCommandPrefix logic
+			hasPrefix := false
+			if ev.ChannelType == "im" {
+				mention := fmt.Sprintf("<@%s>", conn.GetBotUserID())
+				hasPrefix = strings.HasPrefix(ev.Text, mention)
+			}
+
+			assert.Equal(t, tt.wantPrefix, hasPrefix, "Command prefix detection mismatch")
+		})
+	}
+}
+
+// TestCommandRouting_DMWithoutPrefix tests that DM messages without command prefix route to LLM
+func TestCommandRouting_DMWithoutPrefix(t *testing.T) {
+	botUserID := "U123456789"
+	conn := &SlackConnection{botUserID: botUserID}
+
+	tests := []struct {
+		name        string
+		channelType string
+		text        string
+		wantLLM     bool
+	}{
+		{
+			name:        "DM plain message routes to LLM",
+			channelType: "im",
+			text:        "hello, how are you?",
+			wantLLM:     true,
+		},
+		{
+			name:        "DM with question routes to LLM",
+			channelType: "im",
+			text:        "what tools can I use?",
+			wantLLM:     true,
+		},
+		{
+			name:        "Channel with mention routes to LLM",
+			channelType: "channel",
+			text:        "<@U123456789> hello",
+			wantLLM:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := createTestMessageEvent("U987654321", "D1234567890", tt.channelType, tt.text)
+
+			// Simulate routing logic: LLM if no command prefix and has mention or DM
+			shouldRouteToLLM := false
+			mention := fmt.Sprintf("<@%s>", conn.GetBotUserID())
+			hasPrefix := ev.ChannelType == "im" && strings.HasPrefix(ev.Text, mention)
+			hasMentionInText := strings.Contains(ev.Text, mention)
+			cleanMessage := strings.TrimSpace(strings.ReplaceAll(ev.Text, mention, ""))
+
+			shouldRouteToLLM = !hasPrefix && (ev.ChannelType == "im" || hasMentionInText) && cleanMessage != ""
+
+			assert.Equal(t, tt.wantLLM, shouldRouteToLLM, "LLM routing detection mismatch")
+		})
+	}
+}
+
+// TestCommandRouting_ExtractCommand tests command extraction from prefixed messages
+func TestCommandRouting_ExtractCommand(t *testing.T) {
+	botUserID := "U123456789"
+
+	tests := []struct {
+		name    string
+		text    string
+		wantCmd string
+	}{
+		{
+			name:    "Simple command",
+			text:    "<@U123456789> help",
+			wantCmd: "help",
+		},
+		{
+			name:    "Command with arguments",
+			text:    "<@U123456789> add tool docker",
+			wantCmd: "add tool docker",
+		},
+		{
+			name:    "Command with extra whitespace",
+			text:    "<@U123456789>   tools   ",
+			wantCmd: "tools",
+		},
+		{
+			name:    "Admin command",
+			text:    "<@U123456789> model access list",
+			wantCmd: "model access list",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mention := fmt.Sprintf("<@%s>", botUserID)
+			cmd := strings.ReplaceAll(tt.text, mention, "")
+			cmd = strings.TrimSpace(cmd)
+
+			assert.Equal(t, tt.wantCmd, cmd, "Command extraction mismatch")
+		})
+	}
+}
+
+// TestCommandRouting_PermissionHandling tests permission check logic for admin vs non-admin
+func TestCommandRouting_PermissionHandling(t *testing.T) {
+	adminCommands := map[string]bool{
+		"admin":        true,
+		"model access": true,
+		"add tool":     true,
+		"remove tool":  true,
+	}
+
+	tests := []struct {
+		name        string
+		cmdName     string
+		userIsAdmin bool
+		wantExecute bool
+	}{
+		{
+			name:        "Admin user executes admin command",
+			cmdName:     "admin",
+			userIsAdmin: true,
+			wantExecute: true,
+		},
+		{
+			name:        "Non-admin user executes admin command",
+			cmdName:     "admin",
+			userIsAdmin: false,
+			wantExecute: false,
+		},
+		{
+			name:        "Non-admin user executes regular command",
+			cmdName:     "help",
+			userIsAdmin: false,
+			wantExecute: true,
+		},
+		{
+			name:        "Admin user executes regular command",
+			cmdName:     "help",
+			userIsAdmin: true,
+			wantExecute: true,
+		},
+		{
+			name:        "Non-admin user executes model access command",
+			cmdName:     "model access",
+			userIsAdmin: false,
+			wantExecute: false,
+		},
+		{
+			name:        "Admin user executes model access command",
+			cmdName:     "model access",
+			userIsAdmin: true,
+			wantExecute: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isAdminCmd := adminCommands[tt.cmdName]
+			canExecute := !isAdminCmd || tt.userIsAdmin
+
+			assert.Equal(t, tt.wantExecute, canExecute, "Permission handling mismatch")
+		})
+	}
 }

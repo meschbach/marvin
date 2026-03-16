@@ -17,7 +17,6 @@ type SlackBot struct {
 	eventRouter        *EventRouter
 	messageHandler     *MessageHandler
 	queryProcessor     *QueryProcessorImpl
-	toolManager        *ToolManagerImpl
 	notificationSender *NotificationSender
 	formatter          *SlackFormatter
 	sessionManager     *SessionManager
@@ -48,33 +47,20 @@ func NewSlackBot(
 	approvalWorkflow.SetNotificationSender(notificationSender)
 	approvalWorkflow.SetSessionManager(sessionManager)
 
-	// Create help system components
-	helpAnalyzer := NewHelpAnalyzer(nil, config, sessionManager, nil, tenantToolSet)
-	helpContextBuilder := NewHelpContextBuilder(sessionManager, config, tenantToolSet)
-	helpIntegrator := NewHelpIntegrator(helpAnalyzer, helpContextBuilder)
-
 	// Create message handler dependencies
-	intentProcessor := NewIntentProcessor()
-	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, connection, config, securityLogger, formatter, helpIntegrator)
+	queryHandler, err := NewQueryProcessor(tenantToolSet, sessionManager, connection, config, securityLogger, formatter)
 	if err != nil {
 		return nil, fmt.Errorf("creating query processor: %w", err)
 	}
-	toolManager := NewToolManager(approvalWorkflow, tenantToolSet, securityLogger, notificationSender, sessionManager, helpIntegrator)
-
 	messageHandler := NewMessageHandler(
-		intentProcessor,
 		connection,
 		queryHandler,
-		toolManager,
+		approvalWorkflow,
 		sessionManager,
 		securityLogger,
 		config,
 		tenantToolSet,
 	)
-
-	// Set help system components
-	messageHandler.SetHelpAnalyzer(helpAnalyzer)
-	messageHandler.SetHelpContextBuilder(helpContextBuilder)
 
 	// Create event router
 	eventRouter := NewEventRouter(connection, messageHandler, securityLogger)
@@ -85,7 +71,6 @@ func NewSlackBot(
 		eventRouter:        eventRouter,
 		messageHandler:     messageHandler,
 		queryProcessor:     queryHandler,
-		toolManager:        toolManager,
 		notificationSender: notificationSender,
 		formatter:          formatter,
 		sessionManager:     sessionManager,
@@ -182,9 +167,6 @@ func (sb *SlackBot) ValidateSlackSetup() error {
 	}
 	if sb.messageHandler == nil {
 		return fmt.Errorf("message handler not initialized")
-	}
-	if sb.toolManager == nil {
-		return fmt.Errorf("tool manager not initialized")
 	}
 	if sb.sessionManager == nil {
 		return fmt.Errorf("session manager not initialized")

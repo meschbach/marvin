@@ -11,16 +11,21 @@ import (
 
 // NotificationSender sends Slack notifications
 type NotificationSender struct {
-	client     *slack.Client
+	client     SlackClientAPI
 	adminUsers []string
 }
 
 // NewNotificationSender creates a new notification sender
-func NewNotificationSender(client *slack.Client, adminUsers []string) *NotificationSender {
+func NewNotificationSender(client SlackClientAPI, adminUsers []string) *NotificationSender {
 	return &NotificationSender{
 		client:     client,
 		adminUsers: adminUsers,
 	}
+}
+
+// GetClient returns the underlying Slack client API
+func (ns *NotificationSender) GetClient() SlackClientAPI {
+	return ns.client
 }
 
 // NotifyAdmins sends approval notifications to admin users
@@ -29,7 +34,7 @@ func (ns *NotificationSender) NotifyAdmins(ctx context.Context, request *ToolApp
 
 	for _, adminID := range ns.adminUsers {
 		// Open DM channel with admin
-		channel, _, _, err := ns.client.OpenConversationContext(ctx, &slack.OpenConversationParameters{
+		channel, _, _, err := ns.client.OpenConversation(ctx, &slack.OpenConversationParameters{
 			Users: []string{adminID},
 		})
 		if err != nil {
@@ -73,7 +78,7 @@ func (ns *NotificationSender) SendApprovalNotification(ctx context.Context, requ
 	}
 
 	// Open DM channel with requester (not admin)
-	channel, _, _, err := ns.client.OpenConversationContext(ctx, &slack.OpenConversationParameters{
+	channel, _, _, err := ns.client.OpenConversation(ctx, &slack.OpenConversationParameters{
 		Users: []string{requesterID},
 	})
 	if err != nil {
@@ -121,7 +126,7 @@ func (ns *NotificationSender) formatApprovalForSlack(request *ToolApprovalReques
 // SendMessage sends a message to a user via DM
 func (ns *NotificationSender) SendMessage(ctx context.Context, userID, message string) error {
 	// Open DM channel
-	channel, _, _, err := ns.client.OpenConversationContext(ctx, &slack.OpenConversationParameters{
+	channel, _, _, err := ns.client.OpenConversation(ctx, &slack.OpenConversationParameters{
 		Users: []string{userID},
 	})
 	if err != nil {

@@ -88,4 +88,77 @@ func (r *Registry) RegisterToolDef(ctx context.Context, tool conversation.Tool, 
 	}
 }
 
+// Remove removes a tool from the registry by its function name.
+// Returns true if the tool was found and removed, false if not found.
+func (r *Registry) Remove(toolID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.tools[toolID]; ok {
+		delete(r.tools, toolID)
+		return true
+	}
+	return false
+}
+
+// AddUserToTool adds a user to a tool's allowed users list.
+// If the tool has no allowed users list (open access), a new list is created.
+// Returns true if the user was added, false if tool not found.
+func (r *Registry) AddUserToTool(toolID, userID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tool, ok := r.tools[toolID]
+	if !ok {
+		return false
+	}
+
+	// Check if user already has access
+	if tool.AllowedUsers != nil {
+		for _, u := range tool.AllowedUsers {
+			if u == userID {
+				return true // already has access
+			}
+		}
+		tool.AllowedUsers = append(tool.AllowedUsers, userID)
+	} else {
+		// Tool has open access, no need to track individual users
+		return true
+	}
+	return true
+}
+
+// RemoveUserFromTool removes a user from a tool's allowed users list.
+// Returns true if the user was removed, false if tool not found or user not in list.
+func (r *Registry) RemoveUserFromTool(toolID, userID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tool, ok := r.tools[toolID]
+	if !ok {
+		return false
+	}
+
+	if tool.AllowedUsers == nil {
+		// Tool has open access - create restricted list with all other users
+		// For simplicity, we'll just return false indicating can't remove
+		return false
+	}
+
+	found := false
+	newAllowedUsers := make([]string, 0, len(tool.AllowedUsers))
+	for _, u := range tool.AllowedUsers {
+		if u == userID {
+			found = true
+			continue
+		}
+		newAllowedUsers = append(newAllowedUsers, u)
+	}
+
+	if found {
+		tool.AllowedUsers = newAllowedUsers
+	}
+	return found
+}
+
 var tracer = otel.Tracer("github.com/meschbach/marvin/internal/query/tooling")

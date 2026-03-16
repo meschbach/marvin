@@ -46,7 +46,7 @@ func Run(ctx context.Context, opts *Options) error {
 		mediator := cron.NewMediator(scheduler, dispatcher, userStorage)
 
 		for _, job := range components.Config.MultiTenant.CronJobs {
-			channel, _, _, err := components.SlackBot.GetConnection().GetClient().OpenConversation(&slack.OpenConversationParameters{Users: []string{job.SendTo}})
+			channel, _, _, err := components.SlackBot.GetConnection().GetClient().OpenConversation(ctx, &slack.OpenConversationParameters{Users: []string{job.SendTo}})
 			if err != nil {
 				return fmt.Errorf("cron %q: failed to resolve user %s: %w", job.Title, job.SendTo, err)
 			}
