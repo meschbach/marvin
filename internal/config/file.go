@@ -42,6 +42,8 @@ type OpenRouterBlock struct {
 	APIKeyBlock `hcl:",remain"`
 	// BaseURL allows overriding the default OpenRouter endpoint
 	BaseURL string `hcl:"base_url,optional"`
+	// Retry contains retry configuration for OpenRouter requests
+	Retry *RetryBlock `hcl:"retry,block"`
 }
 
 func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
@@ -50,6 +52,37 @@ func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
 		keyBlock = &o.APIKeyBlock
 	}
 	return keyBlock.Resolve("OPENROUTER_API_KEY")
+}
+
+const DefaultMaxRetries = 3
+const DefaultInitialInterval = 1 * time.Second
+const DefaultMaxInterval = 30 * time.Second
+
+type RetryBlock struct {
+	MaxRetries      *int           `hcl:"max_retries,optional"`
+	InitialInterval *time.Duration `hcl:"initial_interval,optional"`
+	MaxInterval     *time.Duration `hcl:"max_interval,optional"`
+}
+
+func (r *RetryBlock) MaxRetriesValue() int {
+	if r != nil && r.MaxRetries != nil {
+		return *r.MaxRetries
+	}
+	return DefaultMaxRetries
+}
+
+func (r *RetryBlock) InitialIntervalValue() time.Duration {
+	if r != nil && r.InitialInterval != nil {
+		return *r.InitialInterval
+	}
+	return DefaultInitialInterval
+}
+
+func (r *RetryBlock) MaxIntervalValue() time.Duration {
+	if r != nil && r.MaxInterval != nil {
+		return *r.MaxInterval
+	}
+	return DefaultMaxInterval
 }
 
 // ModelOptionsBlock contains advanced model configuration options

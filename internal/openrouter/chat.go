@@ -44,7 +44,9 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 		span.SetAttributes(attribute.StringSlice("tools", toolNames))
 	}
 
-	stream, err := o.httpClient.CreateChatCompletionStream(ctx, *openRouterReq)
+	stream, err := o.executeWithRetry(ctx, func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
+		return o.httpClient.CreateChatCompletionStream(ctx, *openRouterReq)
+	})
 	if err != nil {
 		span.SetStatus(codes.Error, "chat streaming returned error.")
 		span.RecordError(err)
@@ -59,6 +61,9 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 			}
 		}
 		return fmt.Errorf("failed to create stream: %w", err)
+	}
+	if stream == nil {
+		return fmt.Errorf("failed to create stream: no stream returned")
 	}
 	defer stream.Close()
 

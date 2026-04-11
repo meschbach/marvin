@@ -4,43 +4,71 @@ package openrouter
 import (
 	"net/http"
 
-	openrouter "github.com/revrost/go-openrouter"
+	"github.com/cenkalti/backoff/v5"
+	"github.com/meschbach/marvin/internal/config"
+	"github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 )
 
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 
 type LLM struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	httpClient *openrouter.Client
+	apiKey      string
+	baseURL     string
+	model       string
+	retryConfig *config.RetryBlock
+	metrics     *metricsRecorder
+	httpClient  *openrouter.Client
 }
 
-func NewLLM(apiKey, baseURL, model string) *LLM {
+func NewLLM(apiKey, baseURL, model string, retryConfig *config.RetryBlock) *LLM {
 	if baseURL == "" {
 		baseURL = defaultOpenRouterBaseURL
 	}
 
-	config := openrouter.DefaultConfig(apiKey)
-	config.BaseURL = baseURL
-	config.HttpReferer = "https://github.com/meschbach/marvin"
-	config.XTitle = "Marvin"
+	openrouterConfig := openrouter.DefaultConfig(apiKey)
+	openrouterConfig.BaseURL = baseURL
+	openrouterConfig.HttpReferer = "https://github.com/meschbach/marvin"
+	openrouterConfig.XTitle = "Marvin"
 
-	config.HTTPClient = &http.Client{
+	openrouterConfig.HTTPClient = &http.Client{
 		Transport: otelhttp.NewTransport(
 			http.DefaultTransport,
 			otelhttp.WithPropagators(propagation.NewCompositeTextMapPropagator()),
 		),
 	}
 
-	client := openrouter.NewClientWithConfig(*config)
+	client := openrouter.NewClientWithConfig(*openrouterConfig)
+
+	meter := otel.Meter("github.com/meschbach/marvin/openrouter")
+	metrics, err := newMetricsRecorder(meter)
+	if err != nil {
+		metrics = nil
+	}
 
 	return &LLM{
-		apiKey:     apiKey,
-		baseURL:    baseURL,
-		model:      model,
-		httpClient: client,
+		apiKey:      apiKey,
+		baseURL:     baseURL,
+		model:       model,
+		retryConfig: retryConfig,
+		metrics:     metrics,
+		httpClient:  client,
 	}
+}
+
+func (o *LLM) getBackoff() backoff.BackOff {
+	if o.retryConfig == nil {
+		bo := backoff.NewExponentialBackOff()
+		bo.InitialInterval = config.DefaultInitialInterval
+		bo.MaxInterval = config.DefaultMaxInterval
+		bo.RandomizationFactor = 0.25
+		return bo
+	}
+	bo := backoff.NewExponentialBackOff()
+	bo.InitialInterval = o.retryConfig.InitialIntervalValue()
+	bo.MaxInterval = o.retryConfig.MaxIntervalValue()
+	bo.RandomizationFactor = 0.25
+	return bo
 }

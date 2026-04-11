@@ -77,7 +77,12 @@ func newOpenRouterLLMForModel(cfg *config.File, model string) (conversation.LLM,
 		baseURL = cfg.OpenRouter.BaseURL
 	}
 
-	return openrouter.NewLLM(apiKey, baseURL, model), nil
+	var retryConfig *config.RetryBlock
+	if cfg.OpenRouter != nil {
+		retryConfig = cfg.OpenRouter.Retry
+	}
+
+	return openrouter.NewLLM(apiKey, baseURL, model, retryConfig), nil
 }
 
 func newOllamaLLMFromEnv() (conversation.LLM, error) {
