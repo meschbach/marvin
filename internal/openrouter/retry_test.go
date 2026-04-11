@@ -118,9 +118,15 @@ func TestParseRetryAfterHeader_InvalidValue(t *testing.T) {
 func TestRetryConfig_DefaultValues(t *testing.T) {
 	t.Parallel()
 	cfg := &config.RetryBlock{}
-	assert.Equal(t, config.DefaultMaxRetries, cfg.MaxRetriesValue())
-	assert.Equal(t, config.DefaultInitialInterval, cfg.InitialIntervalValue())
-	assert.Equal(t, config.DefaultMaxInterval, cfg.MaxIntervalValue())
+	maxRetries, err := cfg.MaxRetriesValue()
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultMaxRetries, maxRetries)
+	initialInterval, err := cfg.InitialIntervalValue()
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultInitialInterval, initialInterval)
+	maxInterval, err := cfg.MaxIntervalValue()
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultMaxInterval, maxInterval)
 }
 
 func TestRetryConfig_CustomValues(t *testing.T) {
@@ -133,9 +139,69 @@ func TestRetryConfig_CustomValues(t *testing.T) {
 		InitialInterval: &initialInterval,
 		MaxInterval:     &maxInterval,
 	}
-	assert.Equal(t, 5, cfg.MaxRetriesValue())
-	assert.Equal(t, 2*time.Second, cfg.InitialIntervalValue())
-	assert.Equal(t, 60*time.Second, cfg.MaxIntervalValue())
+	v, err := cfg.MaxRetriesValue()
+	require.NoError(t, err)
+	assert.Equal(t, 5, v)
+	v2, err := cfg.InitialIntervalValue()
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Second, v2)
+	v3, err := cfg.MaxIntervalValue()
+	require.NoError(t, err)
+	assert.Equal(t, 60*time.Second, v3)
+}
+
+func TestMaxRetriesValue_ZeroValue(t *testing.T) {
+	t.Parallel()
+	z := 0
+	cfg := &config.RetryBlock{MaxRetries: &z}
+	_, err := cfg.MaxRetriesValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_retries must be > 0")
+}
+
+func TestMaxRetriesValue_NegativeValue(t *testing.T) {
+	t.Parallel()
+	n := -1
+	cfg := &config.RetryBlock{MaxRetries: &n}
+	_, err := cfg.MaxRetriesValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_retries must be > 0")
+}
+
+func TestInitialIntervalValue_ZeroValue(t *testing.T) {
+	t.Parallel()
+	z := time.Duration(0)
+	cfg := &config.RetryBlock{InitialInterval: &z}
+	_, err := cfg.InitialIntervalValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "initial_interval must be > 0")
+}
+
+func TestInitialIntervalValue_NegativeValue(t *testing.T) {
+	t.Parallel()
+	n := -1 * time.Second
+	cfg := &config.RetryBlock{InitialInterval: &n}
+	_, err := cfg.InitialIntervalValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "initial_interval must be > 0")
+}
+
+func TestMaxIntervalValue_ZeroValue(t *testing.T) {
+	t.Parallel()
+	z := time.Duration(0)
+	cfg := &config.RetryBlock{MaxInterval: &z}
+	_, err := cfg.MaxIntervalValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_interval must be > 0")
+}
+
+func TestMaxIntervalValue_NegativeValue(t *testing.T) {
+	t.Parallel()
+	n := -1 * time.Second
+	cfg := &config.RetryBlock{MaxInterval: &n}
+	_, err := cfg.MaxIntervalValue()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "max_interval must be > 0")
 }
 
 type retryableTransport struct {

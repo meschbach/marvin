@@ -2,6 +2,7 @@
 package openrouter
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/cenkalti/backoff/v5"
@@ -58,17 +59,25 @@ func NewLLM(apiKey, baseURL, model string, retryConfig *config.RetryBlock) *LLM 
 	}
 }
 
-func (o *LLM) getBackoff() backoff.BackOff {
+func (o *LLM) getBackoff() (backoff.BackOff, error) {
 	if o.retryConfig == nil {
 		bo := backoff.NewExponentialBackOff()
 		bo.InitialInterval = config.DefaultInitialInterval
 		bo.MaxInterval = config.DefaultMaxInterval
 		bo.RandomizationFactor = 0.25
-		return bo
+		return bo, nil
 	}
 	bo := backoff.NewExponentialBackOff()
-	bo.InitialInterval = o.retryConfig.InitialIntervalValue()
-	bo.MaxInterval = o.retryConfig.MaxIntervalValue()
+	initialInterval, err := o.retryConfig.InitialIntervalValue()
+	if err != nil {
+		return nil, fmt.Errorf("initial_interval: %w", err)
+	}
+	maxInterval, err := o.retryConfig.MaxIntervalValue()
+	if err != nil {
+		return nil, fmt.Errorf("max_interval: %w", err)
+	}
+	bo.InitialInterval = initialInterval
+	bo.MaxInterval = maxInterval
 	bo.RandomizationFactor = 0.25
-	return bo
+	return bo, nil
 }

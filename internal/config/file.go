@@ -64,25 +64,34 @@ type RetryBlock struct {
 	MaxInterval     *time.Duration `hcl:"max_interval,optional"`
 }
 
-func (r *RetryBlock) MaxRetriesValue() int {
+func (r *RetryBlock) MaxRetriesValue() (int, error) {
 	if r != nil && r.MaxRetries != nil {
-		return *r.MaxRetries
+		if *r.MaxRetries <= 0 {
+			return 0, fmt.Errorf("max_retries must be > 0, got %d", *r.MaxRetries)
+		}
+		return *r.MaxRetries, nil
 	}
-	return DefaultMaxRetries
+	return DefaultMaxRetries, nil
 }
 
-func (r *RetryBlock) InitialIntervalValue() time.Duration {
+func (r *RetryBlock) InitialIntervalValue() (time.Duration, error) {
 	if r != nil && r.InitialInterval != nil {
-		return *r.InitialInterval
+		if *r.InitialInterval <= 0 {
+			return 0, fmt.Errorf("initial_interval must be > 0, got %s", *r.InitialInterval)
+		}
+		return *r.InitialInterval, nil
 	}
-	return DefaultInitialInterval
+	return DefaultInitialInterval, nil
 }
 
-func (r *RetryBlock) MaxIntervalValue() time.Duration {
+func (r *RetryBlock) MaxIntervalValue() (time.Duration, error) {
 	if r != nil && r.MaxInterval != nil {
-		return *r.MaxInterval
+		if *r.MaxInterval <= 0 {
+			return 0, fmt.Errorf("max_interval must be > 0, got %s", *r.MaxInterval)
+		}
+		return *r.MaxInterval, nil
 	}
-	return DefaultMaxInterval
+	return DefaultMaxInterval, nil
 }
 
 // ModelOptionsBlock contains advanced model configuration options

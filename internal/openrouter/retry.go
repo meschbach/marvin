@@ -150,7 +150,11 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 
 	maxRetries := 3
 	if o.retryConfig != nil {
-		maxRetries = o.retryConfig.MaxRetriesValue()
+		var err error
+		maxRetries, err = o.retryConfig.MaxRetriesValue()
+		if err != nil {
+			return nil, fmt.Errorf("max_retries: %w", err)
+		}
 	}
 
 	var lastErr error
@@ -180,7 +184,12 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 		}
 	}
 
-	stream, err := backoff.Retry(ctx, operation, backoff.WithBackOff(o.getBackoff()), backoff.WithMaxTries(uint(maxRetries)), backoff.WithNotify(notify))
+	backoffMgr, err := o.getBackoff()
+	if err != nil {
+		return nil, fmt.Errorf("backoff config: %w", err)
+	}
+
+	stream, err := backoff.Retry(ctx, operation, backoff.WithBackOff(backoffMgr), backoff.WithMaxTries(uint(maxRetries)), backoff.WithNotify(notify))
 
 	duration := time.Since(startTime).Seconds()
 	if o.metrics != nil {
