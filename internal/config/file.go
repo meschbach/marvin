@@ -59,17 +59,17 @@ const DefaultInitialInterval = 1 * time.Second
 const DefaultMaxInterval = 30 * time.Second
 
 type RetryBlock struct {
-	MaxRetries      *int           `hcl:"max_retries,optional"`
+	MaxAttempts     *int           `hcl:"max_attempts,optional"`
 	InitialInterval *time.Duration `hcl:"initial_interval,optional"`
 	MaxInterval     *time.Duration `hcl:"max_interval,optional"`
 }
 
-func (r *RetryBlock) MaxRetriesValue() (int, error) {
-	if r != nil && r.MaxRetries != nil {
-		if *r.MaxRetries <= 0 {
-			return 0, fmt.Errorf("max_retries must be > 0, got %d", *r.MaxRetries)
+func (r *RetryBlock) MaxAttemptsValue() (int, error) {
+	if r != nil && r.MaxAttempts != nil {
+		if *r.MaxAttempts < 1 {
+			return 0, fmt.Errorf("max_attempts must be >= 1, got %d", *r.MaxAttempts)
 		}
-		return *r.MaxRetries, nil
+		return *r.MaxAttempts, nil
 	}
 	return DefaultMaxRetries, nil
 }
@@ -88,6 +88,13 @@ func (r *RetryBlock) MaxIntervalValue() (time.Duration, error) {
 	if r != nil && r.MaxInterval != nil {
 		if *r.MaxInterval <= 0 {
 			return 0, fmt.Errorf("max_interval must be > 0, got %s", *r.MaxInterval)
+		}
+		initial, err := r.InitialIntervalValue()
+		if err != nil {
+			return 0, err
+		}
+		if *r.MaxInterval < initial {
+			return 0, fmt.Errorf("max_interval (%s) must be >= initial_interval (%s)", *r.MaxInterval, initial)
 		}
 		return *r.MaxInterval, nil
 	}

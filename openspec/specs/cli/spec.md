@@ -74,7 +74,7 @@ Operations against the RAG (Retrieval-Augmented Generation) store for document i
 
 **Usage**: `marvin rag index`
 
-Indexes all documents from the configuration file. Uses SIGSTOP signal handling for graceful interruption.
+Indexes all documents from the configuration file. Uses SIGTERM/SIGINT signal handling for graceful interruption (SIGSTOP is not trap-able).
 
 #### rag query
 
@@ -243,9 +243,8 @@ display {
 }
 
 # Local programs available as tools
-local_program {
-  name = "git"
-  path = "/usr/bin/git"
+local_program "git" {
+  program = "/usr/bin/git"
 }
 
 # RAG documents for context
@@ -268,4 +267,4 @@ docker_mcp {
 - All commands use the Cobra CLI framework
 - Configuration loading is done once per command execution
 - The CLI does not enforce model access restrictions (unlike Slacker operations)
-- RAG operations support graceful shutdown via SIGSTOP signal
+- RAG operations support graceful shutdown via SIGTERM/SIGINT signal (SIGSTOP is not trap-able)

@@ -84,41 +84,10 @@ func TestIsRetryableError_NonAPIError(t *testing.T) {
 	assert.False(t, isRetryableError(err), "non-APIError should not be retryable")
 }
 
-func TestParseRetryAfterHeader_Seconds(t *testing.T) {
-	t.Parallel()
-	resp := &http.Response{
-		Header: http.Header{
-			"Retry-After": []string{"30"},
-		},
-	}
-	duration := parseRetryAfterHeader(resp)
-	assert.Equal(t, 30*time.Second, duration)
-}
-
-func TestParseRetryAfterHeader_ZeroValue(t *testing.T) {
-	t.Parallel()
-	resp := &http.Response{
-		Header: http.Header{},
-	}
-	duration := parseRetryAfterHeader(resp)
-	assert.Equal(t, time.Duration(0), duration)
-}
-
-func TestParseRetryAfterHeader_InvalidValue(t *testing.T) {
-	t.Parallel()
-	resp := &http.Response{
-		Header: http.Header{
-			"Retry-After": []string{"not-a-number"},
-		},
-	}
-	duration := parseRetryAfterHeader(resp)
-	assert.Equal(t, time.Duration(0), duration)
-}
-
 func TestRetryConfig_DefaultValues(t *testing.T) {
 	t.Parallel()
 	cfg := &config.RetryBlock{}
-	maxRetries, err := cfg.MaxRetriesValue()
+	maxRetries, err := cfg.MaxAttemptsValue()
 	require.NoError(t, err)
 	assert.Equal(t, config.DefaultMaxRetries, maxRetries)
 	initialInterval, err := cfg.InitialIntervalValue()
@@ -135,11 +104,11 @@ func TestRetryConfig_CustomValues(t *testing.T) {
 	maxInterval := 60 * time.Second
 	maxRetries := 5
 	cfg := &config.RetryBlock{
-		MaxRetries:      &maxRetries,
+		MaxAttempts:     &maxRetries,
 		InitialInterval: &initialInterval,
 		MaxInterval:     &maxInterval,
 	}
-	v, err := cfg.MaxRetriesValue()
+	v, err := cfg.MaxAttemptsValue()
 	require.NoError(t, err)
 	assert.Equal(t, 5, v)
 	v2, err := cfg.InitialIntervalValue()
@@ -150,22 +119,22 @@ func TestRetryConfig_CustomValues(t *testing.T) {
 	assert.Equal(t, 60*time.Second, v3)
 }
 
-func TestMaxRetriesValue_ZeroValue(t *testing.T) {
+func TestMaxAttemptsValue_ZeroValue(t *testing.T) {
 	t.Parallel()
 	z := 0
-	cfg := &config.RetryBlock{MaxRetries: &z}
-	_, err := cfg.MaxRetriesValue()
+	cfg := &config.RetryBlock{MaxAttempts: &z}
+	_, err := cfg.MaxAttemptsValue()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max_retries must be > 0")
+	assert.Contains(t, err.Error(), "max_attempts must be >= 1")
 }
 
-func TestMaxRetriesValue_NegativeValue(t *testing.T) {
+func TestMaxAttemptsValue_NegativeValue(t *testing.T) {
 	t.Parallel()
 	n := -1
-	cfg := &config.RetryBlock{MaxRetries: &n}
-	_, err := cfg.MaxRetriesValue()
+	cfg := &config.RetryBlock{MaxAttempts: &n}
+	_, err := cfg.MaxAttemptsValue()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "max_retries must be > 0")
+	assert.Contains(t, err.Error(), "max_attempts must be >= 1")
 }
 
 func TestInitialIntervalValue_ZeroValue(t *testing.T) {
@@ -414,7 +383,7 @@ data: [DONE]
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "test-model",
 		retryConfig: &config.RetryBlock{
-			MaxRetries: &maxRetries,
+			MaxAttempts: &maxRetries,
 		},
 		httpClient: openrouter.NewClientWithConfig(*openrouterConfig),
 	}
@@ -466,7 +435,7 @@ data: [DONE]
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "test-model",
 		retryConfig: &config.RetryBlock{
-			MaxRetries: &maxRetries,
+			MaxAttempts: &maxRetries,
 		},
 		httpClient: openrouter.NewClientWithConfig(*openrouterConfig),
 	}

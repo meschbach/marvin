@@ -3,19 +3,15 @@
 ## Purpose
 
 TBD - Add retry and rate limit handling for OpenRouter API calls.
-
 ## Requirements
-
 ### Requirement: Retry on Rate Limit
 The system SHALL automatically retry OpenRouter requests when receiving HTTP 429 (rate limit) responses.
 
-#### Scenario: Rate limit response with Retry-After
-- **WHEN** OpenRouter returns HTTP 429 with `Retry-After` header
-- **THEN** the system waits the specified duration and retries the request
-
 #### Scenario: Rate limit response without Retry-After
-- **WHEN** OpenRouter returns HTTP 429 without `Retry-After` header
+- **WHEN** OpenRouter returns HTTP 429 (rate limit response includes no timing headers)
 - **THEN** the system waits using exponential backoff and retries the request
+
+**Reason**: OpenRouter does not emit `Retry-After` or `x-ratelimit-reset` headers on 429 responses. The system cannot honor timing information that isn't provided.
 
 ### Requirement: Retry Configuration
 The system SHALL support configurable retry parameters per OpenRouter configuration.
@@ -48,3 +44,4 @@ The OpenRouter client SHALL handle API errors consistently for retry logic.
 #### Scenario: Transient server error
 - **WHEN** OpenRouter returns HTTP 5xx (500, 502, 503, 504)
 - **THEN** the system retries the request (same as 429)
+

@@ -88,6 +88,17 @@ OpenRouter provides access to multiple LLM providers through a unified API.
 |--------|------|----------|-------------|
 | `api_key` | string | Yes | OpenRouter API key |
 | `base_url` | string | No | Custom endpoint (default: `https://openrouter.ai/api/v1`) |
+| `retry` | block | No | Retry configuration (see Retry Configuration) |
+
+### Retry Configuration
+
+The `retry` block configures retry behavior for rate limits and server errors.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `max_attempts` | int | 3 | Maximum retry attempts |
+| `initial_interval` | duration | 1s | Initial backoff interval |
+| `max_interval` | duration | 30s | Maximum backoff interval |
 
 ### HCL Configuration Example
 
@@ -97,12 +108,28 @@ provider = "openrouter"
 openrouter {
   api_key = "sk-or-..."
   base_url = "https://openrouter.ai/api/v1"  # optional
+
+  retry {
+    max_attempts = 5
+    initial_interval = "1s"
+    max_interval = "30s"
+  }
 }
 
 llm {
   model = "anthropic/claude-3.5-sonnet"
 }
 ```
+
+### Retry Behavior
+
+The OpenRouter provider implements automatic retry with exponential backoff:
+
+- **429 (Rate Limited)**: Automatically retried with exponential backoff
+- **5xx (Server Error)**: Automatically retried with exponential backoff
+- **Retry-After**: OpenRouter does not provide `Retry-After` headers, so exponential backoff is used
+- **Max Attempts**: Configurable via `max_attempts` (default: 3)
+- **Backoff**: Exponential starting at `initial_interval`, capped at `max_interval`
 
 ### Implementation
 

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -25,27 +23,22 @@ func isRetryableError(err error) bool {
 	return apiErr.HTTPStatusCode == rateLimitStatusCode || (apiErr.HTTPStatusCode >= 500 && apiErr.HTTPStatusCode < 600)
 }
 
-func parseRetryAfterHeader(resp *http.Response) time.Duration {
-	retryAfter := resp.Header.Get("Retry-After")
-	if retryAfter == "" {
-		return 0
+func deriveErrorStatus(err error) (string, int) {
+	var apiErr *openrouter.APIError
+	if errors.As(err, &apiErr) {
+		return "api_error", apiErr.HTTPStatusCode
 	}
-
-	if seconds, err := strconv.Atoi(retryAfter); err == nil {
-		return time.Duration(seconds) * time.Second
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout", 0
 	}
-
-	if t, err := time.Parse(time.RFC1123, retryAfter); err == nil {
-		waitTime := t.Sub(time.Now())
-		if waitTime > 0 {
-			return waitTime
-		}
+	if errors.Is(err, context.Canceled) {
+		return "canceled", 0
 	}
-
-	return 0
+	return "error", 0
 }
 
 type metricsRecorder struct {
+	startedCounter   metric.Int64Counter
 	requestCounter   metric.Int64Counter
 	retryCounter     metric.Int64Counter
 	latencyHistogram metric.Float64Histogram
@@ -54,6 +47,13 @@ type metricsRecorder struct {
 }
 
 func newMetricsRecorder(meter metric.Meter) (*metricsRecorder, error) {
+	startedCounter, err := meter.Int64Counter("llm.requests.started",
+		metric.WithDescription("Number of LLM requests initiated"),
+		metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
 	requestCounter, err := meter.Int64Counter("llm.requests.total",
 		metric.WithDescription("Total number of LLM requests"),
 		metric.WithUnit("1"))
@@ -90,12 +90,20 @@ func newMetricsRecorder(meter metric.Meter) (*metricsRecorder, error) {
 	}
 
 	return &metricsRecorder{
+		startedCounter:   startedCounter,
 		requestCounter:   requestCounter,
 		retryCounter:     retryCounter,
 		latencyHistogram: latencyHistogram,
 		waitHistogram:    waitHistogram,
 		errorCounter:     errorCounter,
 	}, nil
+}
+
+func (m *metricsRecorder) recordStarted(ctx context.Context, provider, model string) {
+	m.startedCounter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("provider", provider),
+		attribute.String("model", model),
+	))
 }
 
 func (m *metricsRecorder) recordRequest(ctx context.Context, provider, model, outcome string, retryed bool) {
@@ -151,20 +159,18 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 	maxRetries := 3
 	if o.retryConfig != nil {
 		var err error
-		maxRetries, err = o.retryConfig.MaxRetriesValue()
+		maxRetries, err = o.retryConfig.MaxAttemptsValue()
 		if err != nil {
-			return nil, fmt.Errorf("max_retries: %w", err)
+			return nil, fmt.Errorf("max_attempts: %w", err)
 		}
 	}
 
-	var lastErr error
 	var attempt int
 
 	operation := func() (*openrouter.ChatCompletionStream, error) {
 		attempt++
 		stream, err := createStream(ctx)
 		if err != nil {
-			lastErr = err
 			if isRetryableError(err) {
 				return nil, err
 			}
@@ -189,12 +195,17 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 		return nil, fmt.Errorf("backoff config: %w", err)
 	}
 
+	if o.metrics != nil {
+		o.metrics.recordStarted(ctx, provider, model)
+	}
+
 	stream, err := backoff.Retry(ctx, operation, backoff.WithBackOff(backoffMgr), backoff.WithMaxTries(uint(maxRetries)), backoff.WithNotify(notify))
 
 	duration := time.Since(startTime).Seconds()
 	if o.metrics != nil {
 		if err != nil {
-			o.metrics.recordError(ctx, provider, model, "retry_exhausted", 0)
+			errorType, httpStatus := deriveErrorStatus(err)
+			o.metrics.recordError(ctx, provider, model, errorType, httpStatus)
 			o.metrics.recordRequest(ctx, provider, model, "error", attempt > 1)
 			o.metrics.recordLatency(ctx, provider, model, "error", duration)
 		} else {
@@ -204,7 +215,7 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", attempt, lastErr)
+		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", attempt, err)
 	}
 
 	return stream, nil
