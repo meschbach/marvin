@@ -85,20 +85,31 @@ func (r *RetryBlock) InitialIntervalValue() (time.Duration, error) {
 }
 
 func (r *RetryBlock) MaxIntervalValue() (time.Duration, error) {
-	if r != nil && r.MaxInterval != nil {
-		if *r.MaxInterval <= 0 {
-			return 0, fmt.Errorf("max_interval must be > 0, got %s", *r.MaxInterval)
-		}
-		initial, err := r.InitialIntervalValue()
-		if err != nil {
-			return 0, err
-		}
-		if *r.MaxInterval < initial {
-			return 0, fmt.Errorf("max_interval (%s) must be >= initial_interval (%s)", *r.MaxInterval, initial)
-		}
-		return *r.MaxInterval, nil
+	if r == nil {
+		return DefaultMaxInterval, nil
 	}
-	return DefaultMaxInterval, nil
+
+	initial, err := r.InitialIntervalValue()
+	if err != nil {
+		return 0, err
+	}
+
+	var effectiveMax time.Duration
+	if r.MaxInterval != nil {
+		effectiveMax = *r.MaxInterval
+	} else {
+		effectiveMax = DefaultMaxInterval
+	}
+
+	if effectiveMax <= 0 {
+		return 0, fmt.Errorf("max_interval must be > 0, got %s", effectiveMax)
+	}
+
+	if effectiveMax < initial {
+		return 0, fmt.Errorf("max_interval (%s) must be >= initial_interval (%s)", effectiveMax, initial)
+	}
+
+	return effectiveMax, nil
 }
 
 // ModelOptionsBlock contains advanced model configuration options

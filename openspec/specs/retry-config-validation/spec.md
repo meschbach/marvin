@@ -53,3 +53,31 @@ The RetryBlock accessor methods (MaxRetriesValue, InitialIntervalValue, MaxInter
 - **GIVEN** RetryBlock has MaxInterval as nil
 - **WHEN** MaxIntervalValue() is called
 - **THEN** returns DefaultMaxInterval (30s) without error
+
+### Requirement: MaxInterval must be >= InitialInterval
+MaxIntervalValue() SHALL return an error when InitialInterval exceeds DefaultMaxInterval or the configured MaxInterval.
+
+#### Scenario: InitialInterval exceeds DefaultMaxInterval (MaxInterval nil)
+- **GIVEN** RetryBlock has InitialInterval set to 60s and MaxInterval as nil
+- **WHEN** MaxIntervalValue() is called
+- **THEN** an error is returned indicating max_interval (30s) must be >= initial_interval (60s)
+
+#### Scenario: InitialInterval exceeds configured MaxInterval
+- **GIVEN** RetryBlock has InitialInterval set to 20s and MaxInterval set to 10s
+- **WHEN** MaxIntervalValue() is called
+- **THEN** an error is returned indicating max_interval (10s) must be >= initial_interval (20s)
+
+#### Scenario: InitialInterval equals MaxInterval
+- **GIVEN** RetryBlock has InitialInterval set to 10s and MaxInterval set to 10s
+- **WHEN** MaxIntervalValue() is called
+- **THEN** returns MaxInterval (10s) without error
+
+#### Scenario: InitialInterval less than MaxInterval
+- **GIVEN** RetryBlock has InitialInterval set to 5s and MaxInterval set to 30s
+- **WHEN** MaxIntervalValue() is called
+- **THEN** returns MaxInterval (30s) without error
+
+#### Scenario: InitialInterval exceeds DefaultMaxInterval with nil receiver
+- **GIVEN** RetryBlock is nil
+- **WHEN** MaxIntervalValue() is called
+- **THEN** returns DefaultMaxInterval (30s) without error (no initial to validate against)
