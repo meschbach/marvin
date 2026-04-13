@@ -42,6 +42,8 @@ type OpenRouterBlock struct {
 	APIKeyBlock `hcl:",remain"`
 	// BaseURL allows overriding the default OpenRouter endpoint
 	BaseURL string `hcl:"base_url,optional"`
+	// Retry contains retry configuration for OpenRouter requests
+	Retry *RetryBlock `hcl:"retry,block"`
 }
 
 func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
@@ -50,6 +52,64 @@ func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
 		keyBlock = &o.APIKeyBlock
 	}
 	return keyBlock.Resolve("OPENROUTER_API_KEY")
+}
+
+const DefaultMaxRetries = 3
+const DefaultInitialInterval = 1 * time.Second
+const DefaultMaxInterval = 30 * time.Second
+
+type RetryBlock struct {
+	MaxAttempts     *int           `hcl:"max_attempts,optional"`
+	InitialInterval *time.Duration `hcl:"initial_interval,optional"`
+	MaxInterval     *time.Duration `hcl:"max_interval,optional"`
+}
+
+func (r *RetryBlock) MaxAttemptsValue() (int, error) {
+	if r != nil && r.MaxAttempts != nil {
+		if *r.MaxAttempts < 1 {
+			return 0, fmt.Errorf("max_attempts must be >= 1, got %d", *r.MaxAttempts)
+		}
+		return *r.MaxAttempts, nil
+	}
+	return DefaultMaxRetries, nil
+}
+
+func (r *RetryBlock) InitialIntervalValue() (time.Duration, error) {
+	if r != nil && r.InitialInterval != nil {
+		if *r.InitialInterval <= 0 {
+			return 0, fmt.Errorf("initial_interval must be > 0, got %s", *r.InitialInterval)
+		}
+		return *r.InitialInterval, nil
+	}
+	return DefaultInitialInterval, nil
+}
+
+func (r *RetryBlock) MaxIntervalValue() (time.Duration, error) {
+	if r == nil {
+		return DefaultMaxInterval, nil
+	}
+
+	initial, err := r.InitialIntervalValue()
+	if err != nil {
+		return 0, err
+	}
+
+	var effectiveMax time.Duration
+	if r.MaxInterval != nil {
+		effectiveMax = *r.MaxInterval
+	} else {
+		effectiveMax = DefaultMaxInterval
+	}
+
+	if effectiveMax <= 0 {
+		return 0, fmt.Errorf("max_interval must be > 0, got %s", effectiveMax)
+	}
+
+	if effectiveMax < initial {
+		return 0, fmt.Errorf("max_interval (%s) must be >= initial_interval (%s)", effectiveMax, initial)
+	}
+
+	return effectiveMax, nil
 }
 
 // ModelOptionsBlock contains advanced model configuration options

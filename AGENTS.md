@@ -90,9 +90,19 @@ pre-commit run --all-files
 pre-commit run go-fmt go-mod-tidy go-vet
 pre-commit run golangci-lint
 pre-commit run go-test-unit go-build-marvin go-build-slacker
+```
 
-# Run only a specific linter (e.g., forbidigo for context.Background checks)
-golangci-lint run --enable-only forbidigo ./...
+**Final Verification Checklist (major milestones or completion):**
+Run these commands to verify the entire project passes linting - do NOT lint individual files (causes typecheck errors):
+```bash
+# Lint on packages (not files)
+golangci-lint run ./...
+
+# Full unit tests
+go test -count 1 ./internal/...
+
+# Verify all packages compile
+go build ./...
 ```
 
 ## Code Style Guidelines
