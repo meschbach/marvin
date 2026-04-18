@@ -180,11 +180,14 @@ type SlackUpdater struct {
 	buffer                  strings.Builder
 	mutex                   sync.Mutex
 	lastUpdateTime          time.Time
+	lastProgressUpdateTime  time.Time
 	lastWritten             string
 	formatter               ContentFormatter
 	timeProvider            TimeProvider
 	formattingErrorNotified bool
 	preferences             UserPreferences
+	progressProvider        ProgressMessageProvider
+	progressMessageTS       string
 }
 
 // NewSlackUpdater creates an updater that provides visibility into AI operations.
@@ -196,10 +199,12 @@ func NewSlackUpdater(client SlackSink, channelID string, formatter ContentFormat
 		buffer:                  strings.Builder{},
 		mutex:                   sync.Mutex{},
 		lastUpdateTime:          time.Time{},
+		lastProgressUpdateTime:  time.Time{},
 		formatter:               formatter,
 		timeProvider:            &DefaultTimeProvider{},
 		formattingErrorNotified: false,
 		preferences:             preferences,
+		progressProvider:        ProgressMessageProvider{},
 	}
 
 	// Apply options
@@ -241,6 +246,9 @@ func (su *SlackUpdater) addContentInternal(
 	su.mutex.Lock()
 	defer su.mutex.Unlock()
 
+	// Capture previous state for progress indicator logic
+	previousState := su.currentState
+
 	// Switch content type if needed (posts previous buffer immediately)
 	changed, switchErr := su.switchToType(ctx, targetState)
 
@@ -258,15 +266,58 @@ func (su *SlackUpdater) addContentInternal(
 
 	su.buffer.WriteString(content)
 
-	// Check time-based update condition: same type AND >1 second since last update
-	timeSinceLastUpdate := su.timeProvider.Now().Sub(su.lastUpdateTime)
+	// Check time-based update condition - use separate progress timer
+	timeSinceLastProgressUpdate := su.timeProvider.Now().Sub(su.lastProgressUpdateTime)
 	var progressError error
-	if changed || timeSinceLastUpdate > time.Second {
-		progressError = su.updateMessage(ctx)
-		su.lastUpdateTime = su.timeProvider.Now()
+
+	// Show progress indicator only on init->thinking or init->content transitions
+	// This marks the start of query processing
+	shouldShowProgress := changed && su.progressMessageTS == "" && previousState == updaterStateInit
+	// Update progress indicator on time threshold (>3 seconds elapsed)
+	shouldUpdateProgress := su.progressMessageTS != "" && timeSinceLastProgressUpdate > 3*time.Second
+
+	if shouldShowProgress || shouldUpdateProgress {
+		emoji := su.progressProvider.GetNextEmoji()
+		message := su.progressProvider.GetNextMessage()
+		progressText := fmt.Sprintf("%s *%s*", emoji, message)
+
+		if su.progressMessageTS == "" {
+			// First time - post initial progress message
+			_, su.progressMessageTS, progressError = su.client.PostMessageContext(
+				ctx,
+				su.channelID,
+				slack.MsgOptionText(progressText, true),
+				slack.MsgOptionBlocks(
+					slack.NewSectionBlock(&slack.TextBlockObject{
+						Type: slack.MarkdownType,
+						Text: progressText,
+					}, nil, nil),
+				),
+			)
+			su.lastProgressUpdateTime = su.timeProvider.Now()
+		} else {
+			// Update existing progress message
+			_, _, _, progressError = su.client.UpdateMessageContext(
+				ctx,
+				su.channelID,
+				su.progressMessageTS,
+				slack.MsgOptionText(progressText, true),
+				slack.MsgOptionBlocks(
+					slack.NewSectionBlock(&slack.TextBlockObject{
+						Type: slack.MarkdownType,
+						Text: progressText,
+					}, nil, nil),
+				),
+			)
+			su.lastProgressUpdateTime = su.timeProvider.Now()
+		}
 	}
 
-	return errors.Join(switchErr, progressError)
+	// Also update main content
+	contentError := su.updateMessage(ctx)
+	su.lastUpdateTime = su.timeProvider.Now()
+
+	return errors.Join(switchErr, progressError, contentError)
 }
 
 // updateMessage posts or updates the current buffer content

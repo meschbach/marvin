@@ -247,3 +247,79 @@ func newInt(v int) *int {
 func newDuration(v time.Duration) *time.Duration {
 	return &v
 }
+
+// nolint:dupl
+func TestRetryBlock_MaxRateLimitWaitValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		block      *RetryBlock
+		expected   time.Duration
+		expectErr  bool
+		errContain string
+	}{
+		{
+			name:      "NilReceiver",
+			block:     nil,
+			expected:  DefaultMaxRateLimitWait,
+			expectErr: false,
+		},
+		{
+			name: "MaxRateLimitWaitZero",
+			block: &RetryBlock{
+				MaxRateLimitWait: newDuration(0),
+			},
+			expectErr:  true,
+			errContain: "max_rate_limit_wait must be >= 1s",
+		},
+		{
+			name: "MaxRateLimitWaitBelowMinimum",
+			block: &RetryBlock{
+				MaxRateLimitWait: newDuration(500 * time.Millisecond),
+			},
+			expectErr:  true,
+			errContain: "max_rate_limit_wait must be >= 1s",
+		},
+		{
+			name: "MaxRateLimitWaitNil",
+			block: &RetryBlock{
+				MaxRateLimitWait: nil,
+			},
+			expected:  DefaultMaxRateLimitWait,
+			expectErr: false,
+		},
+		{
+			name: "MaxRateLimitWaitPositive",
+			block: &RetryBlock{
+				MaxRateLimitWait: newDuration(5 * time.Minute),
+			},
+			expected:  5 * time.Minute,
+			expectErr: false,
+		},
+		{
+			name: "MaxRateLimitWaitAtMinimum",
+			block: &RetryBlock{
+				MaxRateLimitWait: newDuration(1 * time.Second),
+			},
+			expected:  1 * time.Second,
+			expectErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.block.MaxRateLimitWaitValue()
+			if tt.expectErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContain)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expected, got)
+			}
+		})
+	}
+}

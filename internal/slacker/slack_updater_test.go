@@ -69,8 +69,9 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 	defer client.state.Unlock()
 
 	// Verify calls were made
-	assert.Len(t, client.PostedMessages, 3, "Expected three posted message")
-	assert.Len(t, client.UpdatedMessages, 0, "Expected two updated messages")
+	// Progress indicator added on init->content transition
+	assert.Len(t, client.PostedMessages, 4, "Expected four posted messages (content + progress, thought + progress, tool)")
+	assert.Len(t, client.UpdatedMessages, 0, "Expected no updated messages")
 }
 
 func TestSlackUpdater_ConcurrentAccess(t *testing.T) {
@@ -142,7 +143,10 @@ func TestSlackUpdater_StateTransitions(t *testing.T) {
 	}
 
 	// With new behavior: type change triggers immediate post of previous content
-	assert.Len(t, client.PostedMessages, 2, "Should post message for thought (type change)")
+	// AddThought triggers: post progress (1), switchToType (0, no prior content), updateMessage (1 for thought)
+	// AddContent triggers: switchToType (1 post for thought), updateMessage (1 for content), no progress (not init->*)
+	// Total: 1 (progress on AddThought) + 1 (thought post) + 1 (content post) = 3 posts
+	assert.Len(t, client.PostedMessages, 3, "Should post message for thought and content + progress indicator")
 	assert.Len(t, client.UpdatedMessages, 0, "No updates yet for buffered content")
 }
 
@@ -161,11 +165,8 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 	require.NoError(t, updater.AddToolCall(ctx, toolCall))
 	require.NoError(t, updater.ForceUpdate(ctx))
 
-	// Should have posted a message for the tool call
-	assert.Len(t, client.PostedMessages, 1, "Should post message for tool call")
-
-	// Check buffer content - tool calls are now treated as regular content
-	_, _ = updater.getBufferContent()
+	// Should have posted: progress indicator (init->tool) + tool call message
+	assert.Len(t, client.PostedMessages, 2, "Should post progress + tool call message")
 	assert.Len(t, client.UpdatedMessages, 0, "no updates should be issued.")
 }
 
@@ -192,8 +193,8 @@ func TestSlackUpdater_ToolResults(t *testing.T) {
 
 	require.NoError(t, updater.ForceUpdate(ctx))
 
-	// Both tool results are buffered together and posted as one message
-	assert.Len(t, client.PostedMessages, 1, "Should post single message containing both tool results")
+	// Should have posted: progress indicator (init->tool) + tool results message
+	assert.Len(t, client.PostedMessages, 2, "Should post progress + tool results message")
 }
 
 func TestSlackUpdater_Complete(t *testing.T) {
@@ -244,8 +245,8 @@ func TestSlackUpdater_ThinkingFormatting(t *testing.T) {
 	err = updater.ForceUpdate(ctx)
 	assert.NoError(t, err)
 
-	// The posted message should be formatted
-	assert.Len(t, client.PostedMessages, 1, "Should post formatted message")
+	// Should have progress indicator + formatted thought message
+	assert.Len(t, client.PostedMessages, 2, "Should post progress + formatted message")
 }
 
 func TestSlackUpdater_MultipleStateTransitions(t *testing.T) {

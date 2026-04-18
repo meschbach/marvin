@@ -463,3 +463,108 @@ proc.Run()
 - `user` - User ID
 - `command.matched` - Matched command
 - `queryProcessor.initialized` - Tool initialization status
+
+## 10. Progress Indicator
+
+**Primary File**: `internal/slacker/slack_updater.go`
+
+When users send a query to Marvin in Slack and the LLM takes time to respond, the progress indicator provides real-time visual feedback. It cycles through emoji and Marvin-themed quips every 3 seconds or on streaming events.
+
+### 10.1 Progress Messages
+
+**File**: `internal/slacker/progress_messages.go`
+
+Marvin-specific quips that cycle during processing. These provide personality while users wait.
+
+```go
+var progressMessages = []string{
+    "Consulting the oracles",      // LLM themed
+    "Decoding latent space",       // ML themed  
+    "Reticulating splines",        // SimCity reference
+    "Feeding tokens to the beast", // Token usage
+    "Waking up the attention heads", // Transformer architecture
+    "Dreaming of electric sheep",  // Blade Runner reference
+    "Polishing hallucinations",      // LLM humor
+    "Undistorting reality",        // LLM humor
+    "Consulting the training data", // Model knowledge
+    "Tuning the neural pathways",   // Model fine-tuning
+    "Counting tokens (so you don't have to)", // Token limits
+    "Avoiding the regularization penalty", // ML optimization
+    "Searching for the right words", // Search/generation
+    "Calculating embedding distances", // Vector similarity
+    "Running inference (not on you)", // Model inference
+}
+
+var progressEmojis = []string{"🕐", "💭", "⏳", "🧠"}
+```
+
+| Function | Description |
+|----------|-------------|
+| `GetNextMessage()` | Returns next quip, wraps to start |
+| `GetNextEmoji()` | Returns next emoji, wraps to start |
+
+**Behavior**:
+- Emoji and message positions reset per conversation (per user-channel session)
+- Cycles continuously while processing
+- Final response replaces progress message
+
+### 10.2 Timer Configuration
+
+**SlackUpdater**: `internal/slacker/slack_updater.go:264`
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Timer threshold | `3 * time.Second` | Update cadence |
+| Immediate post | On query start | First feedback |
+
+**Logic** (`addContentInternal`):
+```go
+timeSinceLastUpdate := su.timeProvider.Now().Sub(su.lastUpdateTime)
+if changed || timeSinceLastUpdate > 3*time.Second {
+    su.updateMessage(ctx)
+}
+```
+
+### 10.3 Integration with SlackUpdater
+
+**Flow**:
+```
+User query arrives
+        │
+        ▼
+Start processing (updaterStateInit → updaterStateThinking)
+        │
+        ├──► Post initial progress: 🕐 *Consulting the oracles*
+        │
+        ▼
+Every 3 seconds OR streaming event:
+        │
+        ├──► Cycle emoji: 🕐 → 💭 → ⏳ → 🧠
+        ├──► Cycle message (next quip)
+        └──► Update message via Slack API
+        │
+        ▼
+LLM response complete:
+        │
+        └──► Replace progress with final content
+```
+
+| State | Description |
+|-------|-------------|
+| `updaterStateInit` | Initial, no content yet |
+| `updaterStateThinking` | Processing, show progress |
+| `updaterStateContent` | Output received |
+| `updaterStateTool` | Tool execution |
+| `updaterStateComplete` | Done |
+
+### 10.4 Rate Limit Metrics (Optional)
+
+**File**: `internal/slacker/slack_client.go`
+
+Tracks Slack API rate limit (429) occurrences for observability.
+
+| Metric | Description |
+|--------|-------------|
+| `slack.rate_limit_retries` | Counter of 429 responses |
+
+**Note**: The slack-go library handles retries automatically. This metric provides visibility into when rate limits occur.

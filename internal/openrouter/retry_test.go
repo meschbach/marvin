@@ -453,3 +453,81 @@ data: [DONE]
 	require.NotEmpty(t, collector.responses)
 	assert.True(t, collector.last.Done)
 }
+
+func TestExtractRateLimitReset_Float64(t *testing.T) {
+	t.Parallel()
+	err := &openrouter.APIError{
+		HTTPStatusCode: 429,
+		Message:        "Rate limit exceeded",
+		Metadata: &openrouter.Metadata{
+			"X-RateLimit-Reset": float64(5000),
+		},
+	}
+
+	waitTime, ok := extractRateLimitReset(err)
+	require.True(t, ok, "should find rate limit reset value")
+	assert.Equal(t, 5*time.Second, waitTime)
+}
+
+func TestExtractRateLimitReset_String(t *testing.T) {
+	t.Parallel()
+	err := &openrouter.APIError{
+		HTTPStatusCode: 429,
+		Message:        "Rate limit exceeded",
+		Metadata: &openrouter.Metadata{
+			"X-RateLimit-Reset": "3000",
+		},
+	}
+
+	waitTime, ok := extractRateLimitReset(err)
+	require.True(t, ok, "should find rate limit reset value")
+	assert.Equal(t, 3*time.Second, waitTime)
+}
+
+func TestExtractRateLimitReset_NotPresent(t *testing.T) {
+	t.Parallel()
+	err := &openrouter.APIError{
+		HTTPStatusCode: 429,
+		Message:        "Rate limit exceeded",
+		Metadata: &openrouter.Metadata{
+			"other-key": float64(5000),
+		},
+	}
+
+	_, ok := extractRateLimitReset(err)
+	assert.False(t, ok, "should not find rate limit reset when key not present")
+}
+
+func TestExtractRateLimitReset_NilMetadata(t *testing.T) {
+	t.Parallel()
+	err := &openrouter.APIError{
+		HTTPStatusCode: 429,
+		Message:        "Rate limit exceeded",
+		Metadata:       nil,
+	}
+
+	_, ok := extractRateLimitReset(err)
+	assert.False(t, ok, "should not find rate limit reset when metadata is nil")
+}
+
+func TestExtractRateLimitReset_NonAPIError(t *testing.T) {
+	t.Parallel()
+	err := assert.AnError
+
+	_, ok := extractRateLimitReset(err)
+	assert.False(t, ok, "should not find rate limit reset for non-APIError")
+}
+
+func TestExtractRateLimitReset_InvalidType(t *testing.T) {
+	t.Parallel()
+	err := &openrouter.APIError{
+		HTTPStatusCode: 429,
+		Message:        "Rate limit exceeded",
+		Metadata: &openrouter.Metadata{
+			"X-RateLimit-Reset": []int{1, 2, 3},
+		},
+	}
+
+	_, ok := extractRateLimitReset(err)
+	assert.False(t, ok, "should not find rate limit reset for invalid type")
+}
