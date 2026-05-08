@@ -2,6 +2,9 @@
 
 This file provides guidelines for agentic coding agents working in this repository.
 
+**Architectural Excellence**: All engineers working on this project are senior+ (Principal-level) with significant software design
+experience.  Use correct terms for patterns, roles, and stereotypes of elements.  Avoid overusing vague terms like *helper*.
+
 ## Project Overview
 
 Marvin is a Go-based agentic workflow CLI that connects AI reasoning loops to Model Context Protocol (MCP) tools. It's built with:
