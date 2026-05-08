@@ -18,6 +18,22 @@ model = "llama3.2:latest"
 #   
 #   # Optional: Override default OpenRouter endpoint
 #   # base_url = "https://openrouter.ai/api/v1"
+#   
+#   # Optional: Retry configuration for handling rate limits
+#   # retry {
+#   #   # Maximum retry attempts (default: 3)
+#   #   max_attempts = 3
+#   #   
+#   #   # Initial backoff interval (default: 1s)
+#   #   initial_interval = "1s"
+#   #   
+#   #   # Maximum backoff interval (default: 30s)
+#   #   max_interval = "30s"
+#   #   
+#   #   # Maximum wait time for rate limit reset (default: 2m)
+#   #   # The server's X-RateLimit-Reset header specifies reset time in milliseconds
+#   #   max_rate_limit_wait = "2m"
+#   # }
 # }
 
 # Example OpenRouter models:

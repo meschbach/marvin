@@ -4,15 +4,50 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	"github.com/meschbach/marvin/internal/config"
 	"github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
 const rateLimitStatusCode = 429
+const rateLimitResetKey = "X-RateLimit-Reset"
+
+func extractRateLimitReset(err error) (time.Duration, bool) {
+	var apiErr *openrouter.APIError
+	if !errors.As(err, &apiErr) || apiErr.Metadata == nil || *apiErr.Metadata == nil {
+		return 0, false
+	}
+
+	resetValue, exists := (*apiErr.Metadata)[rateLimitResetKey]
+	if !exists {
+		return 0, false
+	}
+
+	var ms float64
+	switch v := resetValue.(type) {
+	case float64:
+		ms = v
+	case string:
+		parsed, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return 0, false
+		}
+		ms = parsed
+	default:
+		return 0, false
+	}
+
+	if ms <= 0 {
+		return 0, false
+	}
+
+	return time.Duration(ms) * time.Millisecond, true
+}
 
 func isRetryableError(err error) bool {
 	var apiErr *openrouter.APIError
@@ -38,12 +73,13 @@ func deriveErrorStatus(err error) (string, int) {
 }
 
 type metricsRecorder struct {
-	startedCounter   metric.Int64Counter
-	requestCounter   metric.Int64Counter
-	retryCounter     metric.Int64Counter
-	latencyHistogram metric.Float64Histogram
-	waitHistogram    metric.Float64Histogram
-	errorCounter     metric.Int64Counter
+	startedCounter           metric.Int64Counter
+	requestCounter           metric.Int64Counter
+	retryCounter             metric.Int64Counter
+	rateLimitExceededCounter metric.Int64Counter
+	latencyHistogram         metric.Float64Histogram
+	waitHistogram            metric.Float64Histogram
+	errorCounter             metric.Int64Counter
 }
 
 func newMetricsRecorder(meter metric.Meter) (*metricsRecorder, error) {
@@ -63,6 +99,13 @@ func newMetricsRecorder(meter metric.Meter) (*metricsRecorder, error) {
 
 	retryCounter, err := meter.Int64Counter("llm.rate_limit_retries",
 		metric.WithDescription("Number of retries due to rate limiting"),
+		metric.WithUnit("1"))
+	if err != nil {
+		return nil, err
+	}
+
+	rateLimitExceededCounter, err := meter.Int64Counter("llm.rate_limit_wait_exceeded",
+		metric.WithDescription("Number of times rate limit reset time exceeded max wait"),
 		metric.WithUnit("1"))
 	if err != nil {
 		return nil, err
@@ -90,12 +133,13 @@ func newMetricsRecorder(meter metric.Meter) (*metricsRecorder, error) {
 	}
 
 	return &metricsRecorder{
-		startedCounter:   startedCounter,
-		requestCounter:   requestCounter,
-		retryCounter:     retryCounter,
-		latencyHistogram: latencyHistogram,
-		waitHistogram:    waitHistogram,
-		errorCounter:     errorCounter,
+		startedCounter:           startedCounter,
+		requestCounter:           requestCounter,
+		retryCounter:             retryCounter,
+		rateLimitExceededCounter: rateLimitExceededCounter,
+		latencyHistogram:         latencyHistogram,
+		waitHistogram:            waitHistogram,
+		errorCounter:             errorCounter,
 	}, nil
 }
 
@@ -133,8 +177,16 @@ func (m *metricsRecorder) recordLatency(ctx context.Context, provider, model, ou
 	))
 }
 
-func (m *metricsRecorder) recordWaitTime(ctx context.Context, provider, model string, waitSeconds float64) {
+func (m *metricsRecorder) recordWaitTime(ctx context.Context, provider, model string, waitSeconds float64, waitSource string) {
 	m.waitHistogram.Record(ctx, waitSeconds, metric.WithAttributes(
+		attribute.String("provider", provider),
+		attribute.String("model", model),
+		attribute.String("wait_source", waitSource),
+	))
+}
+
+func (m *metricsRecorder) recordRateLimitExceeded(ctx context.Context, provider, model string) {
+	m.rateLimitExceededCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("provider", provider),
 		attribute.String("model", model),
 	))
@@ -149,6 +201,12 @@ func (m *metricsRecorder) recordError(ctx context.Context, provider, model, erro
 	))
 }
 
+func (m *metricsRecorder) recordTerminalError(ctx context.Context, provider, model, errorType string, httpStatus int, durationSeconds float64, wasRetried bool) {
+	m.recordError(ctx, provider, model, errorType, httpStatus)
+	m.recordRequest(ctx, provider, model, "error", wasRetried)
+	m.recordLatency(ctx, provider, model, "error", durationSeconds)
+}
+
 type streamCreator func(ctx context.Context) (*openrouter.ChatCompletionStream, error)
 
 func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) (*openrouter.ChatCompletionStream, error) {
@@ -158,64 +216,115 @@ func (o *LLM) executeWithRetry(ctx context.Context, createStream streamCreator) 
 
 	maxRetries := 3
 	if o.retryConfig != nil {
-		var err error
-		maxRetries, err = o.retryConfig.MaxAttemptsValue()
-		if err != nil {
-			return nil, fmt.Errorf("max_attempts: %w", err)
+		var errVal error
+		maxRetries, errVal = o.retryConfig.MaxAttemptsValue()
+		if errVal != nil {
+			return nil, fmt.Errorf("max_attempts: %w", errVal)
 		}
 	}
 
-	var attempt int
-
-	operation := func() (*openrouter.ChatCompletionStream, error) {
-		attempt++
-		stream, err := createStream(ctx)
-		if err != nil {
-			if isRetryableError(err) {
-				return nil, err
-			}
-			return nil, backoff.Permanent(err)
-		}
-		return stream, nil
-	}
-
-	notify := func(err error, waitTime time.Duration) {
-		if o.metrics != nil {
-			if waitTime > 0 {
-				o.metrics.recordWaitTime(ctx, provider, model, waitTime.Seconds())
-			}
-			if attempt > 1 {
-				o.metrics.recordRetry(ctx, provider, model)
-			}
+	maxRateLimitWait := config.DefaultMaxRateLimitWait
+	if o.retryConfig != nil {
+		var errVal error
+		maxRateLimitWait, errVal = o.retryConfig.MaxRateLimitWaitValue()
+		if errVal != nil {
+			return nil, fmt.Errorf("max_rate_limit_wait: %w", errVal)
 		}
 	}
 
-	backoffMgr, err := o.getBackoff()
-	if err != nil {
-		return nil, fmt.Errorf("backoff config: %w", err)
+	backoffMgr, errVal := o.getBackoff()
+	if errVal != nil {
+		return nil, fmt.Errorf("backoff config: %w", errVal)
 	}
 
 	if o.metrics != nil {
 		o.metrics.recordStarted(ctx, provider, model)
 	}
 
-	stream, err := backoff.Retry(ctx, operation, backoff.WithBackOff(backoffMgr), backoff.WithMaxTries(uint(maxRetries)), backoff.WithNotify(notify))
+	var attempt int
+	var stream *openrouter.ChatCompletionStream
+	var err error
+
+	for attempt = 0; attempt < maxRetries; attempt++ {
+		stream, err = createStream(ctx)
+		if err == nil {
+			break
+		}
+
+		if !isRetryableError(err) {
+			duration := time.Since(startTime).Seconds()
+			if o.metrics != nil {
+				errorType, httpStatus := deriveErrorStatus(err)
+				o.metrics.recordTerminalError(ctx, provider, model, errorType, httpStatus, duration, attempt > 0)
+			}
+			return nil, err
+		}
+
+		resetWait, hasResetWait := extractRateLimitReset(err)
+		if hasResetWait {
+			if resetWait <= maxRateLimitWait {
+				select {
+				case <-ctx.Done():
+					duration := time.Since(startTime).Seconds()
+					if o.metrics != nil {
+						errorType, httpStatus := deriveErrorStatus(ctx.Err())
+						o.metrics.recordTerminalError(ctx, provider, model, errorType, httpStatus, duration, true)
+					}
+					return nil, ctx.Err()
+				case <-time.After(resetWait):
+				}
+
+				if o.metrics != nil {
+					o.metrics.recordWaitTime(ctx, provider, model, resetWait.Seconds(), "server_reset")
+					o.metrics.recordRetry(ctx, provider, model)
+				}
+				continue
+			}
+
+			if o.metrics != nil {
+				o.metrics.recordRateLimitExceeded(ctx, provider, model)
+				duration := time.Since(startTime).Seconds()
+				errorType, httpStatus := deriveErrorStatus(err)
+				o.metrics.recordTerminalError(ctx, provider, model, errorType, httpStatus, duration, true)
+			}
+			return nil, fmt.Errorf("rate limit reset time %v exceeds configured max_wait %v; consider increasing max_rate_limit_wait in your retry block: %w", resetWait, maxRateLimitWait, err)
+		}
+
+		waitTime := backoffMgr.NextBackOff()
+		if waitTime == backoff.Stop {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			duration := time.Since(startTime).Seconds()
+			if o.metrics != nil {
+				errorType, httpStatus := deriveErrorStatus(ctx.Err())
+				o.metrics.recordTerminalError(ctx, provider, model, errorType, httpStatus, duration, true)
+			}
+			return nil, ctx.Err()
+		case <-time.After(waitTime):
+		}
+
+		if o.metrics != nil {
+			o.metrics.recordWaitTime(ctx, provider, model, waitTime.Seconds(), "exponential_backoff")
+			o.metrics.recordRetry(ctx, provider, model)
+		}
+	}
 
 	duration := time.Since(startTime).Seconds()
 	if o.metrics != nil {
 		if err != nil {
 			errorType, httpStatus := deriveErrorStatus(err)
-			o.metrics.recordError(ctx, provider, model, errorType, httpStatus)
-			o.metrics.recordRequest(ctx, provider, model, "error", attempt > 1)
-			o.metrics.recordLatency(ctx, provider, model, "error", duration)
+			o.metrics.recordTerminalError(ctx, provider, model, errorType, httpStatus, duration, attempt > 0)
 		} else {
-			o.metrics.recordRequest(ctx, provider, model, "success", attempt > 1)
+			o.metrics.recordRequest(ctx, provider, model, "success", attempt > 0)
 			o.metrics.recordLatency(ctx, provider, model, "success", duration)
 		}
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", attempt, err)
+		return nil, fmt.Errorf("retry exhausted after %d attempts: %w", attempt+1, err)
 	}
 
 	return stream, nil

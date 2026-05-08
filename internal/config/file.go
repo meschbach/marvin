@@ -57,11 +57,13 @@ func (o *OpenRouterBlock) ResolveKey() (value string, has bool, problem error) {
 const DefaultMaxRetries = 3
 const DefaultInitialInterval = 1 * time.Second
 const DefaultMaxInterval = 30 * time.Second
+const DefaultMaxRateLimitWait = 2 * time.Minute
 
 type RetryBlock struct {
-	MaxAttempts     *int           `hcl:"max_attempts,optional"`
-	InitialInterval *time.Duration `hcl:"initial_interval,optional"`
-	MaxInterval     *time.Duration `hcl:"max_interval,optional"`
+	MaxAttempts      *int           `hcl:"max_attempts,optional"`
+	InitialInterval  *time.Duration `hcl:"initial_interval,optional"`
+	MaxInterval      *time.Duration `hcl:"max_interval,optional"`
+	MaxRateLimitWait *time.Duration `hcl:"max_rate_limit_wait,optional"`
 }
 
 func (r *RetryBlock) MaxAttemptsValue() (int, error) {
@@ -110,6 +112,24 @@ func (r *RetryBlock) MaxIntervalValue() (time.Duration, error) {
 	}
 
 	return effectiveMax, nil
+}
+
+func (r *RetryBlock) MaxRateLimitWaitValue() (time.Duration, error) {
+	if r == nil {
+		return DefaultMaxRateLimitWait, nil
+	}
+
+	if r.MaxRateLimitWait != nil {
+		if *r.MaxRateLimitWait < 1*time.Second {
+			return 0, fmt.Errorf("max_rate_limit_wait must be >= 1s, got %s", *r.MaxRateLimitWait)
+		}
+		if *r.MaxRateLimitWait > 10*time.Minute {
+			return 0, fmt.Errorf("max_rate_limit_wait must be <= 10m, got %s", *r.MaxRateLimitWait)
+		}
+		return *r.MaxRateLimitWait, nil
+	}
+
+	return DefaultMaxRateLimitWait, nil
 }
 
 // ModelOptionsBlock contains advanced model configuration options
