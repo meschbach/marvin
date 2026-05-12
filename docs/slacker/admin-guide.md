@@ -1,6 +1,7 @@
 # Slacker Admin Guide
 
-This guide covers multi-tenant administration, user management, and operational procedures for Slacker, Marvin's enterprise-grade Slack bot.
+This guide covers multi-tenant administration, user management, and operational procedures for Slacker, Marvin's
+enterprise-grade Slack bot.
 
 ## 🎯 **Admin Overview**
 
@@ -177,7 +178,8 @@ env "API_KEY" with value "sk-1234567890abcdef"
 
 ## 🤖 **Intelligent Help System Management**
 
-Marvin's intelligent help system provides AI-powered assistance when users encounter issues with commands, tools, or model access. As an admin, you can configure and monitor this system.
+Marvin's intelligent help system provides AI-powered assistance when users encounter issues with commands, tools, or
+model access. As an admin, you can configure and monitor this system.
 
 ### **Help System Configuration**
 
@@ -190,10 +192,10 @@ help_system {
   model = "ministral-3:3b"         # Model for help analysis
   max_context_messages = 5         # Messages to consider for context
   analysis_timeout = 5             # Timeout in seconds
-  
+
   # Control which help types are enabled
   help_on_intent_failure = true           # Command recognition help
-  help_on_model_access_denied = true      # Model access help  
+  help_on_model_access_denied = true      # Model access help
   help_on_tool_configuration_error = true # Tool setup help
   help_on_tool_permission_denied = true   # Permission help
 }
@@ -216,7 +218,7 @@ Monitor these metrics to evaluate help system performance:
 # Help response times (target: < 500ms)
 Help Response Time: avg=342ms, p95=678ms
 
-# User satisfaction indicators  
+# User satisfaction indicators
 Help Suggestions Accepted: 78%
 Follow-up Questions Reduced: 45%
 Command Success After Help: 89%
@@ -304,7 +306,7 @@ The help system can collect user feedback to improve quality:
 help_system {
   # Enable feedback collection
   collect_feedback = true
-  
+
   # Feedback prompts
   feedback_prompts = {
     helpful = "Was this help helpful? 🤔"

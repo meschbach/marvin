@@ -135,15 +135,15 @@ data:
       temperature = 0.1
       max_tokens = 4096
     }
-    
+
     admin_users = ["U0PRODUCTION", "U0ADMIN"]
-    
+
     assistant {
       name = "Production Assistant"
       personality = "professional and precise"
       system_prompt = "You are a professional AI assistant for production use. Be accurate, concise, and helpful."
     }
-    
+
     # Production tools
     http_tool "api-gateway" {
       url = "https://api.company.com"

@@ -1,6 +1,7 @@
 # Slacker Security Guide
 
-This guide covers security best practices, threat models, and compliance considerations for deploying and operating Slacker in enterprise environments.
+This guide covers security best practices, threat models, and compliance considerations for deploying and operating
+Slacker in enterprise environments.
 
 ## 🛡️ **Security Overview**
 
@@ -163,7 +164,7 @@ ls -la credentials/
 multi_tenant {
   # Admin users with full access
   admin_users = ["U1234567890", "U0987654321"]
-  
+
   # Optional: Admin notification channel
   admin_channel = "CADMIN123"
 }
@@ -272,11 +273,11 @@ model = "ministral-3:3b"
 
 multi_tenant {
   admin_users = ["U1234567890"]
-  
+
   # Secure storage paths
   session_store_path = "./sessions"
   credential_store = "./credentials"
-  
+
   # Security settings
   session_timeout = "24h"
   max_session_duration = "72h"
@@ -287,10 +288,10 @@ multi_tenant {
 mcp_over_http "safe_api" "https://trusted-api.example.com/mcp" {
   # Validate URL patterns
   allowed_hosts = ["trusted-api.example.com"]
-  
+
   # Rate limiting
   rate_limit = "10/min"
-  
+
   # Security headers
   security_headers = true
 }
@@ -314,7 +315,7 @@ mcp_over_http "safe_api" "https://trusted-api.example.com/mcp" {
 local_program "log_reader" {
   program = "/usr/bin/tail"
   args = ["-n", "100", "/var/log/app.log"]
-  
+
   security_context {
     read_only_filesystem = true
     drop_all_capabilities = true
@@ -329,7 +330,7 @@ docker_mcp "api_client" "company/api-client:latest" {
     cpu = "200m"
     network = "restricted"
   }
-  
+
   security_context {
     read_only_root_filesystem = true
     no_new_privileges = true
@@ -413,10 +414,10 @@ openssl s_client -connect api.example.com:443 -verify_return_error
    ```bash
    # Check system status
    ./slacker --status
-   
+
    # Review recent security events
    grep "\[SECURITY\]" slacker.log | tail -50
-   
+
    # Check active sessions
    find ./sessions -name "session_*.json" -mtime -1
    ```
@@ -425,10 +426,10 @@ openssl s_client -connect api.example.com:443 -verify_return_error
    ```bash
    # Emergency bot shutdown
    pkill -INT slacker
-   
+
    # Revoke Slack tokens
    # Go to Slack API console → revoke tokens
-   
+
    # Change admin passwords/passphrases
    export SLACKER_PASSPHRASE=$(openssl rand -base64 32)
    ```
@@ -438,7 +439,7 @@ openssl s_client -connect api.example.com:443 -verify_return_error
    # Create forensic backup
    tar -czf incident-backup-$(date +%Y%m%d-%H%M%S).tar.gz \
      ./sessions/ ./credentials/ slacker.log marvin.slacker.hcl
-   
+
    # Preserve system state
    ps aux > process-list.txt
    netstat -an > network-connections.txt
@@ -452,7 +453,7 @@ openssl s_client -connect api.example.com:443 -verify_return_error
    grep "\[SECURITY\]" slacker.log | \
      awk '{print $1, $2, $6, $7, $8, $9}' | \
      sort -n > incident-timeline.txt
-   
+
    # Identify affected users
    grep -E "(COMPROMISE|UNAUTHORIZED)" slacker.log | \
      awk '{print $4}' | sort | uniq > affected-users.txt
@@ -476,11 +477,11 @@ openssl s_client -connect api.example.com:443 -verify_return_error
    ```bash
    # Restore from clean backup
    tar -xzf clean-backup-YYYYMMDD.tar.gz
-   
+
    # Update Slack tokens
    export SLACK_BOT_TOKEN=xoxb-new-token
    export SLACK_APP_TOKEN=xapp-new-token
-   
+
    # Restart with enhanced monitoring
    ./slacker --config marvin.slacker.hcl --verbose --security-monitor
    ```
@@ -511,13 +512,13 @@ openssl s_client -connect api.example.com:443 -verify_return_error
 while true; do
   # Check for security events
   SECURITY_EVENTS=$(grep "\[SECURITY\]" slacker.log | grep "$(date +%Y-%m-%d)" | wc -l)
-  
+
   # Check bot status
   BOT_STATUS=$(pgrep slacker > /dev/null && echo "Running" || echo "Down")
-  
+
   # Check failed logins
   FAILED_ATTEMPTS=$(grep "FAILURE" slacker.log | grep "$(date +%Y-%m-%d)" | wc -l)
-  
+
   echo "$(date): Events=$SECURITY_EVENTS, Status=$BOT_STATUS, Failed=$FAILED_ATTEMPTS"
   sleep 60
 done
@@ -583,7 +584,7 @@ multi_tenant {
   audit_retention_days = 2555  # 7 years (HIPAA)
   session_retention_days = 90   # 3 months
   credential_retention_days = 365 # 1 year
-  
+
   # Archival policy
   archive_old_logs = true
   archive_format = "gzip"
@@ -605,11 +606,11 @@ multi_tenant {
 multi_tenant {
   gdpr_mode = true
   data_minimization = true
-  
+
   # User rights implementation
   allow_data_export = true
   allow_data_deletion = true
-  
+
   # Consent management
   consent_required = true
   consent_storage = "./consent-records"

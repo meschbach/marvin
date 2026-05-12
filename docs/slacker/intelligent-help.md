@@ -1,13 +1,14 @@
 # Intelligent Help System
 
-Marvin's intelligent help system provides proactive assistance when you encounter issues with commands, tool access, or model permissions. Instead of generic error messages, you get contextual, personalized help powered by Marvin's AI.
+Marvin's intelligent help system provides proactive assistance when you encounter issues with commands, tool access, or
+model permissions. Instead of generic error messages, you get contextual, personalized help powered by Marvin's AI.
 
 ## 🎯 What It Does
 
 The help system automatically assists you in these situations:
 
 - **Command Recognition Failures** - When your command isn't understood
-- **Model Access Issues** - When you can't use specific AI models  
+- **Model Access Issues** - When you can't use specific AI models
 - **Tool Configuration Errors** - When tool setup fails
 - **Tool Permission Denials** - When you don't have access to tools
 
@@ -21,7 +22,7 @@ When you type a command that Marvin doesn't recognize (confidence < 70%), the he
 You: add http tol
 🤖 Did you mean "add http tool at <url>"?
 
-You: show my pref  
+You: show my pref
 🤖 Did you mean "show preferences"?
 
 You: list my tool
@@ -76,7 +77,7 @@ help_system {
     model = "ministral-3:3b"      # Model for help analysis
     max_context_messages = 5        # Messages to consider for context
     analysis_timeout = 5            # Timeout in seconds
-    
+
     # Enable help for specific scenarios
     help_on_intent_failure = true           # Command recognition help
     help_on_model_access_denied = true      # Model access help
@@ -89,13 +90,13 @@ help_system {
 
 ### Intent Failure Help
 - **Trigger**: Command confidence < 70%
-- **Features**: 
+- **Features**:
   - Fuzzy command matching
   - Typo correction
   - Similar command suggestions
   - Context-aware examples
 
-### Model Access Help  
+### Model Access Help
 - **Trigger**: Model access denied
 - **Features**:
   - Transparent denial explanations
@@ -187,7 +188,7 @@ The help system is enabled by default. To use it:
 - **Use examples** as templates for your commands
 - **Ask an admin** if you need access to restricted tools
 
-### For Admins  
+### For Admins
 - **Monitor help effectiveness** through metrics
 - **Adjust confidence thresholds** based on user feedback
 - **Extend help examples** for your specific tools

@@ -1,6 +1,7 @@
 # Slacker Tool Management Guide
 
-This guide covers advanced tool management, configuration patterns, and operational procedures for managing MCP tools in Slacker's multi-tenant environment.
+This guide covers advanced tool management, configuration patterns, and operational procedures for managing MCP tools
+in Slacker's multi-tenant environment.
 
 ## 🎯 **Tool Management Overview**
 
@@ -30,7 +31,7 @@ mcp_over_http "weather_api" "https://weather.example.com/mcp" {
   assistant_prompt {
     from_string = <<EOS
 You have access to weather data via HTTP API. Use this for:
-- Current weather conditions  
+- Current weather conditions
 - Weather forecasts
 - Historical weather data
 Always specify location when asking for weather information.
@@ -45,11 +46,11 @@ mcp_over_http "github_api" "https://api.github.com/mcp" {
   env "API_TOKEN" {
     pass_through = true  # Use system environment variable
   }
-  
+
   env "RATE_LIMIT" {
     value = "1000/hour"
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to GitHub API. Use this for:
@@ -68,11 +69,11 @@ mcp_over_http "secure_api" "https://secure-api.company.com/mcp" {
   env "API_KEY" {
     pass_through = true
   }
-  
+
   env "CERT_PATH" {
     value = "/etc/ssl/certs/company-ca.pem"
   }
-  
+
   security_context {
     verify_ssl = true
     ssl_version = "TLSv1.3"
@@ -96,15 +97,15 @@ mcp_over_http "optimized_api" "https://api.example.com/mcp" {
   env "CONNECTION_POOL" {
     value = "10"
   }
-  
+
   env "TIMEOUT" {
     value = "15s"
   }
-  
+
   env "RETRY_ATTEMPTS" {
     value = "3"
   }
-  
+
   health_check {
     path = "/health"
     interval = "60s"
@@ -131,11 +132,11 @@ docker_mcp "postgres_tools" "postgres:15" {
   env "DATABASE_URL" {
     value = "postgresql://user:password@localhost:5432/db"
   }
-  
+
   env "PGPASSWORD" {
     pass_through = true  # Use system environment
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to a PostgreSQL database. Use for:
@@ -156,13 +157,13 @@ docker_mcp "resource_heavy" "company/tool:latest" {
     cpu = "2000m"
     gpu = "1"  # If GPU acceleration needed
   }
-  
+
   limits {
     timeout = "30m"
     restart_policy = "on-failure"
     max_restarts = 3
   }
-  
+
   env "LOG_LEVEL" {
     value = "info"
   }
@@ -176,12 +177,12 @@ docker_mcp "file_processor" "company/file-processor:latest" {
     description = "Data processing directory"
     read_only = false
   }
-  
+
   mount "/app/config" "/etc/tool-config" {
     description = "Configuration files"
     read_only = true
   }
-  
+
   security_context {
     read_only_root_filesystem = true
     drop_all_capabilities = true
@@ -198,25 +199,25 @@ docker_mcp "secure_container" "company/secure-tool:latest" {
   security_context {
     # Filesystem security
     read_only_root_filesystem = true
-    
+
     # Capability dropping
     drop_all_capabilities = true
     add_capabilities = ["NET_BIND_SERVICE"]
-    
+
     # User management
     run_as_user = "1000"
     run_as_group = "1000"
-    
+
     # Network isolation
     network_mode = "bridge"
-    
+
     # Seccomp profile
     seccomp_profile = "default"
-    
+
     # AppArmor profile (if supported)
     apparmor_profile = "docker-default"
   }
-  
+
   env "SECURITY_LEVEL" {
     value = "high"
   }
@@ -229,17 +230,17 @@ docker_mcp "isolated_tool" "company/isolated-tool:latest" {
   resources {
     memory = "512Mi"
     cpu = "500m"
-    
+
     # Disk limits
     disk_quota = "1Gi"
     disk_inodes = "10000"
   }
-  
+
   limits {
     timeout = "10m"
     max_file_size = "100Mi"
   }
-  
+
   network {
     disabled = false
     allowed_ports = ["443", "80"]
@@ -265,11 +266,11 @@ docker_mcp "isolated_tool" "company/isolated-tool:latest" {
 local_program "file_manager" {
   program = "/usr/local/bin/file-mcp"
   args = ["--read-only", "--secure"]
-  
+
   env "HOME_DIR" {
     value = "/home/user"
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to file system operations. Use for:
@@ -287,25 +288,25 @@ EOS
 local_program "secure_utility" {
   program = "/usr/local/bin/secure-tool"
   args = ["--sandbox", "--no-network"]
-  
+
   security_context {
     # User isolation
     run_as_user = "nobody"
     run_as_group = "nogroup"
-    
+
     # Filesystem restrictions
     chroot_directory = "/var/lib/tool-sandbox"
     read_only_filesystem = true
-    
+
     # Capability dropping
     drop_capabilities = ["CAP_SYS_ADMIN", "CAP_NET_ADMIN"]
-    
+
     # Resource limits
     max_memory = "256Mi"
     max_cpu_time = "30s"
     max_processes = 10
   }
-  
+
   env "SECURITY_MODE" {
     value = "strict"
   }
@@ -317,13 +318,13 @@ local_program "secure_utility" {
 local_program "company_git" {
   program = "/usr/local/bin/git-mcp"
   args = ["--read-only", "--company-repo"]
-  
+
   sharing {
     allowed_users = ["U1234567890", "U0987654321"]
     can_share = false
     expires_at = "2025-12-31T23:59:59Z"
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to company Git repositories. Use for:
@@ -346,17 +347,17 @@ EOS
 ```hcl
 local_program "shared_tool" {
   program = "/usr/local/bin/shared-utility"
-  
+
   sharing {
     # Who can use this tool
     allowed_users = ["U1234567890", "U0987654321"]
-    
+
     # Can users share it further?
     can_share = false
-    
+
     # When does access expire?
     expires_at = "2025-12-31T23:59:59Z"
-    
+
     # Sharing restrictions
     max_recipients = 5
     require_approval = false
@@ -369,7 +370,7 @@ local_program "shared_tool" {
 # Admin-level tool
 local_program "admin_tool" {
   program = "/usr/local/bin/admin-utility"
-  
+
   sharing {
     allowed_users = ["U1234567890"]  # Only primary admin
     can_share = false
@@ -380,7 +381,7 @@ local_program "admin_tool" {
 # Team-level tool
 local_program "team_tool" {
   program = "/usr/local/bin/team-utility"
-  
+
   sharing {
     allowed_users = ["U1234567890", "U0987654321", "U1111111111"]  # Team members
     can_share = true
@@ -506,11 +507,11 @@ Approve user-123-local-20260210-150405 user-123-docker-20260210-150410
 docker_mcp "api_client" "company/api-client:v2.1.0" {
   version = "2.1.0"
   update_policy = "manual"  # manual, auto, rollback
-  
+
   env "API_VERSION" {
     value = "v2.1.0"
   }
-  
+
   # Rollback configuration
   rollback_version = "2.0.5"
   rollback_policy = "on-failure"
@@ -528,10 +529,10 @@ docker_mcp "api_client" "company/api-client:v2.1.0" {
 # Database tool that depends on authentication
 local_program "database_client" {
   program = "/usr/local/bin/db-client"
-  
+
   # Dependencies
   depends_on = ["auth_service"]
-  
+
   env "AUTH_SERVICE_URL" {
     value = "http://localhost:8080"
   }
@@ -546,7 +547,7 @@ mcp_over_http "auth_service" "http://auth.company.com/mcp"
 # Environment-based tool selection
 local_program "dev_tool" {
   program = "/usr/local/bin/dev-utility"
-  
+
   condition {
     environment = "development"
     user_groups = ["developers"]
@@ -556,7 +557,7 @@ local_program "dev_tool" {
 
 local_program "prod_tool" {
   program = "/usr/local/bin/prod-utility"
-  
+
   condition {
     environment = "production"
     user_groups = ["admins", "ops"]
@@ -576,14 +577,14 @@ mcp_over_http "monitored_api" "https://api.example.com/mcp" {
     interval = "60s"
     timeout = "5s"
     retries = 3
-    
+
     success_criteria {
       status_code = 200
       response_time = "< 2s"
       content_check = "status: ok"
     }
   }
-  
+
   failure_action {
     on_failure = "disable_tool"
     notification_channel = "CADMIN"
@@ -599,18 +600,18 @@ docker_mcp "performance_tool" "company/performance:latest" {
     enable_metrics = true
     metrics_endpoint = "/metrics"
     collection_interval = "30s"
-    
+
     alerts {
       response_time_threshold = "5s"
       error_rate_threshold = "5%"
       memory_usage_threshold = "80%"
     }
   }
-  
+
   resources {
     memory = "1Gi"
     cpu = "1000m"
-    
+
     limits {
       max_memory = "1.5Gi"
       max_cpu = "2000m"
@@ -664,22 +665,22 @@ mcp_over_http "fast_api" "https://api.example.com/mcp" {
   env "MAX_CONNECTIONS" {
     value = "20"
   }
-  
+
   # Caching
   env "CACHE_TTL" {
     value = "300"  # 5 minutes
   }
-  
+
   # Compression
   env "ENABLE_COMPRESSION" {
     value = "true"
   }
-  
+
   # Timeout optimization
   env "CONNECT_TIMEOUT" {
     value = "5s"
   }
-  
+
   env "READ_TIMEOUT" {
     value = "30s"
   }
@@ -694,11 +695,11 @@ docker_mcp "optimized_container" "company/tool:latest" {
     memory = "512Mi"    # Reduced from 1Gi based on actual usage
     cpu = "500m"        # Reduced from 1000m
   }
-  
+
   # Restart policy
   restart_policy = "unless-stopped"
   max_restarts = 3
-  
+
   # Cleanup
   cleanup_policy {
     remove_containers = true

@@ -1,6 +1,7 @@
 # Production Deployment Guidelines
 
-This guide provides comprehensive guidelines for deploying Marvin and Slacker in production environments, focusing on high availability, security, scalability, and operational excellence.
+This guide provides comprehensive guidelines for deploying Marvin and Slacker in production environments, focusing on
+high availability, security, scalability, and operational excellence.
 
 ## 🎯 Production Architecture Overview
 
@@ -489,11 +490,11 @@ data:
     shared_buffers = 256MB
     effective_cache_size = 1GB
     work_mem = 4MB
-    
+
     # Connection settings
     max_connections = 200
     max_prepared_transactions = 200
-    
+
     # Performance settings
     random_page_cost = 1.1
     effective_io_concurrency = 200
@@ -660,4 +661,5 @@ if [ $SEVERITY == "P0" ]; then
 fi
 ```
 
-This production deployment guide provides a comprehensive framework for running Marvin and Slacker in enterprise environments with proper security, reliability, and operational excellence.
+This production deployment guide provides a comprehensive framework for running Marvin and Slacker in enterprise
+environments with proper security, reliability, and operational excellence.

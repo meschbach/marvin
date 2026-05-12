@@ -1,7 +1,8 @@
 # [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) Features
 
 MCP is a protocol for providing tools and resources for Large Language Models to provide additional context or perform
-actions on behalf of the user. Marvin supports multiple MCP transport types to accommodate different use cases and security requirements.
+actions on behalf of the user. Marvin supports multiple MCP transport types to accommodate different use cases and
+security requirements.
 
 ## 🚀 **Supported Transports**
 
@@ -10,7 +11,7 @@ Execute local MCP servers via `stdio` communication.
 
 **Use Cases:**
 - Development and testing tools
-- System administration utilities  
+- System administration utilities
 - Custom internal tools
 
 **Configuration:**
@@ -18,16 +19,16 @@ Execute local MCP servers via `stdio` communication.
 local_program "my_tool" {
   program = "/usr/local/bin/my-mcp-server"
   args = ["--read-only", "--config", "/etc/my-tool/config.yaml"]
-  
+
   env "API_KEY" {
     value = "your-api-key-here"
   }
-  
+
   sharing {
     allowed_users = ["U123456789"]
     can_share = false
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to my custom tool. Use it for...
@@ -53,16 +54,16 @@ docker_mcp "postgres_tools" "postgres:15" {
   env "DATABASE_URL" {
     value = "postgresql://user:pass@localhost:5432/db"
   }
-  
+
   mount "/data" "/host/data" {
     description = "Database data directory"
   }
-  
+
   resources {
     memory = "512Mi"
     cpu = "500m"
   }
-  
+
   sharing {
     allowed_users = ["U123456789"]
     can_share = true
@@ -87,7 +88,7 @@ mcp_over_http "weather_api" "https://weather.example.com/mcp" {
   env "API_KEY" {
     pass_through = true
   }
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to weather data. Use for current conditions and forecasts.
@@ -112,9 +113,9 @@ Vector storage and retrieval for document augmentation.
 documents "knowledge_base" {
   source = "./docs"
   database = "./knowledge.db"
-  
+
   embedding_model = "nomic-embed-text:latest"
-  
+
   assistant_prompt {
     from_string = <<EOS
 You have access to a knowledge base. Use it to answer questions about...
@@ -168,7 +169,7 @@ local_program "sensitive_tool" {
 local_program "dev_tools" {
   program = "./dev-mcp-server"
   args = ["--workspace", "/home/user/projects"]
-  
+
   # Auto-approved for development
   sharing {
     allowed_users = ["U123456789", "U098765432"]
@@ -183,13 +184,13 @@ docker_mcp "prod_database" "postgres:15" {
   env "DATABASE_URL" {
     value = "postgresql://prod-host:5432/proddb"
   }
-  
+
   # Strict access control
   sharing {
     allowed_users = ["U123456789"]  # Admin only
     can_share = false
   }
-  
+
   security_context {
     read_only_root_filesystem = true
     drop_all_capabilities = true
@@ -203,7 +204,7 @@ mcp_over_http "cloud_api" "https://cloud-provider.com/mcp" {
   env "CLOUD_TOKEN" {
     pass_through = true  # Use environment variable
   }
-  
+
   # Available to everyone (public API)
   assistant_prompt {
     from_string = <<EOS
@@ -223,7 +224,7 @@ docker_mcp "resource_heavy" "tool:latest" {
     cpu = "2000m"
     gpu = "1"  # If GPU acceleration needed
   }
-  
+
   limits {
     timeout = "30m"  # Maximum execution time
   }
@@ -246,15 +247,15 @@ mcp_over_http "critical_api" "https://api.example.com/mcp" {
 ```hcl
 local_program "monitored_tool" {
   program = "/usr/bin/monitored-server"
-  
+
   env "LOG_LEVEL" {
     value = "info"
   }
-  
+
   env "METRICS_ENDPOINT" {
     value = "http://prometheus:9090"
   }
-  
+
   # Enhanced logging for security
   security_context {
     enable_audit_log = true

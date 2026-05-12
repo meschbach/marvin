@@ -2,7 +2,8 @@
 
 ## MCP Server Basics
 
-Model Context Protocol (MCP) servers extend Marvin with custom capabilities. Each server provides specific tools that the AI can call.
+Model Context Protocol (MCP) servers extend Marvin with custom capabilities. Each server provides specific tools that
+the AI can call.
 
 ### Server Structure
 ```go
@@ -56,7 +57,7 @@ func main() {
             },
         },
     }
-    
+
     if err := server.Run(); err != nil {
         fmt.Fprintf(os.Stderr, "Error: %v\n", err)
         os.Exit(1)
@@ -103,7 +104,7 @@ func main() {
     if len(os.Args) > 1 {
         socket = os.Args[1]
     }
-    
+
     server := &DockerMCP{socketPath: socket}
     server.Start()
 }
@@ -143,14 +144,14 @@ func (d *DockerMCP) HandleToolCall(ctx context.Context, name string, args json.R
             All bool `json:"all"`
         }
         json.Unmarshal(args, &params)
-        
+
         dockerArgs := []string{"ps"}
         if params.All {
             dockerArgs = append(dockerArgs, "-a")
         }
-        
+
         return d.runDockerCommand(ctx, dockerArgs...)
-        
+
     case "run_container":
         var params struct {
             Image   string   `json:"image"`
@@ -158,16 +159,16 @@ func (d *DockerMCP) HandleToolCall(ctx context.Context, name string, args json.R
             Detach  bool     `json:"detach"`
         }
         json.Unmarshal(args, &params)
-        
+
         dockerArgs := []string{"run"}
         if params.Detach {
             dockerArgs = append(dockerArgs, "-d")
         }
         dockerArgs = append(dockerArgs, params.Image)
         dockerArgs = append(dockerArgs, params.Command...)
-        
+
         return d.runDockerCommand(ctx, dockerArgs...)
-        
+
     default:
         return nil, fmt.Errorf("unknown tool: %s", name)
     }
@@ -252,7 +253,7 @@ func (s *MCPServer) handleInitialize(id interface{}) MCPResponse {
 mcp "custom-tool" {
   command = "/path/to/custom-mcp-server"
   args    = ["--config", "/etc/mcp-config.yaml"]
-  
+
   config = {
     api_key = "${env.API_KEY}"
     timeout = "30s"
@@ -265,19 +266,19 @@ mcp "custom-tool" {
 ```go
 func getConfig() map[string]interface{} {
     config := make(map[string]interface{})
-    
+
     if apiKey := os.Getenv("API_KEY"); apiKey != "" {
         config["api_key"] = apiKey
     }
-    
+
     if timeout := os.Getenv("TIMEOUT"); timeout != "" {
         config["timeout"] = timeout
     }
-    
+
     if debug := os.Getenv("DEBUG"); debug == "true" {
         config["debug"] = true
     }
-    
+
     return config
 }
 ```
@@ -308,12 +309,12 @@ func (s *MCPServer) handleToolCall(id interface{}, params interface{}) MCPRespon
             },
         }
     }
-    
+
     toolName, ok := toolParams["name"].(string)
     if !ok {
         return s.errorResponse(id, "MISSING_TOOL_NAME", "Tool name required")
     }
-    
+
     args, _ := json.Marshal(toolParams["arguments"])
     result, err := s.HandleToolCall(context.Background(), toolName, args)
     if err != nil {
@@ -330,7 +331,7 @@ func (s *MCPServer) handleToolCall(id interface{}, params interface{}) MCPRespon
         }
         return s.errorResponse(id, "TOOL_ERROR", err.Error())
     }
-    
+
     return MCPResponse{
         Jsonrpc: "2.0",
         ID:      id,
@@ -352,15 +353,15 @@ func (s *MCPServer) handleToolCall(id interface{}, params interface{}) MCPRespon
 ```go
 func TestCalculatorAdd(t *testing.T) {
     server := &MCPServer{}
-    
+
     args, _ := json.Marshal(map[string]float64{
         "a": 2.0,
         "b": 3.0,
     })
-    
+
     result, err := server.HandleToolCall(context.Background(), "add", args)
     assert.NoError(t, err)
-    
+
     expected := map[string]float64{"result": 5.0}
     assert.Equal(t, expected, result)
 }
@@ -372,14 +373,14 @@ func TestMCPCommunication(t *testing.T) {
     cmd := exec.Command("./test-mcp-server")
     stdin, err := cmd.StdinPipe()
     require.NoError(t, err)
-    
+
     stdout, err := cmd.StdoutPipe()
     require.NoError(t, err)
-    
+
     err = cmd.Start()
     require.NoError(t, err)
     defer cmd.Process.Kill()
-    
+
     // Test initialize
     initReq := MCPRequest{
         Jsonrpc: "2.0",
@@ -389,12 +390,12 @@ func TestMCPCommunication(t *testing.T) {
             "protocolVersion": "2024-11-05",
         },
     }
-    
+
     json.NewEncoder(stdin).Encode(initReq)
-    
+
     var response MCPResponse
     json.NewDecoder(stdout).Decode(&response)
-    
+
     assert.Equal(t, 1, response.ID)
     assert.NotNil(t, response.Result)
 }

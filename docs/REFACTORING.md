@@ -2,7 +2,8 @@
 
 ## Overview
 
-This document describes the refactoring work completed to improve code quality by limiting file lengths and organizing code for better maintainability.
+This document describes the refactoring work completed to improve code quality by limiting file lengths and organizing
+code for better maintainability.
 
 ## Design Decisions
 
@@ -17,7 +18,8 @@ This document describes the refactoring work completed to improve code quality b
 
 ### 2. Struct-Method Cohesion
 
-**Rationale**: Go developers expect to see struct definitions alongside their methods for better context and understanding.
+**Rationale**: Go developers expect to see struct definitions alongside their methods for better context and
+understanding.
 
 **Implementation**:
 - **Keep structs and methods together** in the same files
@@ -178,4 +180,5 @@ After initial refactoring, we identified and corrected interface anti-patterns:
 5. **Incremental refactoring**: Split one component at a time with testing
 6. **Document decisions**: Recording design choices prevents confusion
 
-This refactoring establishes a sustainable pattern for maintaining code quality with proper Go idioms and component-based architecture.
+This refactoring establishes a sustainable pattern for maintaining code quality with proper Go idioms and
+component-based architecture.

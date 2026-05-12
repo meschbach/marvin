@@ -1,6 +1,7 @@
 # Monitoring and Observability Setup
 
-This comprehensive guide covers setting up monitoring, logging, and observability for Marvin and Slacker deployments to ensure reliable operation, performance optimization, and effective troubleshooting.
+This comprehensive guide covers setting up monitoring, logging, and observability for Marvin and Slacker deployments to
+ensure reliable operation, performance optimization, and effective troubleshooting.
 
 ## 🎯 Observability Stack Overview
 
@@ -958,4 +959,5 @@ func ReadyHandler(w http.ResponseWriter, r *http.Request) {
 4. **Create role-specific dashboards** for different teams
 5. **Automate incident response** where possible
 
-This monitoring and observability setup provides comprehensive visibility into Marvin and Slacker operations, enabling proactive issue detection and efficient troubleshooting.
+This monitoring and observability setup provides comprehensive visibility into Marvin and Slacker operations, enabling
+proactive issue detection and efficient troubleshooting.

@@ -19,7 +19,7 @@ go test -cover ./internal/...
 # Configuration tests
 go test ./internal/config -v
 
-# MCP server tests  
+# MCP server tests
 go test ./internal/mcp -v
 
 # Slack integration tests
@@ -49,7 +49,7 @@ program "marvin" "default" {
   description = "Test program"
 }
 `
-    
+
     cfg, err := config.LoadFromString(hcl)
     require.NoError(t, err)
     assert.Len(t, cfg.Models, 1)
@@ -62,7 +62,7 @@ program "marvin" "invalid" {
   description = "Missing model reference"
 }
 `
-    
+
     _, err := config.LoadFromString(hcl)
     assert.Error(t, err)
     assert.Contains(t, err.Error(), "missing required field")
@@ -91,17 +91,17 @@ func (m *MockTool) Execute(ctx context.Context, args map[string]interface{}) (in
 func TestToolManager_CallTool(t *testing.T) {
     manager := NewToolManager()
     mockTool := &MockTool{}
-    
+
     manager.RegisterTool("test", mockTool)
-    
+
     mockTool.On("Execute", mock.Anything, map[string]interface{}{
         "input": "test",
     }).Return("result", nil)
-    
+
     result, err := manager.CallTool(context.Background(), "test", map[string]interface{}{
         "input": "test",
     })
-    
+
     assert.NoError(t, err)
     assert.Equal(t, "result", result)
     mockTool.AssertExpectations(t)
@@ -124,24 +124,24 @@ func TestSlackBot_MessageHandling(t *testing.T) {
     if testing.Short() {
         t.Skip("Integration test")
     }
-    
+
     bot := setupTestBot(t)
     defer bot.Shutdown()
-    
+
     // Send test message
     resp, err := bot.PostMessage("test-channel", slack.MsgOptionText("hello", false))
     require.NoError(t, err)
     assert.NotEmpty(t, resp.Timestamp)
-    
+
     // Wait for response
     time.Sleep(2 * time.Second)
-    
+
     // Verify response
     history, err := bot.GetConversationHistory(&slack.GetConversationHistoryParameters{
         ChannelID: "test-channel",
     })
     assert.NoError(t, err)
-    
+
     messages := history.Messages
     assert.True(t, len(messages) >= 2) // Original + response
 }
@@ -151,10 +151,10 @@ func setupTestBot(t *testing.T) *SlackBot {
         BotToken: os.Getenv("SLACK_BOT_TOKEN"),
         AppToken: os.Getenv("SLACK_APP_TOKEN"),
     }
-    
+
     bot, err := NewSlackBot(config)
     require.NoError(t, err)
-    
+
     return bot
 }
 ```
@@ -173,21 +173,21 @@ func TestOllama_ClientConnection(t *testing.T) {
     if testing.Short() {
         t.Skip("Requires Ollama server")
     }
-    
+
     client, err := api.ClientFromEnvironment()
     require.NoError(t, err)
-    
+
     ctx := context.Background()
-    
+
     // Test connection
     err = client.Heartbeat(ctx)
     assert.NoError(t, err)
-    
+
     // Test model availability
     models, err := client.ListModels(ctx)
     assert.NoError(t, err)
     assert.NotEmpty(t, models.Models)
-    
+
     // Test generation
     resp, err := client.Generate(ctx, &api.GenerateRequest{
         Model:  "ministral-3:3b",
@@ -212,7 +212,7 @@ model "ollama" "test" {
 program "marvin" "test" {
   model = model.ollama.test
   description = "Test configuration"
-  
+
   tool "echo" {
     executable = "echo"
     args = ["test"]
@@ -240,7 +240,7 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    
+
   marvin-test:
     build: .
     environment:
@@ -263,26 +263,26 @@ func TestCompleteConversation(t *testing.T) {
     if testing.Short() {
         t.Skip("E2E test")
     }
-    
+
     // Setup test environment
     testEnv := setupTestEnvironment(t)
     defer testEnv.Cleanup()
-    
+
     // Start conversation
     engine := NewConversationEngine(testEnv.Config)
-    
+
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
-    
+
     var responses []string
     updater := func(response string) {
         responses = append(responses, response)
     }
-    
+
     // Run conversation
     err := engine.RunConversation(ctx, "ministral-3:3b", updater)
     require.NoError(t, err)
-    
+
     // Verify responses
     assert.NotEmpty(t, responses)
     assert.Contains(t, responses[len(responses)-1], "goodbye") // Final response
@@ -295,9 +295,9 @@ func TestSlackApprovalWorkflow(t *testing.T) {
     if testing.Short() {
         t.Skip("Slack integration")
     }
-    
+
     slackBot := setupSlackBot(t)
-    
+
     // User requests tool access
     msg, err := slackBot.HandleMessage(&slack.MessageEvent{
         ChannelID: "test-channel",
@@ -305,10 +305,10 @@ func TestSlackApprovalWorkflow(t *testing.T) {
         Text:      "/marvin-tool docker ps",
     })
     require.NoError(t, err)
-    
+
     // Should create approval request
     assert.Contains(t, msg.Text, "approval request")
-    
+
     // Admin approves
     approveMsg, err := slackBot.HandleMessage(&slack.MessageEvent{
         ChannelID: "admins",
@@ -316,9 +316,9 @@ func TestSlackApprovalWorkflow(t *testing.T) {
         Text:      "/approve 1",
     })
     require.NoError(t, err)
-    
+
     assert.Contains(t, approveMsg.Text, "approved")
-    
+
     // Original command should execute
     time.Sleep(1 * time.Second)
     history := getChannelHistory(t, "test-channel")
@@ -333,11 +333,11 @@ func TestSlackApprovalWorkflow(t *testing.T) {
 func BenchmarkConversationEngine(b *testing.B) {
     engine := setupBenchmarkEngine()
     ctx := context.Background()
-    
+
     b.ResetTimer()
     for i := 0; i < b.N; i++ {
         updater := func(string) {} // Discard responses
-        
+
         err := engine.RunConversation(ctx, "ministral-3:3b", updater)
         if err != nil {
             b.Fatal(err)
@@ -347,12 +347,12 @@ func BenchmarkConversationEngine(b *testing.B) {
 
 func BenchmarkConcurrentRequests(b *testing.B) {
     engine := setupBenchmarkEngine()
-    
+
     b.RunParallel(func(pb *testing.PB) {
         for pb.Next() {
             ctx := context.Background()
             updater := func(string) {}
-            
+
             err := engine.RunConversation(ctx, "ministral-3:3b", updater)
             if err != nil {
                 b.Error(err)
@@ -368,19 +368,19 @@ func TestMemoryUsage(t *testing.T) {
     var m1, m2 runtime.MemStats
     runtime.GC()
     runtime.ReadMemStats(&m1)
-    
+
     engine := NewConversationEngine(loadTestConfig())
     ctx := context.Background()
     updater := func(string) {}
-    
+
     // Run 100 conversations
     for i := 0; i < 100; i++ {
         engine.RunConversation(ctx, "ministral-3:3b", updater)
     }
-    
+
     runtime.GC()
     runtime.ReadMemStats(&m2)
-    
+
     // Memory usage should be reasonable
     memUsed := m2.Alloc - m1.Alloc
     assert.Less(t, memUsed, uint64(100*1024*1024)) // Less than 100MB
@@ -411,7 +411,7 @@ func setupMockOllama(t *testing.T) *httptest.Server {
             http.NotFound(w, r)
         }
     }))
-    
+
     t.Cleanup(server.Close)
     return server
 }
@@ -430,7 +430,7 @@ program "marvin" "test" {
   description = "Test"
 }
 `
-    
+
     cfg, err := config.LoadFromString(hcl)
     require.NoError(t, err)
     return cfg
@@ -440,7 +440,7 @@ func assertNoTestLeaks(t *testing.T) {
     // Check for goroutine leaks
     runtime.GC()
     time.Sleep(100 * time.Millisecond)
-    
+
     // Add specific leak detection logic
 }
 ```
@@ -461,26 +461,26 @@ jobs:
         ports:
           - 11434:11434
         options: --health-cmd="curl http://localhost:11434/api/tags" --health-interval=30s
-    
+
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
           go-version: '1.21'
-      
+
       - name: Wait for Ollama
         run: |
           timeout 60 bash -c 'until curl -f http://localhost:11434/api/tags; do sleep 2; done'
-      
+
       - name: Pull model
         run: |
           docker exec ${{ job.services.ollama.id }} ollama pull ministral-3:3b
-      
+
       - name: Run tests
         run: go test -v ./...
         env:
           OLLAMA_HOST: http://localhost:11434
-      
+
       - name: Run integration tests
         run: ./test.sh
         if: github.event_name == 'push'
@@ -498,10 +498,10 @@ model "ollama" "test" {
   name = "ministral-3:3b"
 }
 EOF
-    
+
     # Download test models
     ollama pull ministral-3:3b
-    
+
     # Create test documents
     mkdir -p test-data/docs
     echo "Test document content" > test-data/docs/test.md

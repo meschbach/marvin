@@ -1,6 +1,7 @@
 # Slacker Setup Guide
 
-This guide walks you through setting up Slacker, Marvin's multi-tenant Slack bot with AI tool management and admin approval workflows.
+This guide walks you through setting up Slacker, Marvin's multi-tenant Slack bot with AI tool management and admin
+approval workflows.
 
 ## 🎯 **Overview**
 
@@ -38,7 +39,7 @@ Navigate to **"OAuth & Permissions"** → **"Bot Token Scopes"** and add:
 **Required Scopes:**
 ```
 app_mentions:read          # Read @mentions
-channels:history          # Read channel history  
+channels:history          # Read channel history
 chat:write               # Send messages
 commands                 # Handle slash commands
 files:read               # Read file uploads
@@ -133,10 +134,10 @@ model = "ministral-3:3b"
 multi_tenant {
   # Replace with your admin user IDs (get from Slack: right-click user → "Copy member ID")
   admin_users = ["U1234567890", "U0987654321"]
-  
+
   # Optional admin channel for notifications
   admin_channel = "CADMIN123"
-  
+
   # Storage paths
   session_store_path = "./sessions"
   credential_store = "./credentials"
@@ -156,10 +157,10 @@ help_system {
   model = "ministral-3:3b"         # Model for help analysis
   max_context_messages = 5         # Messages to consider for context
   analysis_timeout = 5             # Timeout in seconds
-  
+
   # Enable help for specific scenarios
   help_on_intent_failure = true           # Command recognition help
-  help_on_model_access_denied = true      # Model access help  
+  help_on_model_access_denied = true      # Model access help
   help_on_tool_configuration_error = true # Tool setup help
   help_on_tool_permission_denied = true   # Permission help
 }

@@ -9,7 +9,7 @@ Marvin is a comprehensive AI agent platform that provides two ways to interact w
 - Direct access to MCP-compatible tools
 - Perfect for developers and power users
 
-### **2. Slacker** - Multi-Tenant Slack Bot  
+### **2. Slacker** - Multi-Tenant Slack Bot
 - Enterprise Slack integration with admin approval workflows
 - Multi-user AI assistance with per-user session isolation
 - Natural language tool management and sharing
@@ -58,7 +58,8 @@ marvin query "Summarize the main differences between BFS and DFS."
 >| **Time Complexity**   | **O(B + D)** (where *B* = branching factor, *D* = depth). | **O(B + D)** (worst case, but often less due to backtracking). |
 >- **BFS** is better for **shortest path** in unweighted graphs.
 >- **DFS** is better for **deep exploration** (e.g., finding a path in a maze) and **cycle detection**.
->- Both have **O(B + D)** time complexity, but DFS may use less space if the graph is **sparse** (many branches but shallow depth).
+>- Both have **O(B + D)** time complexity, but DFS may use less space if the graph is **sparse** (many branches but
+shallow depth).
 
 ### **Slacker - Quick Start**
 
@@ -97,7 +98,7 @@ export SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 
 Both Marvin CLI and Slacker use flexible HCL configuration files to specify:
 - LLM model and parameters
-- MCP servers and tools  
+- MCP servers and tools
 - System prompts
 - Multi-tenant settings (Slacker)
 
@@ -177,19 +178,19 @@ Set default preferences in your HCL configuration:
 display {
   # Whether to show AI thinking process (default: false)
   show_thinking = true
-  
+
   # Format for displaying thinking content: "plain", "markdown", or "collapsed" (default: "plain")
   thinking_format = "markdown"
-  
+
   # Whether to show tool invocation details (default: true)
   show_tools = true
-  
+
   # Format for displaying tool details: "simple" or "detailed" (default: "detailed")
   tool_format = "detailed"
-  
+
   # Whether to show completion messages (default: true)
   show_done = true
-  
+
   # Whether to enable verbose debugging output (default: false)
   verbose = false
 }
@@ -275,7 +276,7 @@ marvin/
 # CLI
 go run ./cmd/marvin query "hello, world"
 
-# Slacker  
+# Slacker
 go run ./cmd/slacker --config marvin.slacker.example.hcl --passphrase "test"
 ```
 
@@ -319,7 +320,7 @@ pre-commit run --all-files
 
 **What the hooks do:**
 - `go fmt` - Auto-format Go code
-- `go mod tidy` - Clean up dependencies  
+- `go mod tidy` - Clean up dependencies
 - `go vet` - Static analysis for common issues
 - `golangci-lint` - Comprehensive linting with default settings
 - `go test ./internal/...` - Run unit tests (fast, matches CI)

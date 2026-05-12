@@ -60,12 +60,12 @@ program "marvin" "default" {
 program "marvin" "docker" {
   model       = model.ollama.main
   description = "Container management assistant"
-  
+
   tool "docker" {
     executable = "docker"
     args       = ["ps", "-a"]
   }
-  
+
   tool "kubectl" {
     executable = "kubectl"
     args       = ["get", "pods"]
@@ -77,7 +77,7 @@ program "marvin" "docker" {
 ```hcl
 program "marvin" "fileops" {
   model = model.ollama.large
-  
+
   filesystem {
     read  = ["/tmp", "./src"]
     write = ["/tmp/output"]
@@ -93,7 +93,7 @@ program "marvin" "fileops" {
 mcp "docker" {
   command = "docker-mcp-server"
   args    = ["--socket", "/var/run/docker.sock"]
-  
+
   config = {
     allowed_images = ["ubuntu:*", "alpine:*"]
     network_access = false
@@ -106,7 +106,7 @@ mcp "docker" {
 mcp "filesystem" {
   command = "filesystem-mcp-server"
   args    = ["/workspace"]
-  
+
   config = {
     read_only_paths  = ["/src", "/docs"]
     read_write_paths = ["/tmp"]
@@ -119,7 +119,7 @@ mcp "filesystem" {
 ```hcl
 mcp "http" {
   command = "http-mcp-server"
-  
+
   config = {
     allowed_domains = ["api.company.com", "github.com"]
     timeout = "30s"
@@ -133,7 +133,7 @@ mcp "http" {
 mcp "google-workspace" {
   command = "google-workspace-mcp-server"
   args    = ["--config", "/config/gcp.json"]
-  
+
   config = {
     credentials_file = "/path/to/credentials.json"
     scopes = [
@@ -160,21 +160,21 @@ slack {
 slack {
   bot_token = "xoxb-your-bot-token"
   app_token = "xapp-your-app-token"
-  
+
   admin_channels = ["#admins", "#devops"]
   log_level = "info"
-  
+
   approval {
     timeout = "24h"
     auto_approve = ["@admin1", "@admin2"]
-    
+
     workflow {
       tool_access = true
       file_access = true
       external_api = true
     }
   }
-  
+
   rate_limit {
     messages_per_minute = 60
     tool_calls_per_hour = 100
@@ -221,7 +221,7 @@ help_system {
   model = "ministral-3:3b"         # Model for help analysis
   max_context_messages = 5         # Messages to consider for context
   analysis_timeout = 5             # Timeout in seconds
-  
+
   # Enable help for specific scenarios
   help_on_intent_failure = true           # Command recognition help
   help_on_model_access_denied = true      # Model access help
@@ -239,33 +239,33 @@ help_system {
   confidence_threshold = 0.7
   max_context_messages = 5
   analysis_timeout = 5
-  
+
   # Response customization
   help_emoji = "🤖"
   error_emoji = "❌"
   suggestion_emoji = "💡"
   max_suggestions = 3
-  
+
   # Advanced features
   enable_analytics = true
   collect_feedback = true
   cache_responses = true
   cache_ttl = "1h"
-  
+
   # Custom examples for your organization
   custom_examples = {
     "kubectl" = "kubectl get pods -n production"
     "terraform" = "terraform plan -var-file=prod.tfvars"
     "docker" = "docker run -d -p 80:80 nginx:latest"
   }
-  
+
   # Help type controls
   help_on_intent_failure = true
   help_on_model_access_denied = true
   help_on_tool_configuration_error = true
   help_on_tool_permission_denied = true
   help_on_admin_requests = true
-  
+
   # Analytics and monitoring
   analytics_retention_days = 30
   track_user_feedback = true

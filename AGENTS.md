@@ -2,12 +2,15 @@
 
 This file provides guidelines for agentic coding agents working in this repository.
 
-**Architectural Excellence**: All engineers working on this project are senior+ (Principal-level) with significant software design
-experience.  Use correct terms for patterns, roles, and stereotypes of elements.  Avoid overusing vague terms like *helper*.
+**Architectural Excellence**: All engineers working on this project are senior+ (Principal-level) with significant
+software design
+experience.  Use correct terms for patterns, roles, and stereotypes of elements.  Avoid overusing vague terms like
+*helper*.
 
 ## Project Overview
 
-Marvin is a Go-based agentic workflow CLI that connects AI reasoning loops to Model Context Protocol (MCP) tools. It's built with:
+Marvin is a Go-based agentic workflow CLI that connects AI reasoning loops to Model Context Protocol (MCP) tools. It's
+built with:
 - **Language**: Go 1.26+
 - **CLI Framework**: Cobra
 - **Configuration**: HCL (HashiCorp Configuration Language)
@@ -115,6 +118,11 @@ go build ./...
 - **Core Logic**: `internal/query/` - Query handling, tool integration, LLM interaction
 - **Configuration**: `internal/config/` - HCL parsing and configuration management
 - **Commands**: `cmd/*.go` - Individual command implementations (query, rag, mcp, etc.)
+
+### Markdown Style
+- **Line Width**: All Markdown files must wrap at 120 characters maximum
+- **Enforcement**: Run `tools/mdwrap.sh` to automatically reflow long lines in all tracked Markdown files
+- **Testing**: Run `bash tools/mdwrap_test.sh` to validate wrapping behavior
 
 ### Import Conventions
 ```go
@@ -327,17 +335,21 @@ When files exceed size targets:
 - Tokens and credentials should be handled via environment variables or secure config
 
 ### Observability and Tracing
-- **Span Naming Convention**: Use `StructName.MethodName` format (e.g., `MessageHandler.ProcessMessage`, `QueryStreamer.ProcessQueryWithUpdater`)
-- **Context Propagation**: Always pass the incoming context to child spans; never use `context.Background()` in event handlers as it breaks the trace chain
+- **Span Naming Convention**: Use `StructName.MethodName` format (e.g., `MessageHandler.ProcessMessage`,
+`QueryStreamer.ProcessQueryWithUpdater`)
+- **Context Propagation**: Always pass the incoming context to child spans; never use `context.Background()` in event
+handlers as it breaks the trace chain
 - **Key Integration Points**:
   - `internal/slacker/events.go` - Slack event entry point creates root span
   - `internal/slacker/message_handler.go` - Message processing and routing
   - `internal/slacker/query_handler.go` - Query processing (ensure ctx propagation to async operations)
   - `internal/slacker/query_streaming.go` - LLM integration and streaming
-- **Attributes**: Add relevant attributes like user ID, channel ID, intent action, and confidence scores to aid debugging
+- **Attributes**: Add relevant attributes like user ID, channel ID, intent action, and confidence scores to aid
+debugging
 
 ### Documentation Guidelines
-- **Update both README.md and docs/** - When adding features or making significant changes, update documentation in both locations
+- **Update both README.md and docs/** - When adding features or making significant changes, update documentation in
+both locations
 - **README.md** - High-level overview, quick start, and usage examples
 - **docs/** - Comprehensive documentation organized by topic:
   - `docs/configuration/` - Detailed configuration reference

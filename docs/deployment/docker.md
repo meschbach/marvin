@@ -1,6 +1,7 @@
 # Docker Deployment Patterns
 
-This guide covers various deployment patterns for Marvin and Slacker using Docker containers, from simple single-container setups to complex multi-container orchestrations.
+This guide covers various deployment patterns for Marvin and Slacker using Docker containers, from simple
+single-container setups to complex multi-container orchestrations.
 
 ## 🎯 Overview
 
@@ -56,35 +57,35 @@ services:
     image: slacker:latest
     container_name: marvin-slacker
     restart: unless-stopped
-    
+
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
       - MARVIN_CONFIG=/config/marvin.hcl
       - MARVIN_SESSION_PATH=/data/sessions
       - LOG_LEVEL=info
-    
+
     volumes:
       - ./config:/config:ro
       - ./data:/data
       - ./logs:/app/logs
-    
+
     ports:
       - "8080:8080"  # Health checks
-    
+
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    
+
     networks:
       - marvin-network
-    
+
     security_opt:
       - no-new-privileges:true
-    
+
     read_only: true
     tmpfs:
       - /tmp
@@ -134,28 +135,28 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
-    
+
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
       - MARVIN_CONFIG=/config/marvin.hcl
       - MARVIN_SESSION_PATH=/data/sessions
       - LOG_LEVEL=info
-    
+
     volumes:
       - ./config:/config:ro
       - ./data:/data
       - ./logs:/app/logs
-    
+
     networks:
       - marvin-network
-    
+
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-    
+
     security_opt:
       - no-new-privileges:true
 
@@ -194,22 +195,22 @@ services:
     image: slacker:latest
     container_name: marvin-slacker
     restart: unless-stopped
-    
+
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
       - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
       - MARVIN_CONFIG=/config/marvin.hcl
       - MARVIN_SESSION_PATH=/data/sessions
       - LOG_LEVEL=warn
-    
+
     volumes:
       - ./config:/config:ro
       - slacker_data:/data
       - ./logs:/app/logs
-    
+
     networks:
       - marvin-network
-    
+
     deploy:
       resources:
         limits:
@@ -456,7 +457,7 @@ networks:
   marvin-internal:
     driver: bridge
     internal: true  # No internet access
-  
+
   marvin-external:
     driver: bridge
     internal: false  # Internet access for Slack API
@@ -466,7 +467,7 @@ services:
     networks:
       - marvin-internal
       - marvin-external
-  
+
   ollama:
     networks:
       - marvin-internal
@@ -633,4 +634,5 @@ docker stats marvin-slacker
 | Multi-Host | Limited | Native |
 | Ecosystem | Docker | Cloud Native |
 
-Choose Docker Compose for simple deployments and development, Kubernetes for production-scale deployments with high availability requirements.
+Choose Docker Compose for simple deployments and development, Kubernetes for production-scale deployments with high
+availability requirements.

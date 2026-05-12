@@ -1,6 +1,7 @@
 # Slacker - Multi-Tenant Slack Bot
 
-Slacker is a multi-tenant Slack bot built on Marvin's architecture that provides AI-powered tool management with per-user isolation and admin approval workflows.
+Slacker is a multi-tenant Slack bot built on Marvin's architecture that provides AI-powered tool management with
+per-user isolation and admin approval workflows.
 
 ## Features
 
@@ -129,7 +130,7 @@ local_program "company-tool" {
   name = "company-tool"
   program = "/usr/local/bin/company-mcp"
   args = ["--read-only"]
-  
+
   sharing {
     allowed_users = ["U1234567890"]
     can_share = false
@@ -142,12 +143,12 @@ local_program "company-tool" {
 docker_mcp "shared-docker" {
   name = "shared-docker"
   image = "company/tools:latest"
-  
+
   env {
     key = "API_KEY"
     value = "your-api-key"
   }
-  
+
   sharing {
     allowed_users = ["U1234567890"]
     can_share = true
@@ -295,7 +296,8 @@ Directories are created automatically with proper error handling:
 ### Known Issues
 
 #### LSP Caching
-There may be occasional LSP (Language Server Protocol) caching issues after multiple file edits. These do not affect the build or runtime functionality. If experiencing LSP errors:
+There may be occasional LSP (Language Server Protocol) caching issues after multiple file edits. These do not affect
+the build or runtime functionality. If experiencing LSP errors:
 1. Run `go clean -cache` to clear the cache
 2. Restart your IDE/editor
 

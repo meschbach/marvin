@@ -53,7 +53,7 @@ kustomize build deploy/k8s/overlays/dev | kubectl apply -f -
 #### Create Namespaces
 ```bash
 kubectl create namespace marvin-dev
-kubectl create namespace marvin-staging  
+kubectl create namespace marvin-staging
 kubectl create namespace marvin-production
 ```
 

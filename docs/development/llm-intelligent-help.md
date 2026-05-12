@@ -1,6 +1,7 @@
 # LLM-Based Intelligent Help System
 
-This document outlines the refined design for an LLM-powered intelligent help system that provides dynamic assistance to users when they fail to execute commands in Marvin Slacker.
+This document outlines the refined design for an LLM-powered intelligent help system that provides dynamic assistance
+to users when they fail to execute commands in Marvin Slacker.
 
 ## Core Innovation: Dynamic LLM Analysis
 
@@ -16,29 +17,29 @@ Instead of static JSON files and rule-based systems, this approach leverages Mar
 ```mermaid
 graph TD
     A[Command Failure] --> B{Failure Type}
-    
+
     B -->|Intent Recognition| C[HelpAnalyzer.AnalyzeIntentFailure]
     B -->|Model Access Denied| D[HelpAnalyzer.AnalyzeModelAccess]
     B -->|Tool Configuration Error| E[HelpAnalyzer.AnalyzeToolConfig]
     B -->|Tool Permission Denied| F[HelpAnalyzer.AnalyzeToolAccess]
-    
+
     C --> G[HelpContextBuilder.BuildContext]
     D --> G
     E --> G
     F --> G
-    
+
     G --> H[Context Gathering]
     H --> I[Session Data]
     H --> J[Tool Access]
     H --> K[Model Access]
     H --> L[User Preferences]
-    
+
     G --> M[LLM Prompt Generation]
     M --> N[Dynamic Contextual Prompt]
-    
+
     N --> O[Existing LLM Integration]
     O --> P[Help Analysis Response]
-    
+
     P --> Q[HelpIntegrator.FormatHelpMessage]
     Q --> R[User-Friendly Slack Message]
 ```
@@ -88,7 +89,7 @@ RESPONSE FORMAT (JSON):
   "examples": ["usage examples with context"],
   "context_help": "Additional guidance",
   "confidence": 0.85
-}`, 
+}`,
         message, availableTools, recentCommands, helpCtx.IsAdmin, helpCtx.SessionPrefs)
 }
 ```
@@ -323,4 +324,5 @@ Modified Files:
 └── tool_manager.go            # Add tool access help reporting
 ```
 
-This LLM-based approach creates a truly intelligent help system that grows with Marvin's capabilities and provides users with personalized, contextual assistance exactly when they need it most.
+This LLM-based approach creates a truly intelligent help system that grows with Marvin's capabilities and provides
+users with personalized, contextual assistance exactly when they need it most.
