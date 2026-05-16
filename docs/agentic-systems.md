@@ -9,6 +9,9 @@ carries a security context. Every agent is an actor, but not all actors are agen
 * **Agent** — An actor that uses an LLM for reasoning. Agents wrap MCP tools with contextual instructions, maintain a
 private journal, communicate via mailboxes, and carry a security context. An agent may have a guardrail assigned at
 spawn time for outbound message interposition.
+* **Cancellation** — A message signaling an agent to stop processing a specific topic. Must carry a `CancelRef`
+capability validated by the Exchange against an active topic. Always accepted by the runtime, bypassing LLM
+discretion.
 * **Capability** — A reference that confers authority: a mailbox address (can message that actor), an MCP server handle
 (can call those tools), or a spawn token (can create children). Possession IS authorization in the actor model.
 * **Child Agent** — An agent spawned by another agent with specific context, capability set, optional TTL, optional
@@ -19,6 +22,11 @@ networked (gRPC-connected) modes.
 communication system.
 * **Communication System** — A bidirectional gRPC bridge between an external platform (Slack, Web UI, CLI, etc.) and
 the Exchange. Handles protocol translation, authentication, and subscription streams for agent output.
+* **ContinueRef** — A reference stamped on outbound messages when an agent needs a response to resume a topic. Contains
+`{topic_id, reply_to_mailbox, deadline}`. The receiver echoes this in its response, allowing the runtime to route
+the reply back to the correct topic.
+* **Correlation ID** — Transport-level identifier set by the original sender (CommSystem or parent agent). Opaque to
+agents. The Exchange echoes it on subscription stream events so the sender can correlate responses to requests.
 * **Event Source** — An inbound-only adapter that receives external events (webhooks, email, sensors) and injects them
 into an agent's mailbox via a gRPC `InjectMessage` call. Authenticated via x509. One-directional — no subscription
 stream back to the source. The Exchange stamps provenance information on each message so the target agent can apply
@@ -30,12 +38,14 @@ through guardrails, federates across machines, and propagates OpenTelemetry trac
 Receives outbound responses before delivery and decides whether to pass, reject, or mutate. May be placed between any
 two actors (agent → guardrail → agent, agent → guardrail → CommSystem, etc.). Exists in two flavors: Pass/Reject Guard
 and Mutating Guard. Guardrail agents hold zero MCPRefs by design.
-* **Journal** — Every actor's append-only record of all activity: received messages (including origin mailbox), sent
-messages, tool invocations and results, and internal state transitions. Short-term entries stay in the LLM context
-window; long-term entries are compressed and indexed for retrieval.
+* **Journal** — Every actor's append-only record of all activity. Two sub-levels: the **Raw Journal** (runtime-owned,
+append-only, full fidelity) and the **Memory Mechanism** (LLM-facing view compiled from raw entries). Both are
+described in the Journal & Persistence section.
 * **Mailbox / Inbox** — A message queue belonging to an actor. Messages are processed sequentially by the owning actor.
 The mailbox address IS the capability to send messages to that actor.
 * **MCP (Model Context Protocol)** — A protocol for connecting agents to external tools and data sources.
+* **Memory Mechanism** — An LLM-facing view over the raw journal. A compressed reconstruction of conversation and
+decisions produced on-demand for context window injection. Retains narrative while eliding tool internals.
 * **Mutating Guard** — A guardrail agent that evaluates outbound messages and responds with `{decision: "approve",
 modified_content: "..."}`. The Exchange forwards the modified version instead of the original. Used for redaction,
 sanitization, or formatting.
@@ -43,10 +53,21 @@ sanitization, or formatting.
 "approve"}` or `{decision: "reject", reason: "..."}`. The Exchange forwards or blocks the message accordingly.
 * **Provenance** — A trust-level tag stamped on every message by the Exchange indicating its origin. Examples:
 `event_source:inbound-email`, `comm_system:slack/user:U1234`, `internal_agent:research-agent`.
+* **Raw Journal** — The runtime-owned, append-only record of every event: received and sent messages, tool
+invocations and results, LLM invocations, state transitions, cancellations, and resolutions. The full-fidelity
+source of truth. Never modified.
+* **Resolution** — A terminal message with `is_resolution: true` and `resolution_reason` that an agent emits when it
+considers a topic complete. Gated by the runtime — only fires when the topic's outstanding continuations set is
+empty.
+* **Runtime Shim** — The deterministic wrapper around the LLM that enforces inbox processing priority (cancellations
+first, then continuation replies, then new work), tool binding from the capability set, resolution gating against
+pending continuations, and cancellation fan-out to sub-agents.
 * **Security Context** — Identity, tenant, and capability set attached to an actor. Controls which actors may address
 it (target-side ACL) and what system-level actions it may perform.
 * **Tool** — An MCP-exposed capability. Tools are scoped to individual agents, which add contextual instructions
 specific to their domain (e.g., "this Vikunja bucket is for work projects").
+* **Topic ID** — An application-level workflow identifier assigned by an agent when it pulls a message from its inbox.
+Groups related messages (a conversation, a task, a request) into a unit of work. Agent-scoped unique.
 * **User** — A real person interacting with the system.
 
 ## Architecture
@@ -200,26 +221,177 @@ entries are compressed and indexed for retrieval.
 5. **Target-side ACL** — Optional allow/deny list for incoming senders
 6. **Guardrail Mailbox** — Optional mailbox address of a guardrail agent through which all outbound messages are routed
 7. **Child Registry** — References to spawned child actors
+8. **Continuation Tracker** — A set of outstanding `ContinueRef` requests keyed by topic ID. Runtime-owned (not
+   LLM-visible for mutation). The runtime checks this set before allowing resolution to fire and before dispatching
+   cancellation fan-out notifications.
+9. **Topic Router** — Maps incoming messages to existing topics or spawns new topics based on envelope headers
+   (`topic_id` for new messages, `continue_ref` for replies, `cancellation` for cancels). A message that lacks any
+   topic header gets a fresh topic ID assigned.
 
 ### Communication Flow
 
+Messages carry two independent identifiers:
+
+- **Correlation ID** (transport level): Set by the original sender (CommSystem or parent agent). The Exchange
+  passes it through and echoes it on all subscription stream events for that message tree. Agents never interpret it.
+- **Topic ID** (application level): Assigned by the target agent's runtime when processing begins. All messages
+  within a conversation unit share the same topic ID. The agent's LLM sees the topic ID in its working memory and
+  uses it for workflow tracking.
+
+Additionally, messages may carry:
+
+- **continue_ref**: An outbound message indicating "I need a response to continue topic T1." Contains the sender's
+  topic ID, the sender's mailbox address, and an absolute deadline. The receiver echoes this in its response.
+- **cancellation**: An inbound message with a `CancelRef` capability targeting a specific topic ID. The runtime
+  processes this before any LLM invocation — always accepted, bypassing LLM discretion.
+- **is_resolution**: A flag on an outbound message marking a topic as complete. The runtime verifies no outstanding
+  continuations before forwarding.
+
 ```
-Event Source → gRPC InjectMessage → Exchange → Agent Mailbox → Agent
+CommSystem ──SendMessage(correlation_id=X)──→ Exchange ──→ Agent Mailbox
+                                                               │
+                                                   Runtime assigns topic_id: T1
+                                                   LLM processes, decides to delegate
+                                                               │
+                                                               ├── SendMessage(continue_ref={topic_id: T1,
+                                                               │   reply_to: A, deadline: <absolute>})
+                                                               │   └──→ Agent B
+                                                               │
+                                                               ├── Agent B responds
+                                                               │   ←── continue_ref echoed back
+                                                               │
+                                                               ├── Runtime routes reply to T1,
+                                                               │   LLM resumes, produces resolution
+                                                               │
+                                                               ├── is_resolution: true, reason: "completed"
+                                                               │   └──→ Guardrail(s) → Exchange
+                                                               │       → CommSystem stream (correlation_id=X echoed)
+                                                               │
+                                                               └── CancelTopic(topic_id=T1) (if interrupted)
+                                                                   └──→ Runtime accepts (privileged), journals,
+                                                                        notifies B via cancel_topic(T1)
+ ```
 
-User → CommSystem → gRPC SendMessage → Exchange → Agent Mailbox → Agent
-                                                                      ├── Spawn Child Agent (granting subset of capabilities)
-                                                                      ├── Call MCP Tool (via held MCPRef capability)
-                                                                      ├── Compress journal to vector store (when context threshold exceeded)
-                                                                      └── Respond → Guardrail Agent(s) → Exchange → destination
+### Topic Model & Async Protocols
 
-Destinations for outbound responses:
-  → CommSystem subscription stream → User
-  → Another agent's mailbox (agent-to-agent)
+The system uses topic IDs to group messages into workflow units and a continuation protocol for asynchronous
+agent-to-agent coordination.
 
-Guardrails are user-defined agents placed in the outbound path.
-Multiple guardrails chain: PII Redactor → Policy Check → destination.
-The Exchange routes through each guardrail in order before final delivery.
+#### Topic State Machine
+
+Every topic transitions through a lifecycle owned by the agent runtime, not the LLM:
+
 ```
+                        ┌──────────────────┐
+                        │  New (unassigned) │
+                        └────────┬─────────┘
+                                 │ agent pulls message, assigns topic_id
+                                 ▼
+                        ┌──────────────────┐
+                        │     Active       │
+                        └────────┬─────────┘
+                                 │ agent sends message with continue_ref
+                                 ▼
+               ┌──────────────────────────────────┐
+               │     WaitingForContinuations       │
+               │  (tracking: set of outstanding)   │
+               └──────┬───────────────┬────────────┘
+                  ▲   │               │
+                  ║   │ reply arrives │ cancellation arrives
+                  ║   ▼               ▼
+                  ║  ┌──────────┐  ┌──────────┐
+                  ║  │  Active  │  │ Cancelled│←── runtime always acts
+                  ║  └──────────┘  └────┬─────┘
+                  ║                     │
+                  ║  LLM says done,     │ runtime fan-outs cancel
+                  ║  continuations      │ to sub-agents, journals
+                  ║  set is empty       │ both events
+                  ║                     ▼
+                  ║              ┌──────────────┐
+                  ║              │  Resolved     │
+                  ║              │  (resolution  │
+                  ║              │   message     │
+                  ║              │   sent)       │
+                  ║              └──────────────┘
+                  ╚══════════════════════════════╝
+                                      (on re-engagement)
+```
+
+#### Continuation Protocol
+
+When an agent needs a response from another agent to continue a topic, it stamps a `continue_ref` on the outbound
+message:
+
+```
+continue_ref {
+    topic_id: string           // sender's local topic ID
+    reply_to_mailbox: string   // sender's mailbox address
+    deadline: timestamp        // absolute wall clock
+}
+```
+
+The `deadline` is an absolute timestamp rather than a relative TTL. Both the sender and the receiver can
+independently evaluate whether a continuation has expired without remembering when the clock started. This assumes
+agents' clocks are synchronized within a few seconds.
+
+**Fan-out**: A topic may have multiple outstanding continuations concurrently. The runtime tracks them as a set
+keyed by topic ID. Resolution is gated on all continuations being resolved or expired.
+
+**Continuation deadline expiry**: On each inbox poll, the runtime checks all pending `continue_ref.deadline` values
+against the wall clock. Expired deadlines produce a `continuation_deadline_expired` raw journal entry and may
+inject a notification into the agent's working memory. The LLM decides how to respond.
+
+**Stale continuations**: If a continuation reply arrives for a topic that has already been resolved or cancelled,
+the runtime journals it as `stale_continuation` and surfaces it on the next idle inbox poll. The LLM may act on it
+or ignore it.
+
+#### Cancellation Protocol
+
+Cancellation requires a `CancelRef` capability targeting an active topic. The Exchange validates the sender holds
+this capability before routing the cancellation message.
+
+The runtime always accepts cancellation from the inbox, bypassing LLM discretion. Processing order:
+
+1. Runtime receives `cancel_topic(topic_id=T1, reason, CancelRef)` in the inbox.
+2. Runtime journals `cancellation_received` with provenance (who sent, reason).
+3. Runtime transitions T1 to Cancelled state.
+4. Runtime fan-outs `cancel_topic(T1)` to all outstanding continuations' target mailboxes, notifying sub-agents
+   so they can suppress work.
+5. On each fan-out notification, the runtime journals `cancellation_fanout`.
+6. When the LLM next processes, it sees the cancellation in working memory and may act accordingly.
+
+If a topic is cancelled while awaiting a response, the runtime journals both the cancellation receipt and the
+outstanding continuation as pending. When the delayed response eventually arrives, it is journaled as
+`stale_continuation` for the topic.
+
+#### Resolution Protocol
+
+When the LLM determines a topic is complete, it emits a message with `is_resolution: true` and a
+`resolution_reason`. The runtime intercepts this and checks the topic's continuations set:
+
+- **If continuations set is empty**: The resolution message is forwarded through guardrails → Exchange →
+  destination. The topic is marked Resolved.
+- **If continuations set is non-empty**: The runtime defers the resolution, journals "Deferred resolution for T1 —
+  outstanding continuations: B, C", and does not forward the message. The LLM continues processing (or handles
+  the pending state).
+
+For the synchronous bridge (CLI, Web), the CommSystem waits for an `is_resolution` message with matching
+`correlation_id` on the subscription stream before returning control to the user.
+
+#### Agent-to-Agent Async
+
+When agent A needs data from agent B to continue topic T1:
+
+1. A sends B a message containing `continue_ref = {topic_id: T1, reply_to: A, deadline: <time>}`.
+2. A's runtime adds this to T1's continuations set, journals the outbound message, and transitions T1 to
+   WaitingForContinuations.
+3. A returns to processing its inbox (other topics, other messages).
+4. B eventually responds; the response carries the echoed `continue_ref`.
+5. A's topic router matches the incoming reply to T1, transitions T1 back to Active.
+6. The LLM sees the pending journal entry (from step 2) plus the response, and resumes T1.
+
+No blocking, no special async runtime. The journal IS the continuation store — the LLM reads past context to
+understand what it was waiting for and why.
 
 ### Exchange
 
@@ -229,6 +401,8 @@ The Exchange is both a **library** (importable, embeddable) and a **standalone s
 - **Routing**: Delivers messages to the correct destination mailbox
 - **Capability Enforcement**: Validates sender has a reference to the target mailbox before delivery; forwards to
 target-side ACL for secondary check
+- **Cancellation Validation**: Validates sender holds a `CancelRef` matching the target topic ID before routing a
+  cancellation message. Rejects with "no authority" if mismatched.
 - **Guardrail Routing**: Routes outbound messages through designated guardrail agents in sequence before delivery
 - **External Gateway**: Accepts gRPC connections from Communication Systems and Event Sources; manages subscription
 streams for outbound delivery to CommSystems
@@ -367,6 +541,7 @@ of the reference IS authorization — there is no ambient authority or global AC
 | `MailboxRef(id)` | Send messages to the target actor's mailbox | Parent on spawn; Exchange on registration |
 | `Spawn` | Create child actors with a subset of own capabilities | Parent on spawn; system bootstrap |
 | `MCPRef(server_handle, tool_filter)` | Connect to and use an MCP server (optionally filtered to a subset of tools) | Parent on spawn; admin registration |
+| `CancelRef(topic_id)` | Send a cancellation message for a specific topic | Parent on spawn; Exchange on registration for system actors |
 
 **How capabilities flow:**
 
@@ -408,6 +583,8 @@ An agent spawns a child by providing:
 - Optional time-to-live (TTL)
 - Optional guardrail mailbox (or chain of guardrail mailboxes) for all outbound responses
 - Security context (inherited or reduced from parent)
+- Optional **continuation_deadline** — overrides the default continuation deadline for `ContinueRef` messages
+  directed at this child. If unset, inherits the spawning agent's default.
 
 Child agents communicate with their parent through the same mailbox pattern. This enables hierarchies with guardrail
 interposition:
@@ -434,32 +611,181 @@ layer. Access is governed by whether the agent holds an `MCPRef` capability for 
 
 ### Journal & Persistence
 
-Every actor maintains an **append-only journal** — a complete record of everything the actor has done:
+Every actor operates a **two-level journal architecture**: a raw append-only journal owned by the runtime, and a
+working memory that serves as the LLM's context window, assembled incrementally from journal events.
 
-- Inbound messages, including the origin actor's mailbox address and provenance
-- Outbound messages sent to other actors
-- MCP tool invocations and their results
-- Internal state transitions and decisions
+#### Raw Journal (Runtime-Owned)
 
-The journal serves two purposes:
-1. **LLM context**: Recent journal entries are injected into the LLM's context window as the actor's short-term memory.
-2. **Debugging and analysis**: The full journal provides an auditable trace of every action the actor took, enabling
-post-mortem analysis and better memory algorithms over time.
+A full-fidelity, append-only record of every event the actor participates in. Never modified after append. The
+raw journal is the source of truth — full actor state must be reproducible from it alone.
 
-**Short-term**: Recent journal entries held in the LLM context window. The agent decides which entries to retain based
-on relevance and recency.
+Entry structure:
 
-**Long-term**: When the journal grows beyond a configurable threshold, the agent compresses older entries
-(summarization, key extraction) and indexes them in a vector store for semantic retrieval. The vector store is an
-infrastructure service — the current implementation uses Chromem, but the architecture abstracts over the provider.
+```
+Entry {
+    seq: uint64                    // monotonic counter
+    wall_clock: timestamp          // when the event occurred
+    kind: enum {
+        inbox_message,             // includes sender, provenance, topic_id
+        outbox_message,            // includes destination, correlation_id
+        tool_invocation,           // tool name + arguments
+        tool_result,               // result payload
+        llm_invocation,            // prompt + response tokens, model ID, token count
+        llm_output,                // generated text from the LLM
+        state_transition,          // topic_id: Active → WaitingForContinuations
+        cancellation_received,     // who sent, reason, CancelRef
+        cancellation_fanout,       // runtime notified sub-agent
+        resolution,                // topic_id resolved/cancelled, with reason
+        continuation_deadline_expired,
+        stale_continuation,
+        compression,               // LLM compressed working memory
+        ltm_search,                // LLM searched its history
+    }
+    data: bytes                    // type-specific payload
+    topic_id: string               // may be nil for system entries
+    correlation_id: string         // passed through from original sender
+    token_count: uint64            // tokens consumed (for context accounting)
+}
+```
 
-**Compression trigger**: The agent monitors its context utilization. When approaching the limit, it compresses the
-oldest portion of the journal and writes the result to the vector store. The agent may also query its own long-term
-store to retrieve relevant past context (RAG on its own history).
+#### Working Memory (LLM Context)
 
-**Persistence**: All actors run ephemerally by default (nothing stored on disk). When persistence is configured, the
-journal is written to durable storage alongside its vector index. This uses atomic writes (temp-file + rename) for
-state durability.
+The agent's working memory is the context sent to the inference provider on each LLM invocation. It is assembled
+incrementally:
+
+```
+┌─────────────────────────────────────────────┐
+│ System Prompt (static, set at launch)        │
+├─────────────────────────────────────────────┤
+│ Compressed History (produced by LLM,         │
+│   may be absent if no compression needed)    │
+├─────────────────────────────────────────────┤
+│ Recent Events (appended incrementally)       │
+│   llm_output, tool results,                 │
+│   ltm_search results, etc.                  │
+├─────────────────────────────────────────────┤
+│ Current Inbox Message + Topic State          │
+│   "New message from User on topic T1"       │
+└─────────────────────────────────────────────┘
+```
+
+Fresh assembly and incremental append produce **functionally equivalent** contexts. Incremental append is a
+runtime optimization — each new event is appended as text to the recent events block. The runtime monitors total
+token count against the configured maximum.
+
+#### Compression
+
+When the working memory exceeds the maximum context size, the runtime triggers compression. Compression may also
+be triggered by the inference provider signaling that it requires compression. In either case the effective
+maximum becomes:
+
+```
+new_max = min(configurable_max, inference_provider_signal_max)
+```
+
+The compression process:
+
+1. Runtime freezes the current working memory.
+2. Runtime constructs a compression prompt: "Compress the following agent history into a concise summary
+   preserving key facts, decisions, and unresolved state: <oldest portion of working memory>"
+3. The LLM produces a compressed summary.
+4. Runtime replaces the oldest portion of working memory with the summary.
+5. The compression event is journaled as kind `compression`, including the compression prompt and resulting
+   summary, the seq ranges of raw journal entries compressed, and token counts before and after.
+6. The summary is indexed into a searchable memory store with pointers to the raw journal seq range it covers.
+
+The compressed summary is plain text in the context — no special data structure. The LLM reads it as part of its
+history. Compression does not modify the raw journal.
+
+#### Long-Term Memory Search
+
+Every agent holds a built-in MCPRef for `agent_ltm_search`. It exposes:
+
+```
+agent_ltm_search(query: string) → ToolResult {
+    results: [{seq_range, summary, relevance}]
+}
+```
+
+The LLM can explicitly search its own history by calling this tool. Search results are injected into working
+memory as tool results. The search invocation and result are journaled as kind `ltm_search`.
+
+The searchable memory store indexes compressed summaries. The storage mechanism is abstracted — the architecture
+describes the capability to recall memories, not the implementation.
+
+#### Continuation Set (Runtime-Owned)
+
+The set of pending `continue_ref` for each active topic is owned by the runtime shim, separate from both the raw
+journal and working memory. It is an in-memory data structure that:
+
+- Gates resolution (does not fire if continuations non-empty)
+- Drives cancellation fan-out
+- Detects deadline expiry (checked on each inbox poll)
+- Routes incoming continuation replies to the correct topic
+
+The continuation set survives compression — compressing journal entries does not affect pending continuations.
+
+#### Persistence
+
+All actors run ephemerally by default. When persistence is configured, the raw journal, searchable memory index,
+and continuation set are persisted to durable storage. The storage mechanism is abstracted — the architecture
+does not prescribe files, databases, or object stores.
+
+### Agent Runtime Shim
+
+Every agent process executes inside a **runtime shim** — a deterministic wrapper around the LLM and MCP tool
+infrastructure that enforces the topic model, capability constraints, and actor invariants.
+
+#### Inbox Processing Priority
+
+The runtime processes messages from the agent's mailbox in strict priority order:
+
+1. **Cancellation messages** — Always processed first, bypassing LLM discretion. The runtime journals
+   "cancellation received from X for topic T1," transitions T1 to Cancelled, and fan-outs `cancel_topic` to all
+   tracked continuations.
+2. **Continuation replies** — Messages carrying a `continue_ref` are matched to their active topic. The runtime
+   transitions the topic back to Active and journals the arrival. If the topic is already Resolved or Cancelled,
+   the message is journaled as `stale_continuation`.
+3. **New work** — Messages with no topic assignment get a fresh topic ID. Messages with an existing topic ID are
+   routed to that topic's activity stream.
+
+#### LLM Context Assembly
+
+Before each LLM invocation, the runtime assembles the context:
+
+- Current topic's working memory (raw journal entries as text, or compressed summary)
+- Topic state: Active / WaitingForContinuations / Resolved / Cancelled
+- Pending continuations set (read-only: "You are waiting on responses from B and C for topic T1")
+- Capability set: only MCPRefs the agent holds are bound as available tools
+- Provenance of the incoming message
+
+#### Tool Binding
+
+The runtime binds exactly the MCP servers referenced by the agent's MCPRef capabilities. The LLM cannot call
+tools the agent does not hold a reference to. All tool calls and results are journaled automatically.
+
+#### Outbox Enforcement
+
+When the LLM produces an outbound message, the runtime checks:
+
+- If the message has `is_resolution: true`: the runtime checks the topic's continuations set. If non-empty, the
+  resolution is **deferred** — the message is not forwarded, and the runtime journals "Deferred resolution for
+  T1 — outstanding continuations: B, C." The LLM may continue processing or address the pending state. If empty,
+  the resolution is forwarded through guardrails → Exchange → destination.
+- If the message has `continue_ref`: the reference is added to the topic's continuations set, and the deadline
+  timer begins.
+- If a cancellation is in progress for the topic: the runtime notifies sub-agents by sending `cancel_topic` to
+  each tracked continuation target, journaling each as `cancellation_fanout`.
+
+#### Continuation Deadline Monitoring
+
+On each inbox poll, the runtime checks all pending `continue_ref.deadline` values against the wall clock. When a
+deadline is exceeded:
+
+1. Runtime journals `continuation_deadline_expired` with the target agent identity.
+2. Runtime removes the continuation from the set.
+3. If the set is now empty and the LLM previously attempted resolution (deferred), the runtime surfaces this on
+   the next context assembly: "Your pending continuation to B has expired — you may want to resolve or retry."
 
 ### Security & Authentication
 
@@ -526,9 +852,11 @@ scaling of agent capacity, and platform-specific deployment (e.g., Docker on Lin
 - **Dead letters**: What happens to undeliverable messages or agents that have expired TTLs?
 - **Agent discovery**: How does an agent discover another agent's address to send a message? (Service directory actor?
 Exchange query API?)
-- **Message schema (protobuf)**: What is the full structure of a routed message envelope?
-- **Journal compression format**: What does a compressed journal entry look like? What metadata is preserved for
-effective RAG?
+- **CancelRef propagation**: Is CancelRef for child topics implicit on spawn, or must it be explicitly granted?
+- **Stale continuation surfacing**: Should the runtime inject stale continuations as conversational prompts,
+  passive notifications, or only on LLM query?
+- **Continuation set on restart**: Should the persisted continuation set survive agent restart, or should the
+  parent re-establish it on restart?
 - **Capability delegation policy**: Can agent A freely forward agent B's mailbox address to C? Should the Exchange log
 or restrict this?
 - **Agent naming / aliases**: How are human-readable aliases registered and resolved to UUID mailbox addresses?
@@ -647,13 +975,14 @@ pattern, event sources, tool scoping.
 
 **What doesn't**:
 - **Synchronous bridge**: Web requests expect a response in seconds, but mailbox processing is asynchronous. The
-Exchange gateway's subscription stream supports this (send message, wait for response on stream via correlation ID),
-but the Web UI backend needs to map HTTP request → gRPC message → wait for stream response → HTTP response.
+topic model resolves this: the Web UI CommSystem stamps a `correlation_id`, the Exchange echoes it on subscription
+stream events, and the Web UI backend waits for `is_resolution` with matching `correlation_id`. Detail of mapping
+HTTP request → gRPC message → stream response → HTTP response is Web UI backend implementation.
 - **Browser ↔ Web UI protocol**: WebSocket for real-time updates, REST for one-shot. Not yet defined.
 - **Session continuity**: Web sessions span multiple requests; need to correlate messages to the same user session
 across agent interactions.
 
-**Gaps**: Synchronous request/response correlation, browser protocol definition, session correlation.
+**Gaps**: Browser protocol definition, session correlation.
 
 ### 4. Boutique Services / Dark Factory
 
@@ -689,14 +1018,14 @@ quotas.
 
 ## Cross-cutting Gaps
 
-| Gap | Description | Affects |
-|-----|-------------|---------|
-| **Synchronous/async bridge** | Correlation layer for CommSystems that expect synchronous responses (CLI, Web) over async mailbox delivery. | 1, 3 |
-| **Group principals** | Security contexts for groups/roles (parent, teen, child, admin, user) rather than only individual UUIDs. | 2, 4 |
-| **Onboarding workflow** | Provisioning flow for new users and their initial capability and guardrail configuration. | 2, 4 |
-| **Tenant dimension** | Tenant IDs in security contexts and journal isolation for multi-tenant deployments. | 4 |
-| **Billing / metering** | Usage tracking per tenant for LLM calls, tool executions, storage, processing time. | 4 |
-| **SLA / reliable delivery** | Retry policies, dead letter handling, delivery guarantees, health checks. | 4 |
-| **Audit logging** | Tamper-evident, tenant-scoped audit records across multiple actor journals and guardrail decisions. | 4 |
-| **Resource quotas** | Per-tenant limits on memory, compute, concurrent agents, tool executions. | 4 |
-| **Browser protocol** | REST + WebSocket contract for browser ↔ Web UI backend communication. | 3 |
+| Gap                          | Description                                                                                                                                       | Affects | Status      |
+|------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|---------|-------------|
+| **Synchronous/async bridge** | Resolved by topic model: CommSystem stamps `correlation_id` on `SendMessage`, Exchange echoes on stream events. CLI/Web waits for `is_resolution`. | 1, 3    | Closed      |
+| **Group principals**         | Security contexts for groups/roles (parent, teen, child, admin, user) rather than only individual UUIDs.                                          | 2, 4    | Open        |
+| **Onboarding workflow**      | Provisioning flow for new users and their initial capability and guardrail configuration.                                                         | 2, 4    | Open        |
+| **Tenant dimension**         | Tenant IDs in security contexts and journal isolation for multi-tenant deployments.                                                               | 4       | Open        |
+| **Billing / metering**       | Usage tracking per tenant for LLM calls, tool executions, storage, processing time.                                                               | 4       | Open        |
+| **SLA / reliable delivery**  | Retry policies, dead letter handling, delivery guarantees, health checks.                                                                         | 4       | Open        |
+| **Audit logging**            | Tamper-evident, tenant-scoped audit records across multiple actor journals and guardrail decisions.                                               | 4       | Open        |
+| **Resource quotas**          | Per-tenant limits on memory, compute, concurrent agents, tool executions.                                                                         | 4       | Open        |
+| **Browser protocol**         | REST + WebSocket contract for browser ↔ Web UI backend communication.                                                                             | 3       | Open        |
