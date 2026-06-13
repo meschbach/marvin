@@ -13,7 +13,9 @@
   (Existing design — journaled, surfaced on next idle inbox poll. No change needed.)
 - **Continuation set on restart**: Should the persisted continuation set survive agent restart, or should the
   parent re-establish it on restart?
-  (Resolved: parent-managed. Agent Runtime does not persist continuation sets. See Supervisor in System Actors.)
+  (Resolved: continuation sets are runtime-owned, in-memory, and do not survive restart — cold or warm. All
+  pending continuations are treated as expired on restart. Deadlines are the self-healing mechanism: the LLM
+  retries or escalates on the next context assembly. See [Persistence & Restart](persistence-restart.md).)
 - **Capability delegation policy**: Can agent A freely forward agent B's mailbox address to C? Should the Exchange log
   or restrict this? (Designed: `ConstrainedRef` with `DelegationPolicy` — see Constrained References.)
 - **Agent naming / aliases**: How are human-readable aliases registered and resolved to UUID mailbox addresses?

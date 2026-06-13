@@ -237,6 +237,7 @@ Background services that support agent execution.
 | Set up guardrails and policy | [Guardrails](agentic-systems/guardrails.md) |
 | Explore system actors (supervisor, registry) | [System Actors](agentic-systems/system-actors.md) |
 | Understand persistence and memory | [Journal & Persistence](agentic-systems/journal.md) |
+| Learn how state survives restarts | [Persistence & Restart](agentic-systems/persistence-restart.md) |
 | Review deployment scenarios | [Deployment Scenarios](agentic-systems/deployment-scenarios.md) |
 | View the system architecture diagram | [System Diagram](agentic-systems/system-diagram.md) |
 | Browse all terms | [Glossary](agentic-systems/glossary.md) |

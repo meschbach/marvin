@@ -127,6 +127,7 @@ The continuation set survives compression — compressing journal entries does n
 
 ## Persistence
 
-All actors run ephemerally by default. When persistence is configured, the raw journal, searchable memory index,
-and continuation set are persisted to durable storage. The storage mechanism is abstracted — the architecture
-does not prescribe files, databases, or object stores.
+All actors run ephemerally by default. When persistence is configured, the raw journal and searchable memory index
+are persisted to durable storage. Continuation sets are runtime-owned, in-memory, and do not survive restart —
+see [Persistence & Restart](persistence-restart.md) for the full boundary definition. The storage mechanism is
+abstracted — the architecture does not prescribe files, databases, or object stores.
