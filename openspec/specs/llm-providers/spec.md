@@ -2,7 +2,7 @@
 
 ## Overview
 
-Marvin supports multiple LLM (Large Language Model) providers, allowing users to choose the backend that best fits their needs. The provider is configured in HCL configuration files using the `provider` block.
+Marvin supports multiple LLM (Large Language Model) providers, allowing users to choose the backend that best fits their needs. Providers are configured in HCL configuration files using `provider_model` blocks or legacy `provider` + `model` fields.
 
 ### Supported Providers
 
@@ -19,18 +19,126 @@ Marvin supports multiple LLM (Large Language Model) providers, allowing users to
 
 ---
 
-## Provider Configuration
+## Configuration Modes
 
-### Provider Selection
+Marvin supports two configuration modes. Legacy mode is fully backward compatible.
+Structured mode enables fallback, health tracking, and multi-model chains.
 
-The `provider` option in the HCL configuration file selects which LLM backend to use:
+### Legacy Mode (Backward Compatible)
+
+Single provider selected via `provider` field:
 
 ```hcl
-# Select provider (ollama, openrouter, or gemini)
 provider = "ollama"
+model    = "ministral-3:3b"
 ```
 
-When not specified, Marvin defaults to **Ollama** (`internal/config/file.go:140-145`).
+When `provider` is not specified, Marvin defaults to **Ollama**.
+
+### Structured Mode
+
+Uses `provider_model` blocks to define `(model, provider)` pairs, with an optional
+`fallback` list for ordered chain behavior:
+
+```hcl
+provider_model "primary" {
+    provider = "openrouter"
+    model    = "anthropic/claude-3.5-sonnet"
+}
+
+provider_model "backup" {
+    provider = "ollama"
+    model    = "ministral-3:3b"
+}
+
+llm {
+    fallback           = ["primary", "backup"]
+}
+```
+
+**Detection:** The factory checks `len(cfg.ProviderModels) > 0`. If present, structured
+mode is used and `fallback` controls the ordered chain. If absent, legacy mode applies
+with a single implicit entry.
+
+*Note: `notify_model_switch` was considered but deferred — this change does not include
+LLM-aware model switch notifications. The chain silently falls back to the next model.*
+
+---
+
+## Ordered Chain (Fallback)
+
+When multiple `provider_model` entries are configured with a `fallback` list, Marvin
+uses an **OrderedChain** to try models in declaration order, skipping unhealthy ones.
+
+### Selection Logic
+
+```
+Request → OrderedChain.Select()
+           ├── Apply per-model timeout (min 30s or remainingTime/remainingModels)
+           ├── Iterate models in order
+           │    ├── Check model access (runtime AccessCheck function)
+           │    │    └── Denied → skip silently to next
+           │    ├── Check RampingBreaker gates (fast path, no network call)
+           │    │    ├── Rate-limited (now < rateLimitUntil) → ErrRateLimited → skip to next
+           │    │    ├── OPEN → skip to next
+           │    │    ├── RECOVERING → try acquire token
+           │    │    │    ├── Token acquired → proceed
+           │    │    │    └── ErrNoToken → fall through to next model
+           │    │    └── CLOSED → proceed
+            │    ├── Call provider LLM
+            │    │    ├── 429 with timing → set rateLimitUntil → next model
+            │    │    │    (caught before backoff — model needs to clear backlog)
+            │    │    ├── 429 without timing → backoff retry → next model if exhausted
+            │    │    │    (breaker NOT tripped — load signal, not health signal)
+            │    │    ├── 5xx/timeout → backoff retry
+            │    │    │    └── exhausted → report failure to breaker
+            │    │    │         ├── consecutive > 5? → OPEN
+            │    │    │         └── else → continue to next model
+            │    │    │         (if RECOVERING, reset tokens to 1)
+            │    │    └── Success → ramp if RECOVERING (tokens *= 2, cap at 50), return
+            └── All models exhausted → return ErrAllModelsExhausted
+```
+
+### Circuit Breaker Health Model
+
+Each `provider_model` entry has an associated circuit breaker (`sony/gobreaker/v2`)
+tracking its health state, wrapped in a `RampingBreaker` for controlled readmission:
+
+| State | Behavior | Recovery |
+|-------|----------|----------|
+| **CLOSED** | Normal operation. Requests pass through. | — |
+| **OPEN** | Fail-fast. Requests are skipped without attempting. | 60s timeout → HALF-OPEN |
+| **HALF-OPEN** | One probe request allowed. | Success → RECOVERING. Failure → OPEN (60s again). |
+| **RECOVERING** | Token-bucket slow-start. 1 token initially, doubles per round, capped at 50. | Success at 50 tokens → CLOSED. Any failure → OPEN (tokens reset to 1). |
+| **RATE-LIMITED** | Not a breaker state — a timestamp gate on RampingBreaker. Active when a 429 with timing info was received. | Automatic when `rateLimitUntil` timestamp passes. No half-open probe needed. |
+
+- **Trip threshold:** 5 consecutive failures (configurable via `ReadyToTrip`)
+- **Cooldown:** 60 seconds before automatic recovery probe
+- **Readmission ramp:** After half-open probe succeeds, traffic is gradually re-admitted
+  at a doubling rate (1, 2, 4, 8, ... 50). Full capacity reached in ~350ms.
+- **ErrNoToken:** When no token is available during recovery, `RampingBreaker` returns
+  `ErrNoToken`. Multi-entry chains fall through to the next model immediately (zero
+  latency). Single-entry chains attempt a brief 50ms non-blocking wait.
+- **Failure during ramp:** Any failure resets tokens to 1 and re-opens the breaker.
+- **Scope:** In-memory only. Restart resets all breaker state.
+
+### Per-Request Retry (Provider-Level)
+
+Before the circuit breaker records a failure, the provider's internal retry logic
+(`cenkalti/backoff/v5`) handles transient errors:
+
+- **429 without timing info:** Exponential backoff up to `max_attempts` (default: 3).
+  The provider may retry since the model is busy but may accept a brief gap.
+- **429 with timing info (`Retry-After` / `X-RateLimit-Reset`):** No backoff retry.
+  The provider returns `ErrRateLimitWithTiming` immediately — the `RampingBreaker`
+  sets `rateLimitUntil` and the chain falls through to the next model.
+- **5xx (Server Error):** Exponential backoff up to `max_attempts` (default: 3)
+- **Only on exhaustion:** The circuit breaker (for health errors) records the failure
+  and advances the chain. 429s are never counted toward the breaker.
+
+The two mechanisms are complementary:
+- `backoff` handles short spikes (429 without timing, brief 5xx)
+- `gobreaker` handles sustained failure (model is down, skip it for a while)
 
 ---
 
@@ -69,12 +177,12 @@ llm {
 
 ### Implementation
 
-**File**: `internal/config/ollama.go:1-45`
+**Package**: `internal/llm/ollama/`
 
-The Ollama encoder provides embedding functionality:
+The Ollama provider implements the unified `LLM` interface:
 
-- `ollamaEncoder` struct (line 11-14) - wraps the Ollama API client
-- `Encode()` method (line 16-45) - generates embeddings from text using the Ollama embeddings endpoint
+- `client.go` — Chat method and client setup
+- `embeddings.go` — Embeddings method (moved from `internal/config/ollama.go`)
 
 ---
 
@@ -133,15 +241,17 @@ The OpenRouter provider implements automatic retry with exponential backoff:
 
 ### Implementation
 
-**File**: `internal/openrouter/openrouter.go:1-46`
+**Package**: `internal/llm/openrouter/`
 
-Key structs and functions:
+Key files:
 
-| Element | Line | Description |
-|---------|------|-------------|
-| `defaultOpenRouterBaseURL` | 12 | Default API endpoint |
-| `LLM` struct | 14-19 | Main client wrapper |
-| `NewLLM()` | 21-46 | Constructor with HTTP client setup |
+| File | Description |
+|------|-------------|
+| `client.go` | Main LLM wrapper implementing unified interface |
+| `chat.go` | Chat method with streaming response handling |
+| `retry.go` | Per-request retry with backoff and rate-limit-reset handling |
+| `tools.go` | Tool call conversion (OpenRouter function calling format) |
+| `otel.go` | Provider-level OTel metrics (latency, errors, rate limit waits) |
 
 The implementation:
 - Uses `github.com/revrost/go-openrouter` library
@@ -180,16 +290,14 @@ llm {
 
 ### Implementation
 
-**File**: `internal/gemini/gemini.go:1-50`
+**Package**: `internal/llm/gemini/`
 
-Key structs and functions:
+Key files:
 
-| Element | Line | Description |
-|---------|------|-------------|
-| `Streamer` interface | 14-16 | Streaming content generation interface |
-| `LLM` struct | 18-22 | Main client wrapper |
-| `genaiClient` | 24-30 | Google genai client adapter |
-| `NewLLM()` | 32-45 | Constructor |
+| File | Description |
+|------|-------------|
+| `client.go` | Main LLM wrapper implementing unified interface |
+| `chat.go` | Chat method with Google GenAI streaming integration |
 
 The implementation:
 - Uses `google.golang.org/genai` library
@@ -241,6 +349,69 @@ llm {
 
 ---
 
+## Package Structure
+
+All provider implementations live under `internal/llm/` to share a common interface
+and enable chain orchestration:
+
+```
+internal/llm/
+├── interface.go         # LLM interface, ChatRequest, ChatResponse
+├── types.go             # Shared types: Message, ToolCall, ToolDefinition
+├── options.go           # Common options struct for ChatRequest
+├── embedding.go         # EmbeddingProvider interface + EmbeddingRequest (separate from LLM)
+├── embedding_factory.go # NewEmbeddingProvider — separate factory for embeddings
+├── ordered_chain.go     # OrderedChain — ordered fallback with circuit breaker health
+├── breaker.go           # Circuit breaker setup per model (sony/gobreaker)
+├── factory.go           # NewFromConfig — builds LLM from config
+├── errors.go            # Structured error types
+├── tracer.go            # OTel tracer for chain-level spans
+├── metrics.go           # OTel meter for chain-level metrics
+├── ollama/
+│   ├── client.go        # Ollama provider implementing LLM interface
+│   └── embeddings.go    # Embeddings (implements EmbeddingProvider)
+├── openrouter/
+│   ├── client.go
+│   ├── chat.go
+│   ├── retry.go
+│   ├── tools.go
+│   └── otel.go
+└── gemini/
+    ├── client.go
+    └── chat.go
+```
+
+## Observability
+
+### Tracing
+
+The OrderedChain emits OTel spans for chain-level orchestration:
+
+```
+OrderedChain.Chat  ← root span
+  chain.strategy="ordered"
+  chain.outcome="success" | "exhausted"
+  models.total=3
+  models.attempted=2
+  └─ OrderedChain.tryModel  ← per actual attempt
+       model.label="claude-sonnet"
+       model.provider="openrouter"
+       outcome="success" | "error"
+```
+
+### Metrics
+
+| Metric | Type | Attributes | Purpose |
+|--------|------|------------|---------|
+| `llm.chain.outcome` | counter | `outcome` | Chain success rate |
+| `llm.chain.latency` | histogram | `outcome` | Total time with fallbacks |
+| `llm.chain.models_attempted` | histogram | — | Fallback depth |
+| `llm.chain.model_switch` | counter | `from_model`, `to_model` | Fallback trigger frequency |
+| `llm.chain.circuit_event` | counter | `model`, `from`, `to` | Breaker trip/recover events |
+
+Provider-level metrics (per-request latency, errors, rate limit waits) live in each
+provider package. Chain metrics are additive — they track orchestration only.
+
 ## Configuration File Reference
 
 ### Key Configuration Types
@@ -250,17 +421,26 @@ llm {
 | `ProviderType` | `internal/config/file.go:18-25` | Provider type constants |
 | `GeminiBlock` | `internal/config/file.go:27-38` | Gemini configuration |
 | `OpenRouterBlock` | `internal/config/file.go:40-53` | OpenRouter configuration |
-| `ModelOptionsBlock` | `internal/config/file.go:55-75` | Model behavior options |
+| `RetryBlock` | `internal/config/file.go:62-67` | Retry parameters |
+| `ProviderModelBlock` | `internal/config/file.go` | Model+provider pair definition |
+| `ModelOptionsBlock` | `internal/config/file.go:136-155` | Model behavior options |
 
-### Provider Resolution
+### Provider Resolution (Legacy Mode)
 
 ```go
-// internal/config/file.go:140-145
 func (f *File) Provider() ProviderType {
     if f.ProviderName == "" {
         return ProviderOllama
     }
     return ProviderType(f.ProviderName)
+}
+```
+
+### Structured Mode Detection
+
+```go
+func (f *File) IsStructuredMode() bool {
+    return len(f.ProviderModels) > 0
 }
 ```
 
@@ -272,4 +452,9 @@ func (f *File) Provider() ProviderType {
 2. **API keys required** - OpenRouter and Gemini require API keys via `api_key` block or environment variables
 3. **Model selection** - Each provider accepts different model names; refer to provider documentation
 4. **Options are provider-specific** - Not all options work with all providers; Ollama-specific options may be ignored by others
-5. **Embedding models** - Use `embedding_model` in configuration to specify embedding models (default: `mxbai-embed-large:latest`)
+5. **Embeddings are a separate concern** - The `EmbeddingProvider` interface is distinct from `LLM` with its own factory. Existing RAG pipeline is not migrated in this change.
+6. **Fallback requires structured mode** - Use `provider_model` blocks + `fallback` list to enable automatic fallback between models/providers
+7. **Health state is in-memory** - Circuit breaker cooldowns reset on process restart; no persistence
+8. **Single model in chain** - A `fallback` list with one entry is equivalent to legacy mode, still gains circuit breaker protection
+9. **Per-model timeouts** - The chain allocates `min(30s, remainingTime/remainingModels)` per attempt to prevent a hanging model from starving fallbacks
+10. **Model access is runtime-checked** - The chain carries an `AccessCheck` function that filters models per-request; denied models are skipped silently
