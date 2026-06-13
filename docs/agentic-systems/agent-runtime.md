@@ -66,22 +66,104 @@ Each agent's LLM inference is handled by the **LLM Gateway** — an external pro
 (not a mailbox actor) that manages connectivity to inference providers. The Agent
 Runtime connects to the Gateway via gRPC streaming for `Complete` and `Embed` RPCs.
 
-**Gateway responsibilities:**
+The Gateway is a pure proxy with operational infrastructure. It never sees agent
+journals, messages, or internal state — only LLM request/response payloads. Model
+selection, fallback, and conversation flow remain agent-local.
 
-- Connection pooling (reuse HTTP connections to providers)
-- Auth rotation (rotate API keys without restarting agents)
-- Health monitoring (probe providers, failover on errors)
-- Unified token counting and cost attribution
-- Rate limit management per provider
+**Gateway responsibilities:** connection pooling, auth rotation, retry with backoff,
+per-endpoint health tracking, slow-start for recovering endpoints, rate limit
+management, token counting, and cost attribution.
 
-**Key constraint:** The Gateway never sees agent journals, messages, or internal
-state. It only receives LLM request/response payloads. The agent's context, system
-prompt, and tool results are assembled by the Agent Runtime locally — the Gateway
-is a pure proxy with operational infrastructure layered around it.
+See [LLM Gateway](llm-gateway.md) for the full specification of retry behavior,
+status codes, and health tracking.
 
-**Model selection and turn management** remain entirely agent-local. Each agent
-controls which model to use, temperature, and conversation flow — the Gateway does
-not influence agent behavior.
+## Chain Engine Integration
+
+The Agent Runtime does not perform model selection directly. Instead, it delegates to
+a **Chain Engine** — a per-runtime component that holds a reference to the agent's
+configured chains and tracks per-provider-model cooldown state.
+
+**Delegation flow:**
+
+1. Runtime assembles context (system prompt + working memory + tools)
+2. Runtime calls `ChainEngine.Select()` to get the next provider model
+3. Runtime sends inference to the Gateway referencing that provider model
+4. On success: runtime calls `ChainEngine.ReportSuccess(selection)`
+5. On failure: runtime calls `ChainEngine.Advance(outcome)` which returns:
+   - `Use{selection}` — try this provider model now
+   - `Wait{duration, selection}` — pause and retry this selection later
+   - `exhausted` — all options in chain are unusable
+
+**The runtime does not filter by context size.** If the selected provider model's
+context window is smaller than the assembled context, the runtime compresses working
+memory to fit (see Context Compression below) and retries the same selection.
+
+**Chain updates:** The runtime holds a shared pointer to the chain definition. On
+administrative update, the runtime is notified via callback. In-flight inferences
+complete against the old state; the next `Select` evaluates against the updated
+chain.
+
+See [Model Registry](model-registry.md#chain-engine) for the Chain Engine interface
+specification.
+
+## Pause and Resume
+
+When the Chain Engine returns a `Wait{duration, selection}` directive, the runtime
+must delay before retrying. Instead of blocking a goroutine, the runtime pauses
+itself:
+
+1. Runtime calls `self.Pause()` — suspends inbox polling
+2. Registers a timer for the specified duration
+3. Returns the goroutine to the pool
+4. On timer expiry: calls `self.Resume()` — resumes inbox polling
+5. On next inbox poll, retries the inference with the Wait's selection
+
+Pause is also available for external use — the Supervisor may pause an agent for
+backpressure (inbox too full, memory pressure) using the same mechanism.
+
+**Interface:**
+```
+Pause()    — suspend inbox processing. Active inference completes; next poll blocks.
+Resume()   — restart inbox processing after a pause.
+IsPaused() — report current state.
+```
+
+While paused, the mailbox continues accepting messages (up to its depth limit) but
+the runtime does not dispatch them. Cancellation messages still flow through system
+slots.
+
+## Context Compression on Fallback
+
+When a provider model has a smaller context window than the assembled working memory,
+the runtime compresses rather than advancing the chain. Compression uses the existing
+Journal compression mechanism:
+
+1. Calculate overage: `assembled_size - provider_model.context_window`
+2. Compress oldest working memory entries (summary) until the context fits
+3. If even after full compression the context does not fit: advance chain
+4. Journal: `context_compressed { provider_model: "gemma-4@ollama",
+   original_size: 45000, compressed_size: 27000, window: 28000 }`
+
+This ensures the chain engine's `Select` remains independent of context size — the
+runtime always makes the selected model work if possible.
+
+## Model Switch Notification
+
+When the chain advances to a different provider model mid-conversation, the runtime
+may optionally inform the LLM. Controlled by the `notify_model_switch` toggle on the
+agent config (default: false).
+
+When enabled, the runtime injects a system-origin note into working memory before
+the next context assembly:
+
+```
+[infrastructure: model switched from "gemma-4@openrouter" to "ministral@ollama"
+ because "gemma-4@openrouter" was unavailable (rate limit). Context unchanged.]
+```
+
+The toggle exists because the effect of signaling model switches is not fully
+understood — it may reduce confusion on capability differences or cause the LLM to
+second-guess itself. Default off for now, togglable for experimentation.
 
 ## Tool Binding
 

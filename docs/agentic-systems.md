@@ -23,8 +23,9 @@ Every design choice in this architecture follows from a few core principles:
 - **Guardrails as agents** — Interposition uses the same actor model, not a special primitive. Guardrail agents
   are ordinary agents that hold zero tool protocol references by design — they can inspect and block, but never
   exfiltrate or cause side effects.
-- **LLM Gateway as pure proxy** — The gateway manages provider connections, auth rotation, and failover. It never
-  sees agent journals, messages, or internal state — only LLM request/response payloads.
+- **LLM Gateway as pure proxy** — The gateway manages provider connections, auth rotation, retry with backoff,
+  endpoint health tracking, and failover. It never sees agent journals, messages, or internal state — only LLM
+  request/response payloads. Model selection and fallback are handled by the agent-runtime-level Chain Engine.
 
 ## Core Mental Model
 
@@ -117,10 +118,12 @@ Alice sends a Slack message: "What's on my calendar today?"
 The foundational building blocks. Every entity in the system is one of these.
 
 - **Actor** — Unit of computation with a mailbox that processes messages sequentially. Can spawn child actors and
-  carries a security context. Every agent is an actor, but not all actors are agents. [Details →](agentic-systems/agent-structure.md)
+  carries a security context. Every agent is an actor, but not all actors are agents. [Details
+→](agentic-systems/agent-structure.md)
 - **Agent** — An actor that uses an LLM for reasoning. Wraps tools with contextual instructions, maintains a
   private journal, communicates via mailboxes. [Details →](agentic-systems/agent-structure.md)
-- **Agent Runtime** — The deterministic environment wrapping every agent. Manages lifecycle, inbox priority (cancellations
+- **Agent Runtime** — The deterministic environment wrapping every agent. Manages lifecycle, inbox priority
+(cancellations
   → guardrail rejections → continuation replies → new work), topic state machine, tool binding, LLM context assembly,
   and deadline monitoring. One runtime per agent, managed by the Supervisor.
   [Details →](agentic-systems/agent-runtime.md)
@@ -218,12 +221,16 @@ How agents remember what happened and what they were doing.
 
 ### Infrastructure
 
-Background services that support agent execution.
+Background services and configuration that support agent execution.
 
 - **LLM Gateway** — External process (not a mailbox actor) that agents connect to via gRPC streaming for inference.
-  Manages provider connections (Ollama, OpenAI-compatible), auth rotation, failover, load balancing, and telemetry.
-  Never sees agent journals or messages — only LLM request/response payloads. Model selection and turn management
-  remain agent-local. [Details →](agentic-systems/agent-runtime.md)
+  Manages provider connections, auth rotation, retry with backoff, endpoint health tracking, slow-start, and
+  telemetry. Never sees agent journals or messages — only LLM request/response payloads. Returns per-request status
+  codes (OK/DEGRADED/RETRYABLE/UNAVAILABLE) for the runtime's Chain Engine to consume.
+  [Details →](agentic-systems/llm-gateway.md)
+- **Model Registry** — Central configuration for inference options. Defines named providers, provider models, and
+  chains. Chains compose provider models with selection strategies (ordered, round-robin, quality-first, fast-fail).
+  Dynamically updatable via administrative interface. [Details →](agentic-systems/model-registry.md)
 
 ## Where to Go Next
 
@@ -234,6 +241,8 @@ Background services that support agent execution.
 | Learn the capability and security model | [Capabilities Model](agentic-systems/capabilities.md) |
 | Understand the Exchange and message routing | [Exchange](agentic-systems/exchange.md) |
 | Deep-dive into the Agent Runtime | [Agent Runtime](agentic-systems/agent-runtime.md) |
+| Learn how inference providers are managed | [LLM Gateway](agentic-systems/llm-gateway.md) |
+| Configure models, providers, and fallback chains | [Model Registry](agentic-systems/model-registry.md) |
 | Set up guardrails and policy | [Guardrails](agentic-systems/guardrails.md) |
 | Explore system actors (supervisor, registry) | [System Actors](agentic-systems/system-actors.md) |
 | Understand persistence and memory | [Journal & Persistence](agentic-systems/journal.md) |

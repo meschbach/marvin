@@ -45,3 +45,17 @@
   section.)
 - **Cross-org Connector sharing**: Can a Connector be forwarded across org boundaries? (Designed:
   `DelegationSameOrg` by default. See Constrained References.)
+- **Inference retry**: Should the LLM Gateway or Agent Runtime handle retries for transient inference errors?
+  (Resolved: Gateway owns retry with backoff, returning status codes per call. See [LLM Gateway](llm-gateway.md).)
+- **Model fallback**: When should an agent switch models on inference failure?
+  (Resolved: Chain Engine in Agent Runtime handles fallback with configurable strategies. Gateway provides status
+  codes; Engine decides to wait, advance, or exhaust. See [Model Registry](model-registry.md).)
+- **Context window on fallback**: Should the runtime reject a model with a smaller context window?
+  (Resolved: Runtime compresses working memory to fit. Only advances chain if compression cannot fit the context.
+  See [Agent Runtime](agentic-runtime.md#context-compression-on-fallback).)
+- **Model switch transparency**: Should the agent know when it falls back to a different model?
+  (Designed: opt-in `notify_model_switch` toggle on agent config, default false. See [Agent
+  Runtime](agentic-runtime.md#model-switch-notification).)
+- **Pause/resume for wait-and-retry**: How should the runtime handle waiting for a rate-limit cooldown?
+  (Resolved: Runtime pauses itself, schedules resume timer, returns goroutine to pool. See [Agent
+  Runtime](agentic-runtime.md#pause-and-resume).)

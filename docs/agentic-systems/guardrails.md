@@ -43,7 +43,8 @@ The Exchange routes through each guardrail in order. If any guardrail rejects, t
 
 - Guardrail agents hold **zero tool protocol references** by design. They cannot call external tools, cannot cause side
   effects, cannot exfiltrate. Their only function is to inspect and respond to messages. An exception exists for
-  guardrails attached to a RoleActor, which may hold limited references for policy lookup operations only (e.g., querying
+  guardrails attached to a RoleActor, which may hold limited references for policy lookup operations only (e.g.,
+querying
   a directory or policy database). These are never for production tool calls on behalf of users.
 - Guardrails are **not built into the Exchange**. The Exchange provides the routing pattern; users define guardrails as
   ordinary agents with whatever logic their use case requires (keyword filtering, PII detection, content policy, manual
