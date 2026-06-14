@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // CLIStreamingUpdater provides streaming updates for the command-line interface.
@@ -84,19 +84,21 @@ func (c *CLIStreamingUpdater) AddThought(ctx context.Context, thought string) er
 }
 
 // AddToolCall logs tool calls if debug mode is enabled
-func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+func (c *CLIStreamingUpdater) AddToolCall(ctx context.Context, toolCall llm.ToolCall) error {
 	if c.showTools {
 		// Note: Detailed tool call info will be logged by the engine
-		fmt.Printf("🔧 Tool call: %s: %#v\n", toolCall.Function.Name, toolCall.Function.Arguments.All())
-		for key, value := range toolCall.Function.Arguments.All() {
-			fmt.Printf("\t-\t%s: %#v\n", key, value)
+		fmt.Printf("🔧 Tool call: %s: %#v\n", toolCall.Function.Name, toolCall.Function.Arguments)
+		if args, ok := toolCall.Function.Arguments.(map[string]any); ok {
+			for key, value := range args {
+				fmt.Printf("\t-\t%s: %#v\n", key, value)
+			}
 		}
 	}
 	return nil
 }
 
 // AddToolResult logs tool execution results if debug mode is enabled
-func (c *CLIStreamingUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (c *CLIStreamingUpdater) AddToolResult(ctx context.Context, toolCall llm.ToolCall, result []llm.Message, err error) error {
 	if c.showTools {
 		if err != nil {
 			fmt.Printf("❌ Tool %s failed: %v\n", toolCall.Function.Name, err)

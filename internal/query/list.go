@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
@@ -25,7 +25,7 @@ func ListMCPTools(ctx context.Context, cfg *config.File, detailed bool) {
 	printTools(tools.Defs, detailed)
 }
 
-func printInstructions(instructions []api.Message) {
+func printInstructions(instructions []llm.Message) {
 	for _, instruction := range instructions {
 		fmt.Printf("Instruction: %s\n=== End instruction ===\n", instruction.Content)
 	}
@@ -35,7 +35,7 @@ func printInstructions(instructions []api.Message) {
 	fmt.Println()
 }
 
-func printTools(tools api.Tools, detailed bool) {
+func printTools(tools []llm.ToolDefinition, detailed bool) {
 	for _, tool := range tools {
 		fmt.Printf("%s: %s\n", tool.Function.Name, tool.Function.Description)
 		if detailed {
@@ -44,10 +44,13 @@ func printTools(tools api.Tools, detailed bool) {
 	}
 }
 
-func dumpParameters(prefix string, p api.ToolFunctionParameters) {
+func dumpParameters(prefix string, p *llm.ToolFunctionParameters) {
+	if p == nil {
+		return
+	}
 	prefix = prefix + "\t"
 	fmt.Printf("%s%s\n", prefix, p.Type)
-	for name, prop := range p.Properties.All() {
+	for name, prop := range p.Properties {
 		var optionalRequiredText string
 		if slices.Contains(p.Required, name) {
 			optionalRequiredText = "(required)"

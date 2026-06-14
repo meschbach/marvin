@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,25 +14,17 @@ import (
 func TestConversationEngine_ContentBeforeDone(t *testing.T) {
 	t.Parallel()
 	mockLLM := &OneShotLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Hello",
-				},
-				Done: false,
+				Content: "Hello",
+				Done:    false,
 			},
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: " world",
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       10,
-					PromptEvalCount: 5,
+				Content: " world",
+				Done:    true,
+				Stats: llm.Stats{
+					ResponseTokens: 10,
+					PromptTokens:   5,
 				},
 			},
 		},
@@ -47,7 +39,7 @@ func TestConversationEngine_ContentBeforeDone(t *testing.T) {
 		cfg,
 		&NullLogger{},
 		&ToolSet{},
-		[]api.Message{{Role: "user", Content: "hi"}},
+		[]llm.Message{{Role: "user", Content: "hi"}},
 	)
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
@@ -79,17 +71,13 @@ func TestConversationEngine_ContentBeforeDone(t *testing.T) {
 func TestConversationEngine_ContentWithDoneInSameChunk(t *testing.T) {
 	t.Parallel()
 	mockLLM := &OneShotLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Hi there!",
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       8,
-					PromptEvalCount: 4,
+				Content: "Hi there!",
+				Done:    true,
+				Stats: llm.Stats{
+					ResponseTokens: 8,
+					PromptTokens:   4,
 				},
 			},
 		},
@@ -104,7 +92,7 @@ func TestConversationEngine_ContentWithDoneInSameChunk(t *testing.T) {
 		cfg,
 		&NullLogger{},
 		&ToolSet{},
-		[]api.Message{{Role: "user", Content: "hello"}},
+		[]llm.Message{{Role: "user", Content: "hello"}},
 	)
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
@@ -135,18 +123,14 @@ func TestConversationEngine_ThinkingBeforeDone(t *testing.T) {
 
 	paragraph := faker.Paragraph()
 	mockLLM := &OneShotLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:     "assistant",
-					Content:  "",
-					Thinking: paragraph,
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       15,
-					PromptEvalCount: 10,
+				Content:  "",
+				Thinking: paragraph,
+				Done:     true,
+				Stats: llm.Stats{
+					ResponseTokens: 15,
+					PromptTokens:   10,
 				},
 			},
 		},
@@ -161,7 +145,7 @@ func TestConversationEngine_ThinkingBeforeDone(t *testing.T) {
 		cfg,
 		&NullLogger{},
 		&ToolSet{},
-		[]api.Message{{Role: "user", Content: "think"}},
+		[]llm.Message{{Role: "user", Content: "think"}},
 	)
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
@@ -181,17 +165,13 @@ func TestConversationEngine_NilConfig(t *testing.T) {
 	t.Parallel()
 
 	mockLLM := &OneShotLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Hello",
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       5,
-					PromptEvalCount: 3,
+				Content: "Hello",
+				Done:    true,
+				Stats: llm.Stats{
+					ResponseTokens: 5,
+					PromptTokens:   3,
 				},
 			},
 		},
@@ -203,7 +183,7 @@ func TestConversationEngine_NilConfig(t *testing.T) {
 		nil,
 		&NullLogger{},
 		&ToolSet{},
-		[]api.Message{{Role: "user", Content: "hi"}},
+		[]llm.Message{{Role: "user", Content: "hi"}},
 	)
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
@@ -214,12 +194,12 @@ func TestConversationEngine_NilConfig(t *testing.T) {
 }
 
 type toolTrackingLLM struct {
-	responses []api.ChatResponse
-	toolCalls []*api.ChatRequest
+	responses []llm.ChatResponse
+	toolCalls []*llm.ChatRequest
 	callCount int
 }
 
-func (m *toolTrackingLLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent ChatResponseListener) error {
+func (m *toolTrackingLLM) Chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	m.toolCalls = append(m.toolCalls, req)
 
 	if m.callCount >= len(m.responses) {
@@ -229,7 +209,7 @@ func (m *toolTrackingLLM) Chat(ctx context.Context, req *api.ChatRequest, onEven
 	response := m.responses[m.callCount]
 	m.callCount++
 
-	if err := onEvent.OnChatResponse(ctx, &response); err != nil {
+	if err := onResponse(ctx, &response); err != nil {
 		return err
 	}
 	return nil
@@ -245,17 +225,13 @@ func TestConversationEngine_SendsToolsOncePerTurn(t *testing.T) {
 	require.NoError(t, toolSet.RegisterTool(ctx, &mockTool{name: "search", description: "Search tool"}))
 
 	mockLLM := &toolTrackingLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "I found results",
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       10,
-					PromptEvalCount: 5,
+				Content: "I found results",
+				Done:    true,
+				Stats: llm.Stats{
+					ResponseTokens: 10,
+					PromptTokens:   5,
 				},
 			},
 		},
@@ -270,7 +246,7 @@ func TestConversationEngine_SendsToolsOncePerTurn(t *testing.T) {
 		cfg,
 		&NullLogger{},
 		toolSet,
-		[]api.Message{{Role: "user", Content: "search for things"}},
+		[]llm.Message{{Role: "user", Content: "search for things"}},
 	)
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
@@ -305,42 +281,33 @@ func TestEngine_ToolSetNotMutatedDuringConversation(t *testing.T) {
 	require.NoError(t, toolSet.RegisterTool(ctx, &mockTool{name: "tool_c", description: "Tool C"}))
 
 	// Record the initial tool set state
-	initialDefs := make([]api.Tool, len(toolSet.Defs))
+	initialDefs := make([]llm.ToolDefinition, len(toolSet.Defs))
 	copy(initialDefs, toolSet.Defs)
 	initialDefsCount := len(initialDefs)
 
 	// Create a mock LLM that supports multi-turn with tool calls
 	mockLLM := &toolTrackingLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			// First turn: calls tool_a
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "I'll call tool_a",
-					ToolCalls: []api.ToolCall{
-						{ID: "call_1", Function: api.ToolCallFunction{Name: "tool_a"}},
-					},
+				Content: "I'll call tool_a",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_1", Function: llm.ToolCallFunction{Name: "tool_a"}},
 				},
 				Done: true,
 			},
 			// Second turn: calls tool_b
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Now I'll call tool_b",
-					ToolCalls: []api.ToolCall{
-						{ID: "call_2", Function: api.ToolCallFunction{Name: "tool_b"}},
-					},
+				Content: "Now I'll call tool_b",
+				ToolCalls: []llm.ToolCall{
+					{ID: "call_2", Function: llm.ToolCallFunction{Name: "tool_b"}},
 				},
 				Done: true,
 			},
 			// Third turn: final response
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Final answer",
-				},
-				Done: true,
+				Content: "Final answer",
+				Done:    true,
 			},
 		},
 	}
@@ -354,7 +321,7 @@ func TestEngine_ToolSetNotMutatedDuringConversation(t *testing.T) {
 		cfg,
 		&NullLogger{},
 		toolSet,
-		[]api.Message{{Role: "user", Content: "start"}},
+		[]llm.Message{{Role: "user", Content: "start"}},
 	)
 
 	// Run the multi-turn conversation
@@ -385,41 +352,29 @@ func TestEngine_NoCumulativeToolSending(t *testing.T) {
 
 	// Create a mock LLM with 5 turns
 	mockLLM := &toolTrackingLLM{
-		responses: []api.ChatResponse{
+		responses: []llm.ChatResponse{
 			{
-				Message: api.Message{
-					Role:      "assistant",
-					Content:   "Turn 1",
-					ToolCalls: []api.ToolCall{{ID: "1", Function: api.ToolCallFunction{Name: "alpha"}}},
-				},
-				Done: true,
+				Content:   "Turn 1",
+				ToolCalls: []llm.ToolCall{{ID: "1", Function: llm.ToolCallFunction{Name: "alpha"}}},
+				Done:      true,
 			},
 			{
-				Message: api.Message{
-					Role:      "assistant",
-					Content:   "Turn 2",
-					ToolCalls: []api.ToolCall{{ID: "2", Function: api.ToolCallFunction{Name: "beta"}}},
-				},
-				Done: true,
+				Content:   "Turn 2",
+				ToolCalls: []llm.ToolCall{{ID: "2", Function: llm.ToolCallFunction{Name: "beta"}}},
+				Done:      true,
 			},
 			{
-				Message: api.Message{
-					Role:      "assistant",
-					Content:   "Turn 3",
-					ToolCalls: []api.ToolCall{{ID: "3", Function: api.ToolCallFunction{Name: "gamma"}}},
-				},
-				Done: true,
+				Content:   "Turn 3",
+				ToolCalls: []llm.ToolCall{{ID: "3", Function: llm.ToolCallFunction{Name: "gamma"}}},
+				Done:      true,
 			},
 			{
-				Message: api.Message{
-					Role:      "assistant",
-					Content:   "Turn 4",
-					ToolCalls: []api.ToolCall{{ID: "4", Function: api.ToolCallFunction{Name: "alpha"}}},
-				},
-				Done: true,
+				Content:   "Turn 4",
+				ToolCalls: []llm.ToolCall{{ID: "4", Function: llm.ToolCallFunction{Name: "alpha"}}},
+				Done:      true,
 			},
 			{
-				Message: api.Message{Role: "assistant", Content: "Turn 5 - done"},
+				Content: "Turn 5 - done",
 				Done:    true,
 			},
 		},
@@ -428,7 +383,7 @@ func TestEngine_NoCumulativeToolSending(t *testing.T) {
 	updater := &TrackingUpdater{}
 	cfg := &config.File{Model: "test-model"}
 
-	engine := NewEngine(mockLLM, cfg, &NullLogger{}, toolSet, []api.Message{{Role: "user", Content: "start"}})
+	engine := NewEngine(mockLLM, cfg, &NullLogger{}, toolSet, []llm.Message{{Role: "user", Content: "start"}})
 
 	err := engine.RunConversation(t.Context(), "test-model", updater)
 	require.NoError(t, err)

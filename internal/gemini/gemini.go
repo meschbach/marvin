@@ -4,8 +4,7 @@ import (
 	"context"
 	"iter"
 
-	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 
 	"google.golang.org/genai"
 )
@@ -45,6 +44,6 @@ func NewLLM(ctx context.Context, apiKey, model string) (*LLM, error) {
 }
 
 // Chat executes a chat request and calls the provided function with responses.
-func (g *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversation.ChatResponseListener) error {
-	return g.chat(ctx, req, onEvent)
+func (g *LLM) Chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
+	return g.chat(ctx, req, onResponse)
 }

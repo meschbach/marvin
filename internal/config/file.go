@@ -189,6 +189,10 @@ type File struct {
 	HttpMCPBlock   []*HttpMCPBlock   `hcl:"mcp_over_http,block"`
 	MultiTenant    *MultiTenantBlock `hcl:"multi_tenant,block"`
 	ModelAccess    *ModelAccessBlock `hcl:"model_access,block"`
+	// ProviderModels defines named (provider, model) pairs in structured mode
+	ProviderModels []ProviderModelBlock `hcl:"provider_model,block"`
+	// LLM contains LLM-specific configuration including model ordering
+	LLM *LLMBlock `hcl:"llm,block"`
 	// Display preferences for output formatting
 	Display *DisplayBlock `hcl:"display,block"`
 	// Observability configuration for OTEL tracing
@@ -307,6 +311,24 @@ func (o *ObservabilityBlock) ToObservabilityConfig() observability.Config {
 	}
 
 	return cfg
+}
+
+// ProviderModelBlock defines a named (provider, model) pair for structured configuration.
+type ProviderModelBlock struct {
+	Name     string `hcl:"name,label"`
+	Provider string `hcl:"provider"`
+	Model    string `hcl:"model"`
+}
+
+// LLMBlock contains configuration for LLM behavior including model ordering.
+type LLMBlock struct {
+	Models []string `hcl:"models,optional"`
+}
+
+// IsLegacyMode returns true if the configuration uses the legacy provider+model fields
+// instead of the new provider_model blocks.
+func (f *File) IsLegacyMode() bool {
+	return len(f.ProviderModels) == 0
 }
 
 // ModelAccessBlock contains model access control configuration

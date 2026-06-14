@@ -15,7 +15,7 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/junk"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/yosida95/uritemplate/v3"
 )
 
@@ -35,7 +35,7 @@ type Mark3labsTool struct {
 	spec                 programRuntimeSpec
 	active               runningProgram
 	mcpClient            *client.Client
-	resourceInstructions []api.Message
+	resourceInstructions []llm.Message
 	resourceTemplates    []*uritemplate.Template
 	assistantPrompt      *config.AssistantPromptBlock
 }
@@ -148,7 +148,7 @@ func (m *Mark3labsTool) processResources(ctx context.Context, definitions *conve
 
 	for _, r := range resources.Resources {
 		content := fmt.Sprintf("# %s\nUse URI %s to access this resources\n%s", r.Name, r.URI, r.Description)
-		m.resourceInstructions = append(m.resourceInstructions, api.Message{
+		m.resourceInstructions = append(m.resourceInstructions, llm.Message{
 			Role:    conversation.RoleSystem,
 			Content: content,
 		})
@@ -169,7 +169,7 @@ func (m *Mark3labsTool) processResourceTemplates(ctx context.Context, definition
 	}
 	for _, rt := range resourceTemplates.ResourceTemplates {
 		content := fmt.Sprintf("# %s\nURI template: %s\n%s\n", rt.Name, rt.URITemplate.Raw(), rt.Description)
-		m.resourceInstructions = append(m.resourceInstructions, api.Message{
+		m.resourceInstructions = append(m.resourceInstructions, llm.Message{
 			Role:    conversation.RoleSystem,
 			Content: content,
 		})
@@ -178,22 +178,22 @@ func (m *Mark3labsTool) processResourceTemplates(ctx context.Context, definition
 	return nil
 }
 
-func (m *Mark3labsTool) convertToolDefinition(d mcp.Tool) (api.Tool, error) {
-	var params api.ToolFunctionParameters
+func (m *Mark3labsTool) convertToolDefinition(d mcp.Tool) (llm.ToolDefinition, error) {
+	var params llm.ToolFunctionParameters
 	bytes, err := json.Marshal(d.InputSchema)
 	if err != nil {
-		return api.Tool{}, &junk.OperationalError{Description: "unmarshalling tooling", Underlying: err}
+		return llm.ToolDefinition{}, &junk.OperationalError{Description: "unmarshalling tooling", Underlying: err}
 	}
 	if err := json.Unmarshal(bytes, &params); err != nil {
-		return api.Tool{}, &junk.OperationalError{Description: "translating tooling", Underlying: err}
+		return llm.ToolDefinition{}, &junk.OperationalError{Description: "translating tooling", Underlying: err}
 	}
 
-	return api.Tool{
+	return llm.ToolDefinition{
 		Type: "function",
-		Function: api.ToolFunction{
+		Function: llm.ToolFunction{
 			Name:        m.namespaced(d.Name),
 			Description: d.Description,
-			Parameters:  params,
+			Parameters:  &params,
 		},
 	}, nil
 }
@@ -203,7 +203,7 @@ func (m *Mark3labsTool) namespaced(op string) string { return m.Name + "_" + op 
 // Invoke executes the MCP tool operation based on a ToolCall and returns the
 // corresponding tool message. The call.Function.Describe is expected to be
 // "<toolName>_<operationName>".
-func (m *Mark3labsTool) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
+func (m *Mark3labsTool) Invoke(ctx context.Context, call llm.ToolCall) (out []llm.Message, problem error) {
 	c := m.mcpClient
 	invocationContext, done := context.WithTimeout(ctx, 15*time.Second)
 	defer done()
@@ -233,7 +233,7 @@ func (m *Mark3labsTool) Invoke(ctx context.Context, call api.ToolCall) (out []ap
 		},
 	})
 	if err != nil {
-		return []api.Message{
+		return []llm.Message{
 			conversation.ToolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", err.Error())),
 		}, nil
 	}
@@ -270,11 +270,11 @@ func (m *Mark3labsTool) resolveAssistantPrompt() (string, error) {
 	return "", nil
 }
 
-func (m *Mark3labsTool) DescribeMessages() []api.Message {
+func (m *Mark3labsTool) DescribeMessages() []llm.Message {
 	return m.resourceInstructions
 }
 
-func (m *Mark3labsTool) ReadResource(ctx context.Context, invocation api.ToolCall, uri string) (output []api.Message, problem error) {
+func (m *Mark3labsTool) ReadResource(ctx context.Context, invocation llm.ToolCall, uri string) (output []llm.Message, problem error) {
 	if err := m.ensureRunning(ctx); err != nil {
 		return nil, err
 	}

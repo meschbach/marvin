@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 type testMockTool struct {
@@ -20,9 +20,9 @@ func (m *testMockTool) DefineAPI(_ context.Context) (*conversation.ToolDefinitio
 		if m.toolCount > 1 {
 			toolName = m.name + "_" + string(rune('a'+i))
 		}
-		def.Tool = append(def.Tool, api.Tool{
+		def.Tool = append(def.Tool, llm.ToolDefinition{
 			Type: conversation.ToolTypeFunction,
-			Function: api.ToolFunction{
+			Function: llm.ToolFunction{
 				Name:        toolName,
 				Description: m.description,
 			},
@@ -31,6 +31,6 @@ func (m *testMockTool) DefineAPI(_ context.Context) (*conversation.ToolDefinitio
 	return def, nil
 }
 
-func (m *testMockTool) Invoke(_ context.Context, _ api.ToolCall) ([]api.Message, error) {
+func (m *testMockTool) Invoke(_ context.Context, _ llm.ToolCall) ([]llm.Message, error) {
 	return nil, nil
 }

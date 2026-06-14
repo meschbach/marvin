@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // RecordingUpdater captures conversation stream output for later retrieval.
@@ -57,13 +57,13 @@ func (ru *RecordingUpdater) AddThought(_ context.Context, thought string) error 
 }
 
 // AddToolCall implements StreamingUpdater.
-func (ru *RecordingUpdater) AddToolCall(_ context.Context, toolCall api.ToolCall) error {
+func (ru *RecordingUpdater) AddToolCall(_ context.Context, toolCall llm.ToolCall) error {
 	ru.toolCalls = append(ru.toolCalls, toolCall.Function.Name)
 	return nil
 }
 
 // AddToolResult implements StreamingUpdater.
-func (ru *RecordingUpdater) AddToolResult(_ context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (ru *RecordingUpdater) AddToolResult(_ context.Context, toolCall llm.ToolCall, result []llm.Message, err error) error {
 	if err != nil {
 		ru.toolResults = append(ru.toolResults, fmt.Sprintf("%s: error: %v", toolCall.Function.Name, err))
 	} else {

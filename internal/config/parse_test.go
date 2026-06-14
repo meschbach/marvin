@@ -313,6 +313,155 @@ local_program "test" {
 	assert.Len(t, cfg.LocalPrograms, 1)
 }
 
+func TestLoadConfig_ProviderModel_LegacyOnly(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider = "ollama"
+model = "ministral-3:3b"
+`
+	parsed := parseHCLString(t, hclContent, "legacy.hcl")
+	cfg, err := interpretConfigFile(parsed, t.TempDir())
+	require.NoError(t, err)
+	assert.Equal(t, "ministral-3:3b", cfg.Model)
+	assert.Equal(t, "ollama", cfg.ProviderName)
+	assert.True(t, cfg.IsLegacyMode())
+	assert.Empty(t, cfg.ProviderModels)
+}
+
+func TestLoadConfig_ProviderModel_StructuredWithModels(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "claude" {
+  provider = "openrouter"
+  model    = "anthropic/claude-3.5-sonnet"
+}
+provider_model "local" {
+  provider = "ollama"
+  model    = "ministral-3:3b"
+}
+llm {
+  models = ["claude", "local"]
+}
+`
+	parsed := parseHCLString(t, hclContent, "structured.hcl")
+	cfg, err := interpretConfigFile(parsed, t.TempDir())
+	require.NoError(t, err)
+	assert.False(t, cfg.IsLegacyMode())
+	require.Len(t, cfg.ProviderModels, 2)
+	assert.Equal(t, "claude", cfg.ProviderModels[0].Name)
+	assert.Equal(t, "openrouter", cfg.ProviderModels[0].Provider)
+	assert.Equal(t, "anthropic/claude-3.5-sonnet", cfg.ProviderModels[0].Model)
+	assert.Equal(t, "local", cfg.ProviderModels[1].Name)
+	assert.Equal(t, "ollama", cfg.ProviderModels[1].Provider)
+	assert.Equal(t, "ministral-3:3b", cfg.ProviderModels[1].Model)
+	require.NotNil(t, cfg.LLM)
+	assert.Equal(t, []string{"claude", "local"}, cfg.LLM.Models)
+}
+
+func TestLoadConfig_ProviderModel_DeclarationOrder(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "local" {
+  provider = "ollama"
+  model    = "ministral-3:3b"
+}
+provider_model "fast" {
+  provider = "openrouter"
+  model    = "openai/gpt-4o-mini"
+}
+`
+	parsed := parseHCLString(t, hclContent, "ordered.hcl")
+	cfg, err := interpretConfigFile(parsed, t.TempDir())
+	require.NoError(t, err)
+	assert.False(t, cfg.IsLegacyMode())
+	require.Len(t, cfg.ProviderModels, 2)
+	assert.Equal(t, "local", cfg.ProviderModels[0].Name)
+	assert.Equal(t, "fast", cfg.ProviderModels[1].Name)
+	assert.Nil(t, cfg.LLM, "no llm block should leave LLM nil")
+}
+
+func TestLoadConfig_ProviderModel_LegacyAndStructuredConflict(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider = "ollama"
+model = "ministral-3:3b"
+provider_model "local" {
+  provider = "ollama"
+  model    = "ministral-3:3b"
+}
+`
+	parsed := parseHCLString(t, hclContent, "conflict.hcl")
+	_, err := interpretConfigFile(parsed, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use both legacy")
+}
+
+func TestLoadConfig_ProviderModel_DuplicateLabel(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "dup" {
+  provider = "ollama"
+  model    = "model-a"
+}
+provider_model "dup" {
+  provider = "openrouter"
+  model    = "model-b"
+}
+`
+	parsed := parseHCLString(t, hclContent, "duplicate.hcl")
+	_, err := interpretConfigFile(parsed, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate provider_model label")
+}
+
+func TestLoadConfig_ProviderModel_UnknownProvider(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "bad" {
+  provider = "nonexistent"
+  model    = "some-model"
+}
+`
+	parsed := parseHCLString(t, hclContent, "unknown.hcl")
+	_, err := interpretConfigFile(parsed, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown provider")
+}
+
+func TestLoadConfig_ProviderModel_ModelsRefNonExistent(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "local" {
+  provider = "ollama"
+  model    = "ministral-3:3b"
+}
+llm {
+  models = ["local", "nonexistent"]
+}
+`
+	parsed := parseHCLString(t, hclContent, "badref.hcl")
+	_, err := interpretConfigFile(parsed, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match any provider_model label")
+}
+
+func TestLoadConfig_ProviderModel_EmptyModelsList(t *testing.T) {
+	t.Parallel()
+	hclContent := `
+provider_model "local" {
+  provider = "ollama"
+  model    = "ministral-3:3b"
+}
+llm {
+  models = []
+}
+`
+	parsed := parseHCLString(t, hclContent, "emptymodels.hcl")
+	_, err := interpretConfigFile(parsed, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty")
+}
+
 func TestCommandLineOptions_LoadWithEnvVarError(t *testing.T) {
 	// Test error when env var points to non-existent file
 	t.Setenv("MARVIN_CONFIG", "/nonexistent/config.hcl")

@@ -6,46 +6,45 @@ import (
 
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	openrouter2 "github.com/revrost/go-openrouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenRouterLLM_ConvertMessage_EmptyUserMessageUnchanged(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
-	msg := api.Message{
+	msg := llm.Message{
 		Role:    conversation.RoleUser,
 		Content: "",
 	}
 
-	converted := llm.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), msg)
 
 	assert.Equal(t, "", converted.Content.Text, "empty user message should remain empty")
 }
 
 func TestOpenRouterLLM_ConvertMessage_WithToolCalls_PreservesID(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
-	args := api.NewToolCallFunctionArguments()
-	args.Set("key", "value")
-	argsBytes, _ := args.MarshalJSON()
+	args := map[string]any{"key": "value"}
+	argsBytes, _ := json.Marshal(args)
 
-	msg := api.Message{
+	msg := llm.Message{
 		Role: conversation.RoleAssistant,
-		ToolCalls: []api.ToolCall{
+		ToolCalls: []llm.ToolCall{
 			{
 				ID: "call_123",
-				Function: api.ToolCallFunction{
+				Function: llm.ToolCallFunction{
 					Name:      "test_tool",
 					Arguments: args,
 				},
@@ -53,7 +52,7 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_PreservesID(t *testing.T) {
 		},
 	}
 
-	converted := llm.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), msg)
 
 	require.Len(t, converted.ToolCalls, 1)
 	assert.Equal(t, "call_123", converted.ToolCalls[0].ID)
@@ -63,20 +62,19 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_PreservesID(t *testing.T) {
 }
 
 func TestOpenRouterLLM_ConvertMessage_WithToolCalls_GeneratesMissingID(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
-	args := api.NewToolCallFunctionArguments()
-	args.Set("param", "test")
-	msg := api.Message{
+	args := map[string]any{"param": "test"}
+	msg := llm.Message{
 		Role: conversation.RoleAssistant,
-		ToolCalls: []api.ToolCall{
+		ToolCalls: []llm.ToolCall{
 			{
 				ID: "", // empty ID
-				Function: api.ToolCallFunction{
+				Function: llm.ToolCallFunction{
 					Name:      "tool_name",
 					Arguments: args,
 				},
@@ -84,7 +82,7 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_GeneratesMissingID(t *testin
 		},
 	}
 
-	converted := llm.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), msg)
 
 	require.Len(t, converted.ToolCalls, 1)
 	assert.NotEmpty(t, converted.ToolCalls[0].ID, "generated ID should not be empty")
@@ -94,26 +92,27 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_GeneratesMissingID(t *testin
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOllama_PreservesArguments(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
 	// Create tool call with complex arguments
-	args := api.NewToolCallFunctionArguments()
-	args.Set("string_param", "hello")
-	args.Set("number_param", 42)
-	args.Set("bool_param", true)
-	args.Set("array_param", []interface{}{1, 2, 3})
-	args.Set("object_param", map[string]interface{}{
-		"nested": "value",
-	})
+	args := map[string]any{
+		"string_param": "hello",
+		"number_param": 42,
+		"bool_param":   true,
+		"array_param":  []interface{}{1, 2, 3},
+		"object_param": map[string]interface{}{
+			"nested": "value",
+		},
+	}
 
-	ollamaToolCalls := []api.ToolCall{
+	ollamaToolCalls := []llm.ToolCall{
 		{
 			ID: "call_original",
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      "complex_tool",
 				Arguments: args,
 			},
@@ -121,7 +120,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_PreservesArguments(t *testing.
 	}
 
 	// Convert to openrouter format
-	openrouterCalls := llm.convertToolCallsFromOllama(t.Context(), ollamaToolCalls)
+	openrouterCalls := testLLM.convertToolCallsFromOllama(t.Context(), ollamaToolCalls)
 
 	// Verify conversion
 	require.Len(t, openrouterCalls, 1)
@@ -140,23 +139,24 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_PreservesArguments(t *testing.
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOllama_RoundTrip(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
 	// Original arguments
-	originalArgs := api.NewToolCallFunctionArguments()
-	originalArgs.Set("query", "test query")
-	originalArgs.Set("limit", 10)
+	originalArgs := map[string]any{
+		"query": "test query",
+		"limit": 10,
+	}
 
 	// Create original tool call
 	functionName := faker.Name()
-	original := []api.ToolCall{
+	original := []llm.ToolCall{
 		{
 			ID: "call_roundtrip",
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      functionName,
 				Arguments: originalArgs,
 			},
@@ -164,8 +164,8 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_RoundTrip(t *testing.T) {
 	}
 
 	// Convert to openrouter and back
-	openrouterCalls := llm.convertToolCallsFromOllama(t.Context(), original)
-	convertedBack := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	openrouterCalls := testLLM.convertToolCallsFromOllama(t.Context(), original)
+	convertedBack := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	//
 	require.Len(t, openrouterCalls, 1)
@@ -177,7 +177,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_RoundTrip(t *testing.T) {
 	assert.Equal(t, functionName, convertedBack[0].Function.Name)
 
 	// Compare arguments - JSON roundtrip converts int to float64 which is expected behavior
-	convertedMap := convertedBack[0].Function.Arguments.ToMap()
+	convertedMap := convertedBack[0].Function.Arguments.(map[string]any)
 
 	// Check that the key values exist and have equivalent string representations
 	assert.Equal(t, "test query", convertedMap["query"])
@@ -186,36 +186,34 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_RoundTrip(t *testing.T) {
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOllama_MultipleToolCalls(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
 	// Create multiple tool calls with different arguments
-	args1 := api.NewToolCallFunctionArguments()
-	args1.Set("param1", "value1")
-	args2 := api.NewToolCallFunctionArguments()
-	args2.Set("param2", "value2")
+	args1 := map[string]any{"param1": "value1"}
+	args2 := map[string]any{"param2": "value2"}
 
-	ollamaToolCalls := []api.ToolCall{
+	ollamaToolCalls := []llm.ToolCall{
 		{
 			ID: "call_1",
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      "tool_1",
 				Arguments: args1,
 			},
 		},
 		{
 			ID: "", // empty ID should be generated
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      "tool_2",
 				Arguments: args2,
 			},
 		},
 	}
 
-	openrouterCalls := llm.convertToolCallsFromOllama(t.Context(), ollamaToolCalls)
+	openrouterCalls := testLLM.convertToolCallsFromOllama(t.Context(), ollamaToolCalls)
 
 	require.Len(t, openrouterCalls, 2)
 	assert.Equal(t, "call_1", openrouterCalls[0].ID)
@@ -232,7 +230,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOllama_MultipleToolCalls(t *testing.T
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_Basic(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -251,19 +249,19 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_Basic(t *testing.T) {
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 1)
 	assert.Equal(t, "call_123", ollamaCalls[0].ID)
 	assert.Equal(t, "test_tool", ollamaCalls[0].Function.Name)
 
 	// Verify arguments
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Equal(t, "value", argsMap["key"])
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_EmptyToolName(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -290,7 +288,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_EmptyToolName(t *testing.T
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	// Should skip the empty tool name, only valid tool remains
 	require.Len(t, ollamaCalls, 1)
@@ -299,7 +297,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_EmptyToolName(t *testing.T
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MalformedArguments(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -317,18 +315,18 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MalformedArguments(t *test
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 1)
 	assert.Equal(t, "call_bad", ollamaCalls[0].ID)
 	assert.Equal(t, "bad_tool", ollamaCalls[0].Function.Name)
 	// Arguments should be empty due to malformed JSON
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Empty(t, argsMap)
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_EmptyArguments(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -346,18 +344,18 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_EmptyArguments(t *testing.
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 1)
 	assert.Equal(t, "call_empty_args", ollamaCalls[0].ID)
 	assert.Equal(t, "tool_with_empty_args", ollamaCalls[0].Function.Name)
 	// Empty arguments should result in empty map
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Empty(t, argsMap)
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_ComplexArguments(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -384,13 +382,13 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_ComplexArguments(t *testin
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 1)
 	assert.Equal(t, "call_complex", ollamaCalls[0].ID)
 	assert.Equal(t, "complex_tool", ollamaCalls[0].Function.Name)
 
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Equal(t, "hello", argsMap["string_param"])
 	assert.Equal(t, float64(42), argsMap["number_param"])
 	assert.Equal(t, true, argsMap["bool_param"])
@@ -401,7 +399,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_ComplexArguments(t *testin
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_UnicodeAndSpecialChars(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -426,10 +424,10 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_UnicodeAndSpecialChars(t *
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 1)
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Equal(t, "你好世界 🌍", argsMap["unicode_text"])
 	assert.Equal(t, "🚀 🔧 ⚡", argsMap["emoji"])
 	assert.Equal(t, "!@#$%^&*()_+-=[]{}|;':\",./<>?\\", argsMap["special_chars"])
@@ -438,7 +436,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_UnicodeAndSpecialChars(t *
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MultipleToolCalls(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -464,7 +462,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MultipleToolCalls(t *testi
 			Index: intPtr(1),
 		},
 		{
-			ID:   "", // empty ID should be preserved as empty (Ollama converts)
+			ID:   "", // empty ID should be preserved (Ollama converts)
 			Type: openrouter2.ToolTypeFunction,
 			Function: openrouter2.FunctionCall{
 				Name:      "tool_3",
@@ -474,7 +472,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MultipleToolCalls(t *testi
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	require.Len(t, ollamaCalls, 3)
 	assert.Equal(t, "call_1", ollamaCalls[0].ID)
@@ -486,7 +484,7 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_MultipleToolCalls(t *testi
 }
 
 func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_PreservesIndex(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
@@ -504,33 +502,34 @@ func TestOpenRouterLLM_ConvertToolCallsFromOpenRouter_PreservesIndex(t *testing.
 		},
 	}
 
-	ollamaCalls := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	ollamaCalls := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	// Index is part of OpenRouter format but not used in Ollama conversion
 	// This test documents that behavior
 	require.Len(t, ollamaCalls, 1)
 	assert.Equal(t, "call_indexed", ollamaCalls[0].ID)
 	assert.Equal(t, "indexed_tool", ollamaCalls[0].Function.Name)
-	argsMap := ollamaCalls[0].Function.Arguments.ToMap()
+	argsMap := ollamaCalls[0].Function.Arguments.(map[string]any)
 	assert.Equal(t, float64(42), argsMap["index"])
 }
 
 func TestOpenRouterLLM_ConvertToolCalls_RoundTrip_WithThinkingContext(t *testing.T) {
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "openai/gpt-4o-mini",
 	}
 
 	// Simulate a tool call that might appear alongside thinking content
-	originalArgs := api.NewToolCallFunctionArguments()
-	originalArgs.Set("query", "test query")
-	originalArgs.Set("limit", 10)
+	originalArgs := map[string]any{
+		"query": "test query",
+		"limit": 10,
+	}
 
-	originalOllama := []api.ToolCall{
+	originalOllama := []llm.ToolCall{
 		{
 			ID: "call_thinking_ctx",
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      "search_tool",
 				Arguments: originalArgs,
 			},
@@ -538,20 +537,20 @@ func TestOpenRouterLLM_ConvertToolCalls_RoundTrip_WithThinkingContext(t *testing
 	}
 
 	// Convert Ollama -> OpenRouter (outgoing)
-	openrouterCalls := llm.convertToolCallsFromOllama(t.Context(), originalOllama)
+	openrouterCalls := testLLM.convertToolCallsFromOllama(t.Context(), originalOllama)
 
 	require.Len(t, openrouterCalls, 1)
 	assert.Equal(t, "search_tool", openrouterCalls[0].Function.Name)
 
 	// Convert OpenRouter -> Ollama (incoming response)
-	convertedBack := llm.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
+	convertedBack := testLLM.convertToolCallsFromOpenRouter(t.Context(), openrouterCalls)
 
 	// Verify round-trip preserves the tool call (note: ID is preserved from original)
 	require.Len(t, convertedBack, 1)
 	assert.Equal(t, "call_thinking_ctx", convertedBack[0].ID)
 	assert.Equal(t, "search_tool", convertedBack[0].Function.Name)
 
-	convertedMap := convertedBack[0].Function.Arguments.ToMap()
+	convertedMap := convertedBack[0].Function.Arguments.(map[string]any)
 	assert.Equal(t, "test query", convertedMap["query"])
 	assert.Equal(t, float64(10), convertedMap["limit"])
 }

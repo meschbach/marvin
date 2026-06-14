@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
-	"github.com/ollama/ollama/api"
 )
 
 // UserPreferences represents a user's display preferences
@@ -36,7 +36,7 @@ type UserSession struct {
 	ChannelID      string             `json:"channel_id"`
 	ThreadTS       string             `json:"thread_ts,omitempty"`
 	LastActivity   time.Time          `json:"last_activity"`
-	Messages       []api.Message      `json:"messages"`
+	Messages       []llm.Message      `json:"messages"`
 	AvailableTools []string           `json:"available_tools"`
 	ToolNamespace  string             `json:"tool_namespace"`
 	Preferences    UserPreferences    `json:"preferences"`
@@ -49,7 +49,7 @@ func NewUserSession(userID, channelID string, userContext *query.UserContext) *U
 		UserID:         userID,
 		ChannelID:      channelID,
 		LastActivity:   time.Now(),
-		Messages:       []api.Message{},
+		Messages:       []llm.Message{},
 		AvailableTools: []string{},
 		ToolNamespace:  fmt.Sprintf("user-%s", userID),
 		Preferences:    DefaultUserPreferences(),
@@ -63,7 +63,7 @@ func NewUserSessionWithPreferences(userID, channelID string, userContext *query.
 		UserID:         userID,
 		ChannelID:      channelID,
 		LastActivity:   time.Now(),
-		Messages:       []api.Message{},
+		Messages:       []llm.Message{},
 		AvailableTools: []string{},
 		ToolNamespace:  fmt.Sprintf("user-%s", userID),
 		Preferences:    preferences,
@@ -80,7 +80,7 @@ func (us *UserSession) GetAvailableTools() []string {
 }
 
 // AddMessage adds a message to the session
-func (us *UserSession) AddMessage(message api.Message) {
+func (us *UserSession) AddMessage(message llm.Message) {
 	us.Messages = append(us.Messages, message)
 	us.LastActivity = time.Now()
 }
@@ -107,9 +107,9 @@ func (us *UserSession) SetAvailableTools(tools []string) {
 }
 
 // GetRecentMessages returns the most recent messages from the session
-func (us *UserSession) GetRecentMessages(limit int) []api.Message {
+func (us *UserSession) GetRecentMessages(limit int) []llm.Message {
 	if limit <= 0 {
-		return []api.Message{}
+		return []llm.Message{}
 	}
 	if limit >= len(us.Messages) {
 		return us.Messages
@@ -131,7 +131,7 @@ func (us *UserSession) IsExpired(maxAge time.Duration) bool {
 
 // ClearMessages clears all messages from the session
 func (us *UserSession) ClearMessages() {
-	us.Messages = []api.Message{}
+	us.Messages = []llm.Message{}
 }
 
 // GetPreferences returns the user's current preferences

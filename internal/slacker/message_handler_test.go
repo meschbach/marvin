@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
-	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/stretchr/testify/assert"
 )
@@ -122,7 +122,7 @@ func TestUserSession_Creation(t *testing.T) {
 	assert.Empty(t, session.AvailableTools)
 
 	// Test adding a message
-	message := api.Message{
+	message := llm.Message{
 		Role:    "user",
 		Content: "test message",
 	}

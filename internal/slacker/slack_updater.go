@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/slack-go/slack"
 )
 
@@ -441,7 +441,7 @@ func (su *SlackUpdater) AddThought(ctx context.Context, thought string) error {
 }
 
 // AddToolCall records a tool call and treats it as regular content
-func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) error {
+func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall llm.ToolCall) error {
 	// Check user preference - always capture internally for metrics
 	if !su.preferences.ShowTools {
 		return nil // Don't display, but tool calls are captured elsewhere for metrics
@@ -453,7 +453,7 @@ func (su *SlackUpdater) AddToolCall(ctx context.Context, toolCall api.ToolCall) 
 }
 
 // AddToolResult records a tool execution result
-func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (su *SlackUpdater) AddToolResult(ctx context.Context, toolCall llm.ToolCall, result []llm.Message, err error) error {
 	// Check user preference - always capture internally for metrics
 	if !su.preferences.ShowTools {
 		return nil // Don't display, but tool results are captured elsewhere for metrics

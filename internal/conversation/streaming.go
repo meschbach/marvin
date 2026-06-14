@@ -3,7 +3,7 @@ package conversation
 import (
 	"context"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // Stats holds real-time statistics from LLM streaming responses
@@ -42,11 +42,11 @@ type StreamingUpdater interface {
 
 	// AddToolCall notifies when the AI invokes a Tool.
 	// Provides transparency into Tool usage and execution.
-	AddToolCall(ctx context.Context, toolCall api.ToolCall) error
+	AddToolCall(ctx context.Context, toolCall llm.ToolCall) error
 
 	// AddToolResult notifies when a Tool execution completes with its result.
 	// Provides visibility into Tool execution outcomes for debugging and user feedback.
-	AddToolResult(ctx context.Context, toolCall api.ToolCall, result []api.Message, err error) error
+	AddToolResult(ctx context.Context, toolCall llm.ToolCall, result []llm.Message, err error) error
 
 	// UpdateStats provides real-time statistics about token usage and completion.
 	// Enables monitoring, cost tracking, and performance analysis.

@@ -6,14 +6,14 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	openrouter2 "github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (o *LLM) convertToolCallsFromOpenRouter(ctx context.Context, toolCalls []openrouter2.ToolCall) []api.ToolCall {
-	result := make([]api.ToolCall, 0, len(toolCalls))
+func (o *LLM) convertToolCallsFromOpenRouter(ctx context.Context, toolCalls []openrouter2.ToolCall) []llm.ToolCall {
+	result := make([]llm.ToolCall, 0, len(toolCalls))
 	for i, tc := range toolCalls {
 		if tc.Function.Name == "" {
 			fmt.Printf("[openrouter/internalize] WARNING: Empty tool name from model: %#v\n", tc)
@@ -22,14 +22,18 @@ func (o *LLM) convertToolCallsFromOpenRouter(ctx context.Context, toolCalls []op
 			continue
 		}
 
-		args := api.NewToolCallFunctionArguments()
-		if err := args.UnmarshalJSON([]byte(tc.Function.Arguments)); err != nil {
-			args = api.NewToolCallFunctionArguments()
+		var args any
+		if tc.Function.Arguments != "" {
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				args = map[string]any{}
+			}
+		} else {
+			args = map[string]any{}
 		}
 
-		result = append(result, api.ToolCall{
+		result = append(result, llm.ToolCall{
 			ID: tc.ID,
-			Function: api.ToolCallFunction{
+			Function: llm.ToolCallFunction{
 				Name:      tc.Function.Name,
 				Arguments: args,
 			},
@@ -38,7 +42,7 @@ func (o *LLM) convertToolCallsFromOpenRouter(ctx context.Context, toolCalls []op
 	return result
 }
 
-func (o *LLM) convertToolCallsFromOllama(ctx context.Context, toolCalls []api.ToolCall) []openrouter2.ToolCall {
+func (o *LLM) convertToolCallsFromOllama(ctx context.Context, toolCalls []llm.ToolCall) []openrouter2.ToolCall {
 	result := make([]openrouter2.ToolCall, 0, len(toolCalls))
 	for i, tc := range toolCalls {
 		if tc.Function.Name == "" {
@@ -53,10 +57,14 @@ func (o *LLM) convertToolCallsFromOllama(ctx context.Context, toolCalls []api.To
 			id = "call_" + uuid.New().String()[:8]
 		}
 
-		// Convert arguments using ToMap() for proper serialization
-		argsMap := tc.Function.Arguments.ToMap()
-		argsBytes, err := json.Marshal(argsMap)
-		if err != nil {
+		var argsBytes []byte
+		if tc.Function.Arguments != nil {
+			var err error
+			argsBytes, err = json.Marshal(tc.Function.Arguments)
+			if err != nil {
+				argsBytes = []byte("{}")
+			}
+		} else {
 			argsBytes = []byte("{}")
 		}
 

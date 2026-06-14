@@ -5,7 +5,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/junk"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // Engine handles the core AI conversation loop with Tool-call handling.
@@ -25,7 +25,7 @@ type Engine struct {
 	tools *ToolSet
 
 	// messages maintains the conversation history
-	messages []api.Message
+	messages []llm.Message
 
 	// messageCallback enables integration with external systems
 	messageCallback MessageCallback
@@ -43,7 +43,7 @@ func NewEngine(
 	configuration *config.File,
 	logger Logger,
 	tools *ToolSet,
-	messages []api.Message,
+	messages []llm.Message,
 ) *Engine {
 	if logger == nil {
 		logger = &NullLogger{}
@@ -64,7 +64,7 @@ func NewEngineWithCallback(
 	configuration *config.File,
 	logger Logger,
 	tools *ToolSet,
-	messages []api.Message,
+	messages []llm.Message,
 	messageCallback MessageCallback,
 ) *Engine {
 	if logger == nil {

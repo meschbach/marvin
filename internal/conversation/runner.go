@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // Runner executes conversations with injected dependencies.
@@ -41,7 +41,7 @@ type RunRequest struct {
 	UserID       string
 	SystemPrompt string
 	// Messages are pre-existing messages (history/session) excluding the final user message
-	Messages []api.Message
+	Messages []llm.Message
 	// UserMessage is the current user message to process
 	UserMessage string
 	// ToolNames specifies which tools the agent should have access to
@@ -60,7 +60,7 @@ type RunResult struct {
 // Run executes the conversation and returns the final result.
 func (r *Runner) Run(ctx context.Context, model string, req *RunRequest) (*RunResult, error) {
 	// Create LLM
-	llm, err := r.llmCreator(ctx, r.config, model)
+	client, err := r.llmCreator(ctx, r.config, model)
 	if err != nil {
 		return nil, fmt.Errorf("creating LLM: %w", err)
 	}
@@ -73,17 +73,17 @@ func (r *Runner) Run(ctx context.Context, model string, req *RunRequest) (*RunRe
 
 	// Build message list
 	capacity := 1 + len(req.Messages) + 1 // system + existing + user
-	messages := make([]api.Message, 0, capacity)
-	messages = append(messages, api.Message{Role: "system", Content: req.SystemPrompt})
+	messages := make([]llm.Message, 0, capacity)
+	messages = append(messages, llm.Message{Role: "system", Content: req.SystemPrompt})
 	messages = append(messages, req.Messages...)
-	messages = append(messages, api.Message{Role: "user", Content: req.UserMessage})
+	messages = append(messages, llm.Message{Role: "user", Content: req.UserMessage})
 
 	// Create engine with callback if provided
 	var engine *Engine
 	if req.Callback != nil {
-		engine = NewEngineWithCallback(llm, r.config, r.logger, toolSet, messages, req.Callback)
+		engine = NewEngineWithCallback(client, r.config, r.logger, toolSet, messages, req.Callback)
 	} else {
-		engine = NewEngine(llm, r.config, r.logger, toolSet, messages)
+		engine = NewEngine(client, r.config, r.logger, toolSet, messages)
 	}
 
 	// Execute conversation

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/slacker/commands"
-	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/socketmode"
 )
@@ -19,12 +19,12 @@ var _ commands.SlackClientAPI = (*MockSlackSink)(nil)
 // MockLLM simulates an LLM that can be configured to return specific responses
 // and track the requests it receives for verification
 type MockLLM struct {
-	responses [][]api.ChatResponse // Multiple response sets for multi-turn conversations
-	calls     []*api.ChatRequest   // Track all calls made to the LLM
+	responses [][]llm.ChatResponse // Multiple response sets for multi-turn conversations
+	calls     []*llm.ChatRequest   // Track all calls made to the LLM
 	callCount int
 }
 
-func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, listener conversation.ChatResponseListener) error {
+func (m *MockLLM) Chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	m.calls = append(m.calls, req)
 
 	if m.callCount >= len(m.responses) {
@@ -35,7 +35,7 @@ func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, listener conve
 	m.callCount++
 
 	for i := range responses {
-		if err := listener.OnChatResponse(ctx, &responses[i]); err != nil {
+		if err := onResponse(ctx, &responses[i]); err != nil {
 			return err
 		}
 	}
@@ -44,7 +44,7 @@ func (m *MockLLM) Chat(ctx context.Context, req *api.ChatRequest, listener conve
 }
 
 // Calls return the list of requests made to the mock LLM
-func (m *MockLLM) Calls() []*api.ChatRequest {
+func (m *MockLLM) Calls() []*llm.ChatRequest {
 	return m.calls
 }
 
@@ -192,8 +192,8 @@ type MockUserInterface struct {
 	Content     []string
 	ToolCalls   []string
 	ToolResults []struct {
-		ToolCall api.ToolCall
-		Result   []api.Message
+		ToolCall llm.ToolCall
+		Result   []llm.Message
 		Err      error
 	}
 }
@@ -208,15 +208,15 @@ func (c *MockUserInterface) AddContent(_ context.Context, message string) error 
 	return nil
 }
 
-func (c *MockUserInterface) AddToolCall(_ context.Context, toolCall api.ToolCall) error {
+func (c *MockUserInterface) AddToolCall(_ context.Context, toolCall llm.ToolCall) error {
 	c.ToolCalls = append(c.ToolCalls, toolCall.Function.Name)
 	return nil
 }
 
-func (c *MockUserInterface) AddToolResult(_ context.Context, toolCall api.ToolCall, result []api.Message, err error) error {
+func (c *MockUserInterface) AddToolResult(_ context.Context, toolCall llm.ToolCall, result []llm.Message, err error) error {
 	c.ToolResults = append(c.ToolResults, struct {
-		ToolCall api.ToolCall
-		Result   []api.Message
+		ToolCall llm.ToolCall
+		Result   []llm.Message
 		Err      error
 	}{
 		ToolCall: toolCall,

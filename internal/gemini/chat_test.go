@@ -5,123 +5,20 @@ import (
 	"errors"
 	"iter"
 	"testing"
-	"time"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/genai"
 )
 
-func TestConvertFloatOption(t *testing.T) {
-	t.Parallel()
-	t.Run("Float64Value_SetsPointer", func(t *testing.T) {
-		t.Parallel()
-		var result float32
-		opts := map[string]any{"temperature": 0.7}
-		convertFloatOption(opts, "temperature", func(v float32) { result = v })
-		assert.InEpsilon(t, float32(0.7), result, 0.001)
-	})
-
-	t.Run("WrongType_Ignores", func(t *testing.T) {
-		t.Parallel()
-		var called bool
-		opts := map[string]any{"temperature": "wrong"}
-		convertFloatOption(opts, "temperature", func(_ float32) { called = true })
-		assert.False(t, called, "should not call setter with wrong type")
-	})
-
-	t.Run("MissingKey_Ignores", func(t *testing.T) {
-		t.Parallel()
-		var called bool
-		opts := map[string]any{}
-		convertFloatOption(opts, "temperature", func(_ float32) { called = true })
-		assert.False(t, called)
-	})
+func float32Ptr(v float32) *float32 {
+	return &v
 }
 
-func TestConvertIntToFloatOption(t *testing.T) {
-	t.Parallel()
-	t.Run("IntValue_ConvertsToFloat32", func(t *testing.T) {
-		t.Parallel()
-		var result float32
-		opts := map[string]any{"top_k": 40}
-		convertTopKOption(opts, func(v float32) { result = v })
-		assert.InEpsilon(t, float32(40.0), result, 0.001)
-	})
-
-	t.Run("WrongTypeFloat_Ignores", func(t *testing.T) {
-		t.Parallel()
-		var called bool
-		opts := map[string]any{"top_k": 40.5}
-		convertTopKOption(opts, func(_ float32) { called = true })
-		assert.False(t, called)
-	})
-
-	t.Run("WrongTypeString_Ignores", func(t *testing.T) {
-		t.Parallel()
-		var called bool
-		opts := map[string]any{"top_k": "forty"}
-		convertTopKOption(opts, func(_ float32) { called = true })
-		assert.False(t, called)
-	})
-}
-
-func TestConvertIntOption(t *testing.T) {
-	t.Parallel()
-	t.Run("IntValue_SetsInt32", func(t *testing.T) {
-		t.Parallel()
-		var result int32
-		opts := map[string]any{"num_predict": 100}
-		err := convertIntOption(opts, "num_predict", func(v int32) { result = v })
-		require.NoError(t, err)
-		assert.Equal(t, int32(100), result)
-	})
-
-	t.Run("WrongType_Ignores", func(t *testing.T) {
-		t.Parallel()
-		var called bool
-		opts := map[string]any{"num_predict": "100"}
-		err := convertIntOption(opts, "num_predict", func(_ int32) { called = true })
-		require.NoError(t, err)
-		assert.False(t, called)
-	})
-}
-
-func TestConvertStopSequences(t *testing.T) {
-	t.Parallel()
-	t.Run("StringArray_ExtractsAll", func(t *testing.T) {
-		t.Parallel()
-		opts := map[string]any{"stop": []any{"END", "STOP", "DONE"}}
-		config := &genai.GenerateContentConfig{}
-		convertStopSequences(opts, config)
-		assert.Equal(t, []string{"END", "STOP", "DONE"}, config.StopSequences)
-	})
-
-	t.Run("MixedArray_FiltersStrings", func(t *testing.T) {
-		t.Parallel()
-		opts := map[string]any{"stop": []any{"END", 123, "STOP"}}
-		config := &genai.GenerateContentConfig{}
-		convertStopSequences(opts, config)
-		assert.Equal(t, []string{"END", "STOP"}, config.StopSequences)
-	})
-
-	t.Run("WrongType_Ignores", func(t *testing.T) {
-		t.Parallel()
-		opts := map[string]any{"stop": "not-an-array"}
-		config := &genai.GenerateContentConfig{}
-		convertStopSequences(opts, config)
-		assert.Nil(t, config.StopSequences)
-	})
-
-	t.Run("EmptyArray", func(t *testing.T) {
-		t.Parallel()
-		opts := map[string]any{"stop": []any{}}
-		config := &genai.GenerateContentConfig{}
-		convertStopSequences(opts, config)
-		assert.Empty(t, config.StopSequences)
-	})
+func intPtr(v int) *int {
+	return &v
 }
 
 func TestConvertOptions(t *testing.T) {
@@ -133,20 +30,16 @@ func TestConvertOptions(t *testing.T) {
 		assert.Nil(t, config.Temperature)
 		assert.Nil(t, config.TopP)
 		assert.Nil(t, config.TopK)
-		assert.Equal(t, int32(0), config.MaxOutputTokens)
-		assert.Nil(t, config.StopSequences)
 	})
 
 	t.Run("AllOptions_SetCorrectly", func(t *testing.T) {
 		t.Parallel()
-		opts := map[string]any{
-			"temperature": 0.5,
-			"top_p":       0.8,
-			"top_k":       20,
-			"num_predict": 50,
-			"stop":        []any{"END"},
+		req := &llm.ChatRequest{
+			Temperature: float32Ptr(0.5),
+			TopP:        float32Ptr(0.8),
+			TopK:        intPtr(20),
 		}
-		config, err := convertOptions(opts)
+		config, err := convertOptions(req)
 		require.NoError(t, err)
 
 		require.NotNil(t, config.Temperature)
@@ -157,17 +50,14 @@ func TestConvertOptions(t *testing.T) {
 
 		require.NotNil(t, config.TopK)
 		assert.InEpsilon(t, float32(20.0), *config.TopK, 0.001)
-
-		assert.Equal(t, int32(50), config.MaxOutputTokens)
-		assert.Equal(t, []string{"END"}, config.StopSequences)
 	})
 
 	t.Run("PartialOptions_OnlySetsProvided", func(t *testing.T) {
 		t.Parallel()
-		opts := map[string]any{
-			"temperature": 0.9,
+		req := &llm.ChatRequest{
+			Temperature: float32Ptr(0.9),
 		}
-		config, err := convertOptions(opts)
+		config, err := convertOptions(req)
 		require.NoError(t, err)
 
 		require.NotNil(t, config.Temperature)
@@ -175,13 +65,12 @@ func TestConvertOptions(t *testing.T) {
 
 		assert.Nil(t, config.TopP)
 		assert.Nil(t, config.TopK)
-		assert.Equal(t, int32(0), config.MaxOutputTokens)
 	})
 }
 
 func TestConvertMessages_EmptyMessages(t *testing.T) {
 	t.Parallel()
-	sys, user, err := convertMessages([]api.Message{})
+	sys, user, err := convertMessages([]llm.Message{})
 	require.NoError(t, err)
 	assert.Nil(t, sys)
 	assert.Empty(t, user)
@@ -189,7 +78,7 @@ func TestConvertMessages_EmptyMessages(t *testing.T) {
 
 func TestConvertMessages_UserMessage_PreservesRole(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{Role: "user", Content: "hello"}})
+	_, user, err := convertMessages([]llm.Message{{Role: "user", Content: "hello"}})
 	require.NoError(t, err)
 	require.Len(t, user, 1)
 	assert.Equal(t, "user", string(user[0].Role))
@@ -200,7 +89,7 @@ func TestConvertMessages_UserMessage_PreservesRole(t *testing.T) {
 
 func TestConvertMessages_SystemMessage_ExtractedToSeparate(t *testing.T) {
 	t.Parallel()
-	sys, user, err := convertMessages([]api.Message{
+	sys, user, err := convertMessages([]llm.Message{
 		{Role: "system", Content: "You are helpful"},
 		{Role: "user", Content: "hi"},
 	})
@@ -217,7 +106,7 @@ func TestConvertMessages_SystemMessage_ExtractedToSeparate(t *testing.T) {
 
 func TestConvertMessages_MultipleSystemMessages_UsesLast(t *testing.T) {
 	t.Parallel()
-	sys, user, err := convertMessages([]api.Message{
+	sys, user, err := convertMessages([]llm.Message{
 		{Role: "system", Content: "First"},
 		{Role: "system", Content: "Second"},
 		{Role: "user", Content: "hi"},
@@ -231,7 +120,7 @@ func TestConvertMessages_MultipleSystemMessages_UsesLast(t *testing.T) {
 
 func TestConvertMessages_AssistantMessage_MapsToModel(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{Role: "assistant", Content: "hi"}})
+	_, user, err := convertMessages([]llm.Message{{Role: "assistant", Content: "hi"}})
 	require.NoError(t, err)
 	require.Len(t, user, 1)
 	assert.Equal(t, "model", string(user[0].Role))
@@ -239,23 +128,25 @@ func TestConvertMessages_AssistantMessage_MapsToModel(t *testing.T) {
 
 func TestConvertMessages_ToolRole_MapsToUser(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{Role: "tool", Content: "result"}})
+	_, user, err := convertMessages([]llm.Message{{Role: "tool", Content: "result", ToolName: "test_func"}})
 	require.NoError(t, err)
 	require.Len(t, user, 1)
 	assert.Equal(t, "user", string(user[0].Role))
+	require.NotNil(t, user[0].Parts[0].FunctionResponse)
+	assert.Equal(t, "test_func", user[0].Parts[0].FunctionResponse.Name)
 }
 
 func TestConvertMessages_AssistantEmptyContentWithToolCalls_ConvertsToolCalls(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{
+	_, user, err := convertMessages([]llm.Message{{
 		Role:    "assistant",
 		Content: "",
-		ToolCalls: []api.ToolCall{
+		ToolCalls: []llm.ToolCall{
 			{
 				ID: "call-1",
-				Function: api.ToolCallFunction{
+				Function: llm.ToolCallFunction{
 					Name:      "get_weather",
-					Arguments: api.NewToolCallFunctionArguments(),
+					Arguments: map[string]any{},
 				},
 			},
 		},
@@ -271,22 +162,22 @@ func TestConvertMessages_AssistantEmptyContentWithToolCalls_ConvertsToolCalls(t 
 
 func TestConvertMessages_AssistantEmptyContentWithMultipleToolCalls_ConvertsAll(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{
+	_, user, err := convertMessages([]llm.Message{{
 		Role:    "assistant",
 		Content: "",
-		ToolCalls: []api.ToolCall{
+		ToolCalls: []llm.ToolCall{
 			{
 				ID: "call-1",
-				Function: api.ToolCallFunction{
+				Function: llm.ToolCallFunction{
 					Name:      "get_weather",
-					Arguments: api.NewToolCallFunctionArguments(),
+					Arguments: map[string]any{},
 				},
 			},
 			{
 				ID: "call-2",
-				Function: api.ToolCallFunction{
+				Function: llm.ToolCallFunction{
 					Name:      "get_time",
-					Arguments: api.NewToolCallFunctionArguments(),
+					Arguments: map[string]any{},
 				},
 			},
 		},
@@ -301,7 +192,7 @@ func TestConvertMessages_AssistantEmptyContentWithMultipleToolCalls_ConvertsAll(
 
 func TestConvertMessages_AssistantEmptyContentWithoutToolCalls_Skipped(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{
+	_, user, err := convertMessages([]llm.Message{{
 		Role:    "assistant",
 		Content: "",
 	}})
@@ -311,7 +202,7 @@ func TestConvertMessages_AssistantEmptyContentWithoutToolCalls_Skipped(t *testin
 
 func TestConvertMessages_UserEmptyContentWithoutToolCalls_Skipped(t *testing.T) {
 	t.Parallel()
-	_, user, err := convertMessages([]api.Message{{
+	_, user, err := convertMessages([]llm.Message{{
 		Role:    "user",
 		Content: "",
 	}})
@@ -319,7 +210,7 @@ func TestConvertMessages_UserEmptyContentWithoutToolCalls_Skipped(t *testing.T) 
 	assert.Empty(t, user, "should skip empty user message")
 }
 
-func TestConvertToOllamaResponse(t *testing.T) {
+func TestConvertToLLMResponse(t *testing.T) {
 	t.Parallel()
 	t.Run("BasicTextResponse", func(t *testing.T) {
 		t.Parallel()
@@ -331,12 +222,10 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				},
 			}},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "gemini-2.0-flash", result.Model)
-		assert.Equal(t, "Hello world", result.Message.Content)
-		assert.Equal(t, "assistant", result.Message.Role)
+		assert.Equal(t, "Hello world", result.Content)
 		assert.False(t, result.Done)
 	})
 
@@ -346,10 +235,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 			ModelVersion: "model",
 			Candidates:   []*genai.Candidate{},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Equal(t, "model", result.Model)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("EmptyParts", func(t *testing.T) {
@@ -359,9 +247,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				Content: &genai.Content{Parts: []*genai.Part{}},
 			}},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("EmptyText", func(t *testing.T) {
@@ -371,9 +259,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				Content: &genai.Content{Parts: []*genai.Part{{Text: ""}}},
 			}},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("NilPart", func(t *testing.T) {
@@ -383,9 +271,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				Content: &genai.Content{Parts: []*genai.Part{nil}},
 			}},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("NilContent", func(t *testing.T) {
@@ -396,10 +284,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				Content: nil,
 			}},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Equal(t, "model", result.Model)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("NilCandidates", func(t *testing.T) {
@@ -408,10 +295,9 @@ func TestConvertToOllamaResponse(t *testing.T) {
 			ModelVersion: "model",
 			Candidates:   nil,
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Equal(t, "model", result.Model)
-		assert.Empty(t, result.Message.Content)
+		assert.Empty(t, result.Content)
 	})
 
 	t.Run("UsageMetadata", func(t *testing.T) {
@@ -429,28 +315,12 @@ func TestConvertToOllamaResponse(t *testing.T) {
 				TotalTokenCount:      15,
 			},
 		}
-		result, err := convertToOllamaResponse(resp)
+		result, err := convertToLLMResponse(resp)
 		require.NoError(t, err)
-		assert.Equal(t, 10, result.PromptEvalCount)
-		assert.Equal(t, 5, result.EvalCount)
+		assert.Equal(t, 10, result.Stats.PromptTokens)
+		assert.Equal(t, 5, result.Stats.ResponseTokens)
 	})
 
-	t.Run("CreatedAtIsSet", func(t *testing.T) {
-		t.Parallel()
-		before := time.Now()
-		resp := &genai.GenerateContentResponse{
-			ModelVersion: "model",
-			Candidates: []*genai.Candidate{{
-				Content: &genai.Content{Parts: []*genai.Part{{Text: "Hi"}}},
-			}},
-		}
-		result, err := convertToOllamaResponse(resp)
-		require.NoError(t, err)
-		after := time.Now()
-
-		assert.True(t, result.CreatedAt.After(before) || result.CreatedAt.Equal(before))
-		assert.True(t, result.CreatedAt.Before(after) || result.CreatedAt.Equal(after))
-	})
 }
 
 type MockStreamer struct {
@@ -490,20 +360,20 @@ func (m *MockStreamer) GenerateContentStream(
 }
 
 type responseCapture struct {
-	responses []*api.ChatResponse
+	responses []llm.ChatResponse
 }
 
-func (r *responseCapture) OnChatResponse(_ context.Context, resp *api.ChatResponse) error {
-	r.responses = append(r.responses, resp)
+func (r *responseCapture) OnChatResponse(_ context.Context, resp *llm.ChatResponse) error {
+	r.responses = append(r.responses, *resp)
 	return nil
 }
 
 type stopAtOne struct {
-	responses []*api.ChatResponse
+	responses []llm.ChatResponse
 }
 
-func (r *stopAtOne) OnChatResponse(_ context.Context, resp *api.ChatResponse) error {
-	r.responses = append(r.responses, resp)
+func (r *stopAtOne) OnChatResponse(_ context.Context, resp *llm.ChatResponse) error {
+	r.responses = append(r.responses, *resp)
 	if len(r.responses) >= 1 {
 		return errors.New("stop")
 	}
@@ -524,18 +394,17 @@ func TestLLM_Chat(t *testing.T) {
 				}},
 			}},
 		}
-		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
+		testLLM := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		capture := &responseCapture{}
-		err := llm.Chat(t.Context(), &api.ChatRequest{
-			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, capture)
+		err := testLLM.Chat(t.Context(), &llm.ChatRequest{
+			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		}, capture.OnChatResponse)
 		responses := capture.responses
 
 		require.NoError(t, err)
 		require.Len(t, responses, 1)
-		assert.Equal(t, "Hello", responses[0].Message.Content)
-		assert.Equal(t, "gemini-2.0-flash", responses[0].Model)
+		assert.Equal(t, "Hello", responses[0].Content)
 	})
 
 	t.Run("MultipleStreamingResponses", func(t *testing.T) {
@@ -556,15 +425,15 @@ func TestLLM_Chat(t *testing.T) {
 				},
 			},
 		}
-		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
+		testLLM := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		var content string
 		capture := &responseCapture{}
-		err := llm.Chat(t.Context(), &api.ChatRequest{
-			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, capture)
+		err := testLLM.Chat(t.Context(), &llm.ChatRequest{
+			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		}, capture.OnChatResponse)
 		for _, resp := range capture.responses {
-			content += resp.Message.Content
+			content += resp.Content
 		}
 
 		require.NoError(t, err)
@@ -577,12 +446,12 @@ func TestLLM_Chat(t *testing.T) {
 			Responses: []*genai.GenerateContentResponse{},
 			Errors:    []error{errors.New("API error")},
 		}
-		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
+		testLLM := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		capture := &responseCapture{}
-		err := llm.Chat(t.Context(), &api.ChatRequest{
-			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, capture)
+		err := testLLM.Chat(t.Context(), &llm.ChatRequest{
+			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		}, capture.OnChatResponse)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "API error")
@@ -606,12 +475,12 @@ func TestLLM_Chat(t *testing.T) {
 				},
 			},
 		}
-		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
+		testLLM := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		stop := &stopAtOne{}
-		err := llm.Chat(t.Context(), &api.ChatRequest{
-			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, stop)
+		err := testLLM.Chat(t.Context(), &llm.ChatRequest{
+			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		}, stop.OnChatResponse)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "stop")
@@ -623,12 +492,12 @@ func TestLLM_Chat(t *testing.T) {
 		mock := &MockStreamer{
 			Responses: []*genai.GenerateContentResponse{},
 		}
-		llm := &LLM{client: mock, model: "gemini-2.0-flash"}
+		testLLM := &LLM{client: mock, model: "gemini-2.0-flash"}
 
 		capture := &responseCapture{}
-		err := llm.Chat(t.Context(), &api.ChatRequest{
-			Messages: []api.Message{{Role: "user", Content: "Hi"}},
-		}, capture)
+		err := testLLM.Chat(t.Context(), &llm.ChatRequest{
+			Messages: []llm.Message{{Role: "user", Content: "Hi"}},
+		}, capture.OnChatResponse)
 
 		require.NoError(t, err)
 		assert.Empty(t, capture.responses)

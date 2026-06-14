@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/revrost/go-openrouter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,15 +219,15 @@ data: [DONE]
 	config.BaseURL = "https://openrouter.ai/api/v1"
 	config.HTTPClient = mockHTTPClient
 
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
 		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
-	stream, err := llm.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
-		return llm.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
+	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
+		return testLLM.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
 			Model: "test",
 			Messages: []openrouter.ChatCompletionMessage{
 				{Role: "user", Content: openrouter.Content{Text: "test"}},
@@ -257,15 +257,15 @@ func TestExecuteWithRetry_ExhaustsRetries(t *testing.T) {
 	config.BaseURL = "https://openrouter.ai/api/v1"
 	config.HTTPClient = mockHTTPClient
 
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
 		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
-	stream, err := llm.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
-		return llm.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
+	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
+		return testLLM.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
 			Model: "test",
 			Messages: []openrouter.ChatCompletionMessage{
 				{Role: "user", Content: openrouter.Content{Text: "test"}},
@@ -295,15 +295,15 @@ func TestExecuteWithRetry_NonRetryableError(t *testing.T) {
 	config.BaseURL = "https://openrouter.ai/api/v1"
 	config.HTTPClient = mockHTTPClient
 
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
 		httpClient: openrouter.NewClientWithConfig(*config),
 	}
 
-	stream, err := llm.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
-		return llm.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
+	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
+		return testLLM.httpClient.CreateChatCompletionStream(ctx, openrouter.ChatCompletionRequest{
 			Model: "invalid-model",
 			Messages: []openrouter.ChatCompletionMessage{
 				{Role: "user", Content: openrouter.Content{Text: "test"}},
@@ -330,16 +330,16 @@ func (m *mockTransportWithStatus) RoundTrip(req *http.Request) (*http.Response, 
 }
 
 type capturedResponseCollector struct {
-	responses []api.ChatResponse
-	last      *api.ChatResponse
+	responses []llm.ChatResponse
+	last      llm.ChatResponse
 	err       error
 	count     int
 }
 
-func (rc *capturedResponseCollector) OnChatResponse(ctx context.Context, resp *api.ChatResponse) error {
+func (rc *capturedResponseCollector) OnChatResponse(ctx context.Context, resp *llm.ChatResponse) error {
 	rc.count++
 	rc.responses = append(rc.responses, *resp)
-	rc.last = resp
+	rc.last = *resp
 	return rc.err
 }
 
@@ -378,7 +378,7 @@ data: [DONE]
 	openrouterConfig.HTTPClient = mockHTTPClient
 
 	maxRetries := 3
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "test-model",
@@ -388,14 +388,14 @@ data: [DONE]
 		httpClient: openrouter.NewClientWithConfig(*openrouterConfig),
 	}
 
-	req := &api.ChatRequest{
-		Messages: []api.Message{
+	req := &llm.ChatRequest{
+		Messages: []llm.Message{
 			{Role: "user", Content: "Hi"},
 		},
 	}
 
 	collector := &capturedResponseCollector{}
-	err := llm.Chat(t.Context(), req, collector)
+	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
 
 	require.NoError(t, err, "should succeed after retry")
 	assert.True(t, collector.last.Done, "last response should be done")
@@ -430,7 +430,7 @@ data: [DONE]
 	openrouterConfig.HTTPClient = mockHTTPClient
 
 	maxRetries := 3
-	llm := &LLM{
+	testLLM := &LLM{
 		apiKey:  "test-key",
 		baseURL: "https://openrouter.ai/api/v1",
 		model:   "test-model",
@@ -440,14 +440,14 @@ data: [DONE]
 		httpClient: openrouter.NewClientWithConfig(*openrouterConfig),
 	}
 
-	req := &api.ChatRequest{
-		Messages: []api.Message{
+	req := &llm.ChatRequest{
+		Messages: []llm.Message{
 			{Role: "user", Content: "Hi"},
 		},
 	}
 
 	collector := &capturedResponseCollector{}
-	err := llm.Chat(t.Context(), req, collector)
+	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
 
 	require.NoError(t, err)
 	require.NotEmpty(t, collector.responses)

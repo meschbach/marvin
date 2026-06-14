@@ -104,6 +104,23 @@ This avoids needing a separate streaming interface for a single consumer pattern
 Alternative considered: Keep Ollama types as the common format (all providers translate)
 → Rejected: Leaky abstraction, forces every provider to understand Ollama's data model.
 
+#### Stop Sequences as Model-Level Configuration
+
+Stop sequences are a **model-level behavior**, not a per-request parameter. The tokenizer and
+inference engine know the stop tokens for each specific model (e.g., `<|eot_id|>` for
+Llama-3-Instruct, `<|end|>` for Gemma). These are baked into the model's weights and its
+Modelfile / configuration, not determined at conversation time.
+
+The unified `ChatRequest` intentionally omits `StopSequences` from its common fields. The
+orphaned `convertStopSequences` function in `internal/gemini/chat.go` is a migration artifact
+from the transition away from Ollama's `Options map[string]any` (which conflated model config
+with request parameters). It will be removed as part of the cleanup phase.
+
+Future model configuration work (e.g., `provider_model` blocks) may address model-level stop
+sequence overrides, but per-request stop control is not a current capability. The interface
+contract is: **conversation-scoped parameters only** (Messages, Tools, Temperature, TopK,
+TopP).
+
 #### Embedding as a Separate Concern
 
 Embeddings are a different type of interaction — different lifecycle, different provider

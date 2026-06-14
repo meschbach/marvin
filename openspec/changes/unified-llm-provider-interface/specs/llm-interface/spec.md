@@ -72,6 +72,17 @@ by consumers.
 - **THEN** the request is cancelled and returns context.Canceled or context.DeadlineExceeded
   (not wrapped — chain treats this as termination, not model failure)
 
+### Requirement: ChatRequest Common Fields Only
+The system SHALL restrict `ChatRequest` to conversation-scoped parameters only. Model-level
+configuration (e.g., stop sequences, context window) is not part of the unified interface
+contract and must be configured at the model/provider level.
+
+#### Scenario: Stop sequences are model-level
+- **GIVEN** a model that requires specific stop sequences (e.g., `<|eot_id|>`, `<|end|>`)
+- **WHEN** the model is configured in a `provider_model` block
+- **THEN** stop sequences are part of the model's configuration, not the chat request
+- **AND** the `ChatRequest` interface does not include a `StopSequences` field
+
 ### Requirement: Internal Types
 The system SHALL define its own request, response, message, and tool call types in
 `internal/llm/` rather than using the Ollama SDK types directly. All providers convert

@@ -6,17 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"os"
-	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 
 	"google.golang.org/genai"
 )
 
-func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, onEvent conversation.ChatResponseListener) error {
+func (g *LLM) chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	contents, config, err := convertToGenAIRequest(req)
 	if err != nil {
 		return err
@@ -28,11 +25,11 @@ func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 		if err != nil {
 			return err
 		}
-		ollamaResp, finishErr := convertToOllamaResponse(resp)
+		llmResp, finishErr := convertToLLMResponse(resp)
 		if finishErr != nil {
 			return finishErr
 		}
-		if err := onEvent.OnChatResponse(ctx, ollamaResp); err != nil {
+		if err := onResponse(ctx, llmResp); err != nil {
 			return err
 		}
 	}
@@ -40,12 +37,12 @@ func (g *LLM) chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 	return nil
 }
 
-func convertToGenAIRequest(req *api.ChatRequest) ([]*genai.Content, *genai.GenerateContentConfig, error) {
+func convertToGenAIRequest(req *llm.ChatRequest) ([]*genai.Content, *genai.GenerateContentConfig, error) {
 	systemInstruction, userContents, err := convertMessages(req.Messages)
 	if err != nil {
 		return nil, nil, err
 	}
-	generationConfig, err := convertOptions(req.Options)
+	generationConfig, err := convertOptions(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -55,7 +52,7 @@ func convertToGenAIRequest(req *api.ChatRequest) ([]*genai.Content, *genai.Gener
 	return userContents, generationConfig, nil
 }
 
-func convertMessages(messages []api.Message) (systemInstruction *genai.Content, userContents []*genai.Content, err error) {
+func convertMessages(messages []llm.Message) (systemInstruction *genai.Content, userContents []*genai.Content, err error) {
 	userContents = make([]*genai.Content, 0, len(messages))
 
 	for i := range messages {
@@ -77,7 +74,7 @@ func convertMessages(messages []api.Message) (systemInstruction *genai.Content, 
 	return systemInstruction, userContents, nil
 }
 
-func convertSingleMessage(msg *api.Message, index int) (*genai.Content, error) {
+func convertSingleMessage(msg *llm.Message, index int) (*genai.Content, error) {
 	role := msg.Role
 	switch role {
 	case "tool":
@@ -89,7 +86,7 @@ func convertSingleMessage(msg *api.Message, index int) (*genai.Content, error) {
 	}
 }
 
-func convertAssistantMessage(msg *api.Message, index int) (*genai.Content, error) {
+func convertAssistantMessage(msg *llm.Message, index int) (*genai.Content, error) {
 	if msg.Content == "" && len(msg.ToolCalls) > 0 {
 		parts, err := convertToolCalls(msg.ToolCalls)
 		if err != nil {
@@ -104,10 +101,10 @@ func convertAssistantMessage(msg *api.Message, index int) (*genai.Content, error
 	return genai.NewContentFromText(msg.Content, genai.RoleModel), nil
 }
 
-func convertToolCalls(toolCalls []api.ToolCall) ([]*genai.Part, error) {
+func convertToolCalls(toolCalls []llm.ToolCall) ([]*genai.Part, error) {
 	parts := make([]*genai.Part, 0, len(toolCalls))
 	for _, tc := range toolCalls {
-		fc, err := convertFunctionCallFromAPI(tc)
+		fc, err := convertFunctionCallFromLLM(tc)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +114,7 @@ func convertToolCalls(toolCalls []api.ToolCall) ([]*genai.Part, error) {
 	return parts, nil
 }
 
-func convertUserMessage(msg *api.Message, role string, index int) (*genai.Content, error) {
+func convertUserMessage(msg *llm.Message, role string, index int) (*genai.Content, error) {
 	if msg.Content == "" {
 		fmt.Printf("warn\tSkipping empty %s message @ %d\n", role, index)
 		return nil, nil
@@ -125,69 +122,30 @@ func convertUserMessage(msg *api.Message, role string, index int) (*genai.Conten
 	return genai.NewContentFromText(msg.Content, genai.Role(role)), nil
 }
 
-func convertToolResult(msg *api.Message) *genai.Content {
+func convertToolResult(msg *llm.Message) *genai.Content {
 	part := genai.NewPartFromFunctionResponse(msg.ToolName, map[string]any{"result": msg.Content})
 	return genai.NewContentFromParts([]*genai.Part{part}, "user")
 }
 
-func convertOptions(opts map[string]any) (*genai.GenerateContentConfig, error) {
+func convertOptions(req *llm.ChatRequest) (*genai.GenerateContentConfig, error) {
 	generationConfig := &genai.GenerateContentConfig{}
 
-	if opts == nil {
+	if req == nil {
 		return generationConfig, nil
 	}
 
-	convertFloatOption(opts, "temperature", func(v float32) {
-		generationConfig.Temperature = &v
-	})
-	convertFloatOption(opts, "top_p", func(v float32) {
-		generationConfig.TopP = &v
-	})
-	convertTopKOption(opts, func(v float32) {
-		generationConfig.TopK = &v
-	})
-	if err := convertIntOption(opts, "num_predict", func(v int32) {
-		generationConfig.MaxOutputTokens = v
-	}); err != nil {
-		return nil, err
+	if req.Temperature != nil {
+		generationConfig.Temperature = req.Temperature
 	}
-	convertStopSequences(opts, generationConfig)
+	if req.TopP != nil {
+		generationConfig.TopP = req.TopP
+	}
+	if req.TopK != nil {
+		v := float32(*req.TopK)
+		generationConfig.TopK = &v
+	}
 
 	return generationConfig, nil
-}
-
-func convertFloatOption(opts map[string]any, key string, setter func(float32)) {
-	if temp, ok := opts[key].(float64); ok {
-		setter(float32(temp))
-	}
-}
-
-func convertTopKOption(opts map[string]any, setter func(float32)) {
-	if val, ok := opts["top_k"].(int); ok {
-		setter(float32(val))
-	}
-}
-
-func convertIntOption(opts map[string]any, key string, setter func(int32)) error {
-	if val, ok := opts[key].(int); ok {
-		if val > math.MaxInt32 || val < math.MinInt32 {
-			return fmt.Errorf("value for %s exceeds int32 bounds", key)
-		}
-		setter(int32(val))
-	}
-	return nil
-}
-
-func convertStopSequences(opts map[string]any, config *genai.GenerateContentConfig) {
-	if stop, ok := opts["stop"].([]any); ok {
-		stopSeqs := make([]string, 0, len(stop))
-		for _, s := range stop {
-			if str, ok := s.(string); ok {
-				stopSeqs = append(stopSeqs, str)
-			}
-		}
-		config.StopSequences = stopSeqs
-	}
 }
 
 var finishReasonErrors = map[genai.FinishReason]string{
@@ -220,7 +178,7 @@ func handleFinishReason(reason genai.FinishReason) error {
 	return nil
 }
 
-func convertTools(tools api.Tools) []*genai.Tool {
+func convertTools(tools []llm.ToolDefinition) []*genai.Tool {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -231,7 +189,7 @@ func convertTools(tools api.Tools) []*genai.Tool {
 		funcDecl := &genai.FunctionDeclaration{
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
-			Parameters:  convertSchema(&t.Function.Parameters),
+			Parameters:  convertSchema(t.Function.Parameters),
 		}
 		result[i] = &genai.Tool{
 			FunctionDeclarations: []*genai.FunctionDeclaration{funcDecl},
@@ -240,39 +198,38 @@ func convertTools(tools api.Tools) []*genai.Tool {
 	return result
 }
 
-func convertSchema(params *api.ToolFunctionParameters) *genai.Schema {
-	schema := &genai.Schema{
-		Type: genai.TypeObject,
-	}
-
-	if params.Properties != nil {
-		properties := make(map[string]*genai.Schema)
-		for k, v := range params.Properties.ToMap() {
-			properties[k] = convertToolProperty(&v)
-		}
-		schema.Properties = properties
-	}
-
-	if len(params.Required) > 0 {
-		schema.Required = params.Required
-	}
-
-	return schema
+func convertSchema(params *llm.ToolFunctionParameters) *genai.Schema {
+	return llm.TranscribeParameters(params, geminiSchemaTranscriber{})
 }
 
-func convertToolProperty(prop *api.ToolProperty) *genai.Schema {
-	schema := &genai.Schema{}
-	schema.Type = convertType(prop.Type)
-	schema.Description = prop.Description
+// geminiSchemaTranscriber converts the internal parameter hierarchy to Gemini's
+// genai.Schema types.
+type geminiSchemaTranscriber struct{}
 
-	if len(prop.Enum) > 0 {
-		schema.Enum = convertEnum(prop.Enum)
+func (g geminiSchemaTranscriber) Scalar(types []string, description string, enum []string) *genai.Schema {
+	return &genai.Schema{
+		Type:        convertType(types),
+		Description: description,
+		Enum:        enum,
 	}
-
-	return schema
 }
 
-// convertType maps API property types to GenAI schema types
+func (g geminiSchemaTranscriber) Object(properties map[string]*genai.Schema, required []string) *genai.Schema {
+	s := &genai.Schema{Type: genai.TypeObject}
+	if len(properties) > 0 {
+		s.Properties = properties
+	}
+	if len(required) > 0 {
+		s.Required = required
+	}
+	return s
+}
+
+func (g geminiSchemaTranscriber) Array(items *genai.Schema) *genai.Schema {
+	return &genai.Schema{Type: genai.TypeArray, Items: items}
+}
+
+// convertType maps JSON Schema type strings to GenAI schema types.
 func convertType(types []string) genai.Type {
 	for _, t := range types {
 		switch t {
@@ -293,18 +250,7 @@ func convertType(types []string) genai.Type {
 	return genai.TypeString // default
 }
 
-// convertEnum extracts string values from enum array
-func convertEnum(enum []any) []string {
-	result := make([]string, 0, len(enum))
-	for _, e := range enum {
-		if s, ok := e.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
-func convertFunctionCallFromAPI(tc api.ToolCall) (*genai.FunctionCall, error) {
+func convertFunctionCallFromLLM(tc llm.ToolCall) (*genai.FunctionCall, error) {
 	argsJSON, err := json.Marshal(tc.Function.Arguments)
 	if err != nil {
 		return &genai.FunctionCall{
@@ -323,47 +269,33 @@ func convertFunctionCallFromAPI(tc api.ToolCall) (*genai.FunctionCall, error) {
 	}, nil
 }
 
-func convertFunctionCall(fc *genai.FunctionCall) api.ToolCall {
-	args := api.NewToolCallFunctionArguments()
-	if fc.Args != nil {
-		argsJSON, err := json.Marshal(fc.Args)
-		if err == nil {
-			if err := args.UnmarshalJSON(argsJSON); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to unmarshal tool call arguments: %v\n", err)
-			}
-		}
-	}
-
-	return api.ToolCall{
+func convertFunctionCall(fc *genai.FunctionCall) llm.ToolCall {
+	return llm.ToolCall{
 		ID: fc.ID,
-		Function: api.ToolCallFunction{
+		Function: llm.ToolCallFunction{
 			Name:      fc.Name,
-			Arguments: args,
+			Arguments: fc.Args,
 		},
 	}
 }
 
-func convertToOllamaResponse(resp *genai.GenerateContentResponse) (*api.ChatResponse, error) {
-	ollamaResp := &api.ChatResponse{
-		Model:     resp.ModelVersion,
-		CreatedAt: time.Now(),
-		Done:      false,
-	}
+func convertToLLMResponse(resp *genai.GenerateContentResponse) (*llm.ChatResponse, error) {
+	result := extractResponseFromCandidates(resp)
+	result.Done = false
 
 	done, err := handleFinishReasonIfPresent(resp)
 	if err != nil {
 		return nil, err
 	}
-	ollamaResp.Done = done
-
-	ollamaResp.Message = extractMessageFromCandidates(resp)
+	result.Done = done
 
 	if resp.UsageMetadata != nil {
-		ollamaResp.PromptEvalCount = int(resp.UsageMetadata.PromptTokenCount)
-		ollamaResp.EvalCount = int(resp.UsageMetadata.CandidatesTokenCount)
+		result.Stats.PromptTokens = int(resp.UsageMetadata.PromptTokenCount)
+		result.Stats.ResponseTokens = int(resp.UsageMetadata.CandidatesTokenCount)
+		result.Stats.TotalTokens = int(resp.UsageMetadata.TotalTokenCount)
 	}
 
-	return ollamaResp, nil
+	return result, nil
 }
 
 func handleFinishReasonIfPresent(resp *genai.GenerateContentResponse) (bool, error) {
@@ -379,28 +311,24 @@ func handleFinishReasonIfPresent(resp *genai.GenerateContentResponse) (bool, err
 	return false, nil
 }
 
-func extractMessageFromCandidates(resp *genai.GenerateContentResponse) api.Message {
+func extractResponseFromCandidates(resp *genai.GenerateContentResponse) *llm.ChatResponse {
+	result := &llm.ChatResponse{}
 	if len(resp.Candidates) == 0 ||
 		resp.Candidates[0].Content == nil ||
 		len(resp.Candidates[0].Content.Parts) == 0 {
-		return api.Message{}
+		return result
 	}
 
-	var msg api.Message
 	for _, part := range resp.Candidates[0].Content.Parts {
 		if part == nil {
 			continue
 		}
 		if part.Text != "" {
-			msg = api.Message{
-				Role:    "assistant",
-				Content: part.Text,
-			}
+			result.Content = part.Text
 		}
 		if part.FunctionCall != nil {
-			toolCall := convertFunctionCall(part.FunctionCall)
-			msg.ToolCalls = append(msg.ToolCalls, toolCall)
+			result.ToolCalls = append(result.ToolCalls, convertFunctionCall(part.FunctionCall))
 		}
 	}
-	return msg
+	return result
 }

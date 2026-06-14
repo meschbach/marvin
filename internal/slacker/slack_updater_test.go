@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,8 +43,8 @@ func TestSlackUpdater_BasicOperations(t *testing.T) {
 			done <- err
 			return
 		}
-		toolCall := api.ToolCall{
-			Function: api.ToolCallFunction{
+		toolCall := llm.ToolCall{
+			Function: llm.ToolCallFunction{
 				Name: "test-tool",
 			},
 		}
@@ -157,8 +157,8 @@ func TestSlackUpdater_ToolCalls(t *testing.T) {
 
 	// Add tool call
 	ctx := testContext(t)
-	toolCall := api.ToolCall{
-		Function: api.ToolCallFunction{
+	toolCall := llm.ToolCall{
+		Function: llm.ToolCallFunction{
 			Name: "test-tool",
 		},
 	}
@@ -176,14 +176,14 @@ func TestSlackUpdater_ToolResults(t *testing.T) {
 	updater := NewSlackUpdater(client, "test-channel", newCaptureFormatter(nil), preferences)
 
 	ctx := testContext(t)
-	toolCall := api.ToolCall{
-		Function: api.ToolCallFunction{
+	toolCall := llm.ToolCall{
+		Function: llm.ToolCallFunction{
 			Name: "test-tool",
 		},
 	}
 
 	// Test successful tool result
-	result := []api.Message{
+	result := []llm.Message{
 		{Role: conversation.RoleToolResult, Content: "Success!"},
 	}
 	require.NoError(t, updater.AddToolResult(ctx, toolCall, result, nil))

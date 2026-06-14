@@ -1,23 +1,23 @@
 ## Phase 1: Core Interface + Ollama Provider
 
-- [ ] 1.1 Create `internal/llm/chat.go` with LLM interface, ChatRequest (common
+- [x] 1.1 Create `internal/llm/chat.go` with LLM interface, ChatRequest (common
       fields: Messages, Tools, Temperature, TopK, TopP), ChatResponse, Message,
       ToolCall, ToolDefinition
-- [ ] 1.2 Create `internal/llm/errors.go` with structured error types and
+- [x] 1.2 Create `internal/llm/errors.go` with structured error types and
       `IsRetryable() bool` / `IsPermanent() bool` methods
-- [ ] 1.3 Create `internal/llm/embedding.go` with EmbeddingProvider interface and
+- [x] 1.3 Create `internal/llm/embedding.go` with EmbeddingProvider interface and
       EmbeddingRequest (separate from LLM interface)
-- [ ] 1.4 Create `internal/llm/ollama/client.go` implementing both LLM and
+- [x] 1.4 Create `internal/llm/ollama/client.go` implementing both LLM and
       EmbeddingProvider for Ollama (move embedding from `internal/config/ollama.go`)
-- [ ] 1.5 Verify Ollama impl works with existing conversation engine (temp import path)
+- [x] 1.5 Verify Ollama impl works with existing conversation engine (temp import path)
 
 ## Phase 2: Configuration Types
 
-- [ ] 2.1 Add `ProviderModelBlock` struct in `internal/config/file.go`
-- [ ] 2.2 Add `ProviderModels []ProviderModelBlock`, `Models []string`, and `LLMBlock`
+- [x] 2.1 Add `ProviderModelBlock` struct in `internal/config/file.go`
+- [x] 2.2 Add `ProviderModels []ProviderModelBlock`, `Models []string`, and `LLMBlock`
       fields to `File`
-- [ ] 2.3 Add backward-compat detection: `len(cfg.ProviderModels) == 0` → legacy mode
-- [ ] 2.4 Add config parsing tests for:
+- [x] 2.3 Add backward-compat detection: `len(cfg.ProviderModels) == 0` → legacy mode
+- [x] 2.4 Add config parsing tests for:
       - Legacy `provider` + `model` only
       - Multiple `provider_model` blocks with `models` list
       - Both legacy AND `provider_model` blocks (error)
@@ -31,39 +31,39 @@
 
 ### 3a: Define Internal Types
 
-- [ ] 3.1.1 Ensure `llm.ToolCall` and `llm.Message` are structurally complete 1:1
+- [x] 3.1.1 Ensure `llm.ToolCall` and `llm.Message` are structurally complete 1:1
       equivalents of `api.ToolCall` / `api.Message` (mechanical migration step)
-- [ ] 3.1.2 Ensure `llm.ChatRequest` and `llm.ChatResponse` are defined and stable
+- [x] 3.1.2 Ensure `llm.ChatRequest` and `llm.ChatResponse` are defined and stable
 
 ### 3b: Update StreamingUpdater
 
-- [ ] 3.2.1 Update `StreamingUpdater` interface to use `llm.ToolCall` and `llm.Message`
+- [x] 3.2.1 Update `StreamingUpdater` interface to use `llm.ToolCall` and `llm.Message`
       instead of `api.*` types
-- [ ] 3.2.2 Update `CLIStreamingUpdater` for new types
-- [ ] 3.2.3 Update `SlackUpdater` for new types
-- [ ] 3.2.4 Update `RecordingUpdater` for new types
-- [ ] 3.2.5 Run conversation streaming tests
+- [x] 3.2.2 Update `CLIStreamingUpdater` for new types
+- [x] 3.2.3 Update `SlackUpdater` for new types
+- [x] 3.2.4 Update `RecordingUpdater` for new types
+- [x] 3.2.5 Run conversation streaming tests
 
 ### 3c: Update Engine
 
-- [ ] 3.3.1 Change `Engine.messages` from `[]api.Message` to `[]llm.Message`
-- [ ] 3.3.2 Update `buildChatRequest` to construct `*llm.ChatRequest`
-- [ ] 3.3.3 Update `executeTurn` response handling to produce `llm.Message`
-- [ ] 3.3.4 Update `RunConversation` signature (model string stays, request type changes)
-- [ ] 3.3.5 Update `conversation.Runner` to use `llm` types
+- [x] 3.3.1 Change `Engine.messages` from `[]api.Message` to `[]llm.Message`
+- [x] 3.3.2 Update `buildChatRequest` to construct `*llm.ChatRequest`
+- [x] 3.3.3 Update `executeTurn` response handling to produce `llm.Message`
+- [x] 3.3.4 Update `RunConversation` signature (model string stays, request type changes)
+- [x] 3.3.5 Update `conversation.Runner` to use `llm` types
 
 ### 3d: Update Tool Interface
 
-- [ ] 3.4.1 Update `conversation.Tool` interface to operate on `llm.ToolCall` / `llm.Message`
-- [ ] 3.4.2 Update `conversation.ToolSet` to use `llm` types
-- [ ] 3.4.3 Update all tool implementations in `internal/query/` (chromemTool, list, mark3labs, etc.)
-- [ ] 3.4.4 Update `conversation.ToolResponseMessage` to return `llm.Message`
+- [x] 3.4.1 Update `conversation.Tool` interface to operate on `llm.ToolCall` / `llm.Message`
+- [x] 3.4.2 Update `conversation.ToolSet` to use `llm` types
+- [x] 3.4.3 Update all tool implementations in `internal/query/` (chromemTool, list, mark3labs, etc.)
+- [x] 3.4.4 Update `conversation.ToolResponseMessage` to return `llm.Message`
 
 ### 3e: Update Ollama Provider to Produce llm Types
 
-- [ ] 3.5.1 Update Ollama provider to accept `*llm.ChatRequest` and return `*llm.ChatResponse`
-- [ ] 3.5.2 Remove dependency on `github.com/ollama/ollama/api` from the provider
-- [ ] 3.5.3 Run full conversation test suite
+- [x] 3.5.1 Update Ollama provider to accept `*llm.ChatRequest` and return `*llm.ChatResponse`
+- [x] 3.5.2 Remove dependency on `github.com/ollama/ollama/api` from the provider
+- [x] 3.5.3 Run full conversation test suite
 
 ## Phase 4: Refactor OpenRouter and Gemini Providers
 

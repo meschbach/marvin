@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
-	"github.com/ollama/ollama/api"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,19 +18,16 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 	sessionManager := env.SessionManager
 
 	// Configure the mock LLM to call a tool first, then consume results
-	mockLLM.responses = [][]api.ChatResponse{
+	mockLLM.responses = [][]llm.ChatResponse{
 		{
 			// First response: LLM calls a tool
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "I'll help you with that. Let me call a tool.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID: "call_1",
-							Function: api.ToolCallFunction{
-								Name: "test_tool",
-							},
+				Content: "I'll help you with that. Let me call a tool.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID: "call_1",
+						Function: llm.ToolCallFunction{
+							Name: "test_tool",
 						},
 					},
 				},
@@ -40,10 +37,7 @@ func TestQueryStreamer_FixedBehavior(t *testing.T) {
 		{
 			// Second response: LLM consumes tool results and provides final answer
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Based on the tool results, here's your final answer.",
-				},
+				Content: "Based on the tool results, here's your final answer.",
 			},
 			{Done: true},
 		},
@@ -92,19 +86,16 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 	sessionManager := env.SessionManager
 
 	// Configure the mock LLM to call a tool first, then consume results and respond
-	mockLLM.responses = [][]api.ChatResponse{
+	mockLLM.responses = [][]llm.ChatResponse{
 		{
 			// First response: LLM calls a tool
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "I'll help you with that. Let me call a tool.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID: "call_1",
-							Function: api.ToolCallFunction{
-								Name: "test_tool",
-							},
+				Content: "I'll help you with that. Let me call a tool.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID: "call_1",
+						Function: llm.ToolCallFunction{
+							Name: "test_tool",
 						},
 					},
 				},
@@ -114,10 +105,7 @@ func TestQueryStreamer_DesiredBehavior(t *testing.T) {
 		{
 			// Second response: LLM consumes tool results and provides final answer
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Based on the tool results, here's your final answer.",
-				},
+				Content: "Based on the tool results, here's your final answer.",
 			},
 			{Done: true},
 		},
@@ -182,18 +170,15 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 	// 1. Call tool A
 	// 2. Call tool B after seeing result from A
 	// 3. Provide final response after seeing result from B
-	mockLLM.responses = [][]api.ChatResponse{
+	mockLLM.responses = [][]llm.ChatResponse{
 		{
 			// First response: LLM calls first tool
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "I'll help by calling tool A.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID:       "call_1",
-							Function: api.ToolCallFunction{Name: "tool_a"},
-						},
+				Content: "I'll help by calling tool A.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:       "call_1",
+						Function: llm.ToolCallFunction{Name: "tool_a"},
 					},
 				},
 			},
@@ -202,14 +187,11 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 		{
 			// Second response: LLM calls second tool after seeing first result
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Now I'll call tool B based on that result.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID:       "call_2",
-							Function: api.ToolCallFunction{Name: "tool_b"},
-						},
+				Content: "Now I'll call tool B based on that result.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:       "call_2",
+						Function: llm.ToolCallFunction{Name: "tool_b"},
 					},
 				},
 			},
@@ -218,10 +200,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 		{
 			// Third response: LLM provides final answer after both tools
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Based on both tool results, here's your comprehensive answer.",
-				},
+				Content: "Based on both tool results, here's your comprehensive answer.",
 			},
 			{Done: true},
 		},
@@ -258,7 +237,7 @@ func TestQueryStreamer_MultiTurnConversation(t *testing.T) {
 	require.GreaterOrEqual(t, assistantCount, 3, "Should have multiple assistant messages for multi-turn conversation")
 
 	// Verify the final message has no tool calls (indicating completion)
-	var finalMsg *api.Message
+	var finalMsg *llm.Message
 	for i := len(finalSession.Messages) - 1; i >= 0; i-- {
 		if finalSession.Messages[i].Role == "assistant" {
 			finalMsg = &finalSession.Messages[i]
@@ -278,14 +257,11 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 	sessionManager := env.SessionManager
 
 	// Configure the mock LLM for a simple 1-turn conversation without tools
-	mockLLM.responses = [][]api.ChatResponse{
+	mockLLM.responses = [][]llm.ChatResponse{
 		{
 			// Single response with no tool calls
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Here's your direct answer without needing any tools.",
-				},
+				Content: "Here's your direct answer without needing any tools.",
 			},
 			{Done: true},
 		},
@@ -322,7 +298,7 @@ func TestQueryStreamer_NoToolCalls(t *testing.T) {
 	require.Equal(t, 1, assistantCount, "Should have exactly 1 assistant message")
 
 	// Verify the message has no tool calls
-	var assistantMsg *api.Message
+	var assistantMsg *llm.Message
 	for _, msg := range finalSession.Messages {
 		if msg.Role == "assistant" {
 			assistantMsg = &msg
@@ -344,18 +320,15 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 
 	// Configure the mock LLM to show that it's still thinking and needs more tools
 	// This tests that the loop properly continues until LLM is truly done
-	mockLLM.responses = [][]api.ChatResponse{
+	mockLLM.responses = [][]llm.ChatResponse{
 		{
 			// First response: LLM calls first tool but indicates it needs more
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Let me start by gathering some information.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID:       "call_1",
-							Function: api.ToolCallFunction{Name: "info_tool"},
-						},
+				Content: "Let me start by gathering some information.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:       "call_1",
+						Function: llm.ToolCallFunction{Name: "info_tool"},
 					},
 				},
 			},
@@ -364,14 +337,11 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 		{
 			// Second response: LLM calls another tool, still not done
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Now I need to process this information further.",
-					ToolCalls: []api.ToolCall{
-						{
-							ID:       "call_2",
-							Function: api.ToolCallFunction{Name: "process_tool"},
-						},
+				Content: "Now I need to process this information further.",
+				ToolCalls: []llm.ToolCall{
+					{
+						ID:       "call_2",
+						Function: llm.ToolCallFunction{Name: "process_tool"},
 					},
 				},
 			},
@@ -380,10 +350,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 		{
 			// Third response: LLM finally provides the complete answer
 			{
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "After processing all the information, here's your complete answer.",
-				},
+				Content: "After processing all the information, here's your complete answer.",
 			},
 			{Done: true},
 		},
@@ -411,7 +378,7 @@ func TestQueryStreamer_LLMWaitingForMoreTools(t *testing.T) {
 	require.True(t, exists)
 
 	// Count assistant messages to verify proper progression
-	assistantMessages := []api.Message{}
+	assistantMessages := []llm.Message{}
 	for _, msg := range finalSession.Messages {
 		if msg.Role == "assistant" {
 			assistantMessages = append(assistantMessages, msg)

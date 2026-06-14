@@ -7,7 +7,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +35,7 @@ func (f *failingTool) DefineAPI(_ context.Context) (*conversation.ToolDefinition
 	return nil, fmt.Errorf("%s %q failed", f.toolType, f.name)
 }
 
-func (f *failingTool) Invoke(_ context.Context, _ api.ToolCall) ([]api.Message, error) {
+func (f *failingTool) Invoke(_ context.Context, _ llm.ToolCall) ([]llm.Message, error) {
 	return nil, nil
 }
 

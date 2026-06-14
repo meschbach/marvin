@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/meschbach/marvin/internal/config"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,24 +36,20 @@ func TestRunner_Run_BasicExecution(t *testing.T) {
 	t.Parallel()
 
 	// Setup: one-shot LLM that returns a simple response
-	llm := &OneShotLLM{
-		responses: []api.ChatResponse{
+	testLLM := &OneShotLLM{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Hello from runner",
-				},
-				Done: true,
-				Metrics: api.Metrics{
-					EvalCount:       5,
-					PromptEvalCount: 3,
+				Content: "Hello from runner",
+				Done:    true,
+				Stats: llm.Stats{
+					ResponseTokens: 5,
+					PromptTokens:   3,
 				},
 			},
 		},
 	}
 
-	llmCreator := &mockLLMCreator{llm: llm}
+	llmCreator := &mockLLMCreator{llm: testLLM}
 	toolProvider := &mockToolProvider{toolSet: NewToolSet()}
 
 	runner := NewRunner(
@@ -65,7 +61,7 @@ func TestRunner_Run_BasicExecution(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      &TrackingUpdater{},
@@ -81,20 +77,16 @@ func TestRunner_Run_BasicExecution(t *testing.T) {
 func TestRunner_Run_WithRecordingUpdater(t *testing.T) {
 	t.Parallel()
 
-	llm := &OneShotLLM{
-		responses: []api.ChatResponse{
+	testLLM := &OneShotLLM{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Recorded response",
-				},
-				Done: true,
+				Content: "Recorded response",
+				Done:    true,
 			},
 		},
 	}
 
-	llmCreator := &mockLLMCreator{llm: llm}
+	llmCreator := &mockLLMCreator{llm: testLLM}
 	toolProvider := &mockToolProvider{toolSet: NewToolSet()}
 	recorder := NewRecordingUpdater()
 
@@ -107,7 +99,7 @@ func TestRunner_Run_WithRecordingUpdater(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      recorder,
@@ -124,25 +116,21 @@ func TestRunner_Run_WithRecordingUpdater(t *testing.T) {
 func TestRunner_Run_CallbackInvoked(t *testing.T) {
 	t.Parallel()
 
-	llm := &OneShotLLM{
-		responses: []api.ChatResponse{
+	testLLM := &OneShotLLM{
+		responses: []llm.ChatResponse{
 			{
-				Model: "test-model",
-				Message: api.Message{
-					Role:    "assistant",
-					Content: "Callback test",
-				},
-				Done: true,
+				Content: "Callback test",
+				Done:    true,
 			},
 		},
 	}
 
-	llmCreator := &mockLLMCreator{llm: llm}
+	llmCreator := &mockLLMCreator{llm: testLLM}
 	toolProvider := &mockToolProvider{toolSet: NewToolSet()}
 
 	callbackInvoked := false
-	callbackMessages := []api.Message{}
-	callback := func(_ context.Context, msg api.Message) error {
+	callbackMessages := []llm.Message{}
+	callback := func(_ context.Context, msg llm.Message) error {
 		callbackInvoked = true
 		callbackMessages = append(callbackMessages, msg)
 		return nil
@@ -157,7 +145,7 @@ func TestRunner_Run_CallbackInvoked(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      &TrackingUpdater{},
@@ -187,7 +175,7 @@ func TestRunner_Run_LLMCreationFailure(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      &TrackingUpdater{},
@@ -203,17 +191,16 @@ func TestRunner_Run_LLMCreationFailure(t *testing.T) {
 func TestRunner_Run_ToolProviderFailure(t *testing.T) {
 	t.Parallel()
 
-	llm := &OneShotLLM{
-		responses: []api.ChatResponse{
+	testLLM := &OneShotLLM{
+		responses: []llm.ChatResponse{
 			{
-				Model:   "test-model",
-				Message: api.Message{Role: "assistant", Content: "Hi"},
+				Content: "Hi",
 				Done:    true,
 			},
 		},
 	}
 
-	llmCreator := &mockLLMCreator{llm: llm}
+	llmCreator := &mockLLMCreator{llm: testLLM}
 	toolProvider := &mockToolProvider{err: fmt.Errorf("tool setup failed")}
 
 	runner := NewRunner(
@@ -225,7 +212,7 @@ func TestRunner_Run_ToolProviderFailure(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      &TrackingUpdater{},
@@ -256,7 +243,7 @@ func TestRunner_Run_EngineFailure(t *testing.T) {
 	req := &RunRequest{
 		UserID:       "user-1",
 		SystemPrompt: "You are a helpful assistant.",
-		Messages:     []api.Message{},
+		Messages:     []llm.Message{},
 		UserMessage:  "Hi",
 		ToolNames:    []string{},
 		Updater:      &TrackingUpdater{},
@@ -271,6 +258,6 @@ func TestRunner_Run_EngineFailure(t *testing.T) {
 // failingLLM is a mock LLM that always fails.
 type failingLLM struct{ err error }
 
-func (f *failingLLM) Chat(_ context.Context, _ *api.ChatRequest, _ ChatResponseListener) error {
+func (f *failingLLM) Chat(_ context.Context, _ *llm.ChatRequest, _ func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	return f.err
 }

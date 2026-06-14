@@ -3,15 +3,15 @@ package conversation
 import (
 	"context"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/yosida95/uritemplate/v3"
 )
 
 // McpResource defines an interface for an MCP resource.
 type McpResource interface {
 	Matches() []*uritemplate.Template
-	DescribeMessages() []api.Message
-	ReadResource(ctx context.Context, invocation api.ToolCall, uri string) ([]api.Message, error)
+	DescribeMessages() []llm.Message
+	ReadResource(ctx context.Context, invocation llm.ToolCall, uri string) ([]llm.Message, error)
 }
 
 // McpResourceGateway manages all the MCP integrations in regard to reading various resources.
@@ -31,25 +31,25 @@ func (m *McpResourceGateway) Register(gateway McpResource) {
 
 // DefineAPI defines the API for the MCP resource gateway.
 func (m *McpResourceGateway) DefineAPI(_ context.Context) (definition *ToolDefinition, problem error) {
-	props := api.NewToolPropertiesMap()
-	props.Set("uri", api.ToolProperty{
-		Type:        ToolPropTypeString,
-		Description: "URI of the resource to read",
-	})
 	definition = &ToolDefinition{}
-	definition.Tool = append(definition.Tool, api.Tool{
+	definition.Tool = append(definition.Tool, llm.ToolDefinition{
 		Type: ToolTypeFunction,
-		Function: api.ToolFunction{
+		Function: llm.ToolFunction{
 			Name:        "read_resource",
 			Description: "read_resource is a gateway to other tools resources identified by a URI.  Pass the full URI as the `uri` parameter",
-			Parameters: api.ToolFunctionParameters{
-				Type:       "resource_resource",
-				Required:   []string{"uri"},
-				Properties: props,
+			Parameters: &llm.ToolFunctionParameters{
+				Type:     "object",
+				Required: []string{"uri"},
+				Properties: map[string]llm.ToolProperty{
+					"uri": {
+						Type:        []string{"string"},
+						Description: "URI of the resource to read",
+					},
+				},
 			},
 		},
 	})
-	definition.Instructions = append(definition.Instructions, api.Message{
+	definition.Instructions = append(definition.Instructions, llm.Message{
 		Role:    RoleSystem,
 		Content: "Use the Tool read_resource to access resources identified by a URI.",
 	})
@@ -62,15 +62,18 @@ func (m *McpResourceGateway) DefineAPI(_ context.Context) (definition *ToolDefin
 }
 
 // Invoke executes a tool call through the gateway.
-func (m *McpResourceGateway) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	args := call.Function.Arguments
-	uriUnknownType, hasURI := args.Get("uri")
+func (m *McpResourceGateway) Invoke(ctx context.Context, call llm.ToolCall) (out []llm.Message, problem error) {
+	args, ok := call.Function.Arguments.(map[string]any)
+	if !ok {
+		return []llm.Message{ToolResponseMessage(call, "required parameter uri is missing")}, nil
+	}
+	uriUnknownType, hasURI := args["uri"]
 	if !hasURI {
-		return []api.Message{ToolResponseMessage(call, "required parameter uri is missing")}, nil
+		return []llm.Message{ToolResponseMessage(call, "required parameter uri is missing")}, nil
 	}
 	uri, stringURI := uriUnknownType.(string)
 	if !stringURI {
-		return []api.Message{ToolResponseMessage(call, "required parameter uri can not be cast to a string")}, nil
+		return []llm.Message{ToolResponseMessage(call, "required parameter uri can not be cast to a string")}, nil
 	}
 
 	for _, rs := range m.ResourceServices {
@@ -78,5 +81,5 @@ func (m *McpResourceGateway) Invoke(ctx context.Context, call api.ToolCall) (out
 			return rs.ReadResource(ctx, call, uri)
 		}
 	}
-	return []api.Message{ToolResponseMessage(call, "no resource service found for uri")}, nil
+	return []llm.Message{ToolResponseMessage(call, "no resource service found for uri")}, nil
 }

@@ -7,7 +7,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 type ChatOptions struct {
@@ -50,7 +50,7 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 	}
 
 	// Create LLM client based on configuration (supports Ollama and OpenRouter)
-	llm, err := NewLLM(ctx, cfg)
+	llmClient, err := NewLLM(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating LLM client: %v\n", err)
 		return
@@ -90,7 +90,7 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 		}
 	}
 
-	systemMessage := api.Message{
+	systemMessage := llm.Message{
 		Role: conversation.RoleSystem, Content: systemMessageContent,
 	}
 
@@ -100,11 +100,11 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 		if opts.DumpTooling {
 			fmt.Printf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
 		}
-		toolset.Instructions = append(toolset.Instructions, api.Message{Role: conversation.RoleAssistant, Content: fmt.Sprintf("Function %s %s", tool.Function.Name, tool.Function.Description)})
+		toolset.Instructions = append(toolset.Instructions, llm.Message{Role: conversation.RoleAssistant, Content: fmt.Sprintf("Function %s %s", tool.Function.Name, tool.Function.Description)})
 	}
 	messages := append(toolset.Instructions,
 		systemMessage,
-		api.Message{Role: conversation.RoleUser, Content: actualQuery},
+		llm.Message{Role: conversation.RoleUser, Content: actualQuery},
 	)
 
 	if opts.ShowTools {
@@ -125,7 +125,7 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 	}
 
 	engine := conversation.NewEngine(
-		llm,
+		llmClient,
 		cfg,
 		logger,
 		toolset,

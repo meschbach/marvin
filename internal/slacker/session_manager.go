@@ -11,8 +11,8 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/junk"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
-	"github.com/ollama/ollama/api"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -95,7 +95,7 @@ func (sm *SessionManager) GetSession(userID, channelID string) (*UserSession, bo
 }
 
 // AddMessage adds a message to a session
-func (sm *SessionManager) AddMessage(userID, channelID string, message api.Message) error {
+func (sm *SessionManager) AddMessage(userID, channelID string, message llm.Message) error {
 	userSession, exists := sm.GetSession(userID, channelID)
 	if !exists {
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
@@ -114,7 +114,7 @@ func (sm *SessionManager) ClearSession(userID, channelID string) error {
 		return fmt.Errorf("session not found for user %s in channel %s", userID, channelID)
 	}
 
-	userSession.Messages = []api.Message{}
+	userSession.Messages = []llm.Message{}
 	userSession.LastActivity = time.Now()
 
 	return sm.saveSession(userSession)

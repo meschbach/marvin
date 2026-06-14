@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,10 +16,10 @@ type mockTool struct {
 
 func (m *mockTool) DefineAPI(_ context.Context) (*ToolDefinition, error) {
 	return &ToolDefinition{
-		Tool: []api.Tool{
+		Tool: []llm.ToolDefinition{
 			{
 				Type: ToolTypeFunction,
-				Function: api.ToolFunction{
+				Function: llm.ToolFunction{
 					Name:        m.name,
 					Description: m.description,
 				},
@@ -28,7 +28,7 @@ func (m *mockTool) DefineAPI(_ context.Context) (*ToolDefinition, error) {
 	}, nil
 }
 
-func (m *mockTool) Invoke(_ context.Context, _ api.ToolCall) ([]api.Message, error) {
+func (m *mockTool) Invoke(_ context.Context, _ llm.ToolCall) ([]llm.Message, error) {
 	return nil, nil
 }
 

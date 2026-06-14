@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -23,8 +23,8 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test AddToolCall
-	toolCall := api.ToolCall{
-		Function: api.ToolCallFunction{
+	toolCall := llm.ToolCall{
+		Function: llm.ToolCallFunction{
 			Name: "calculator",
 		},
 	}
@@ -44,7 +44,7 @@ func TestCLIStreamingUpdater_BasicFunctionality(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test AddToolResult - success case
-	toolResult := []api.Message{
+	toolResult := []llm.Message{
 		{Role: conversation.RoleToolResult, Content: "42"},
 	}
 	err = updater.AddToolResult(ctx, toolCall, toolResult, nil)
@@ -130,12 +130,12 @@ func TestCLIStreamingUpdater_ToolsDisabled(t *testing.T) {
 	updater := NewCLIStreamingUpdater(false, false, false, "plain") // showTools=false
 	ctx := t.Context()
 
-	toolCall := api.ToolCall{
-		Function: api.ToolCallFunction{
+	toolCall := llm.ToolCall{
+		Function: llm.ToolCallFunction{
 			Name: "test-tool",
 		},
 	}
-	result := []api.Message{
+	result := []llm.Message{
 		{Role: "assistant", Content: "result"},
 	}
 

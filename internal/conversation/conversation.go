@@ -4,7 +4,7 @@ package conversation
 import (
 	"context"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // Role constants used throughout the conversation engine and related components.
@@ -25,14 +25,10 @@ const (
 
 // MessageCallback is called when a new message should be added to the conversation.
 // This enables integration with external systems like Slack's session management.
-type MessageCallback func(ctx context.Context, msg api.Message) error
+type MessageCallback func(ctx context.Context, msg llm.Message) error
 
-// ChatResponseListener receives streaming chat responses from the LLM.
-type ChatResponseListener interface {
-	OnChatResponse(ctx context.Context, resp *api.ChatResponse) error
-}
-
-// LLM interface abstracts the underlying LLM client for testability and future provider support
+// LLM interface abstracts the underlying LLM client for testability and future provider support.
+// The callback receives each streaming response chunk and the final done signal.
 type LLM interface {
-	Chat(ctx context.Context, req *api.ChatRequest, listener ChatResponseListener) error
+	Chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error
 }

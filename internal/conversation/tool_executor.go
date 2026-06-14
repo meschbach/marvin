@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (e *Engine) executeToolCalls(ctx context.Context, pendingCalls []api.ToolCall, updater StreamingUpdater) ([]api.Message, error) {
+func (e *Engine) executeToolCalls(ctx context.Context, pendingCalls []llm.ToolCall, updater StreamingUpdater) ([]llm.Message, error) {
 	ctx, span := tracer.Start(ctx, "Engine.executeToolCalls")
 	defer span.End()
 

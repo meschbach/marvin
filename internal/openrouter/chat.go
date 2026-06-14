@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/junk"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/revrost/go-openrouter"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -21,7 +20,7 @@ type usage struct {
 	TotalTokens      int
 }
 
-func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversation.ChatResponseListener) error {
+func (o *LLM) Chat(ctx context.Context, req *llm.ChatRequest, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	ctx, span := tracer.Start(ctx, "openrouter.chat",
 		trace.WithAttributes(
 			attribute.String("model", o.model),
@@ -67,7 +66,7 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 	}
 	defer stream.Close()
 
-	finalUsage, finishReason, responseToolCalls, err := o.processStream(ctx, span, stream, onEvent)
+	finalUsage, finishReason, responseToolCalls, err := o.processStream(ctx, span, stream, onResponse)
 	if err != nil {
 		span.RecordError(err)
 	}
@@ -87,7 +86,7 @@ func (o *LLM) Chat(ctx context.Context, req *api.ChatRequest, onEvent conversati
 	return err
 }
 
-func (o *LLM) buildRequest(ctx context.Context, req *api.ChatRequest) (*openrouter.ChatCompletionRequest, error) {
+func (o *LLM) buildRequest(ctx context.Context, req *llm.ChatRequest) (*openrouter.ChatCompletionRequest, error) {
 	messages := make([]openrouter.ChatCompletionMessage, len(req.Messages))
 	for i, msg := range req.Messages {
 		messages[i] = o.convertMessage(ctx, msg)
@@ -103,25 +102,26 @@ func (o *LLM) buildRequest(ctx context.Context, req *api.ChatRequest) (*openrout
 		openRouterReq.Tools = o.convertTools(req.Tools)
 	}
 
-	if req.Options != nil {
-		openRouterReq.Temperature = o.extractFloat32(req.Options, "temperature")
-		openRouterReq.TopP = o.extractFloat32(req.Options, "top_p")
-		openRouterReq.TopK = o.extractInt(req.Options, "top_k")
-		openRouterReq.MaxTokens = o.extractInt(req.Options, "num_predict")
-		openRouterReq.Seed = o.extractIntPtr(req.Options, "seed")
-		openRouterReq.Stop = o.extractStrings(req.Options, "stop")
+	if req.Temperature != nil {
+		openRouterReq.Temperature = *req.Temperature
+	}
+	if req.TopP != nil {
+		openRouterReq.TopP = *req.TopP
+	}
+	if req.TopK != nil {
+		openRouterReq.TopK = *req.TopK
 	}
 
 	return openRouterReq, nil
 }
 
-func (o *LLM) convertMessage(ctx context.Context, msg api.Message) openrouter.ChatCompletionMessage {
+func (o *LLM) convertMessage(ctx context.Context, msg llm.Message) openrouter.ChatCompletionMessage {
 	content := msg.Content
-	if msg.Role == conversation.RoleAssistant && content == "" {
+	if msg.Role == llm.RoleAssistant && content == "" {
 		content = "Thinking..."
 	}
 	openMsg := openrouter.ChatCompletionMessage{
-		Role:    string(msg.Role),
+		Role:    msg.Role,
 		Content: openrouter.Content{Text: content},
 	}
 	if msg.ToolCallID != "" {
@@ -133,7 +133,7 @@ func (o *LLM) convertMessage(ctx context.Context, msg api.Message) openrouter.Ch
 	return openMsg
 }
 
-func (o *LLM) convertTools(tools api.Tools) []openrouter.Tool {
+func (o *LLM) convertTools(tools []llm.ToolDefinition) []openrouter.Tool {
 	result := make([]openrouter.Tool, len(tools))
 	for i, t := range tools {
 		result[i] = openrouter.Tool{
@@ -148,50 +148,7 @@ func (o *LLM) convertTools(tools api.Tools) []openrouter.Tool {
 	return result
 }
 
-func (o *LLM) extractFloat32(opts map[string]any, key string) float32 {
-	if val, ok := opts[key]; ok {
-		if f, ok := val.(float64); ok {
-			return float32(f)
-		}
-	}
-	return 0
-}
-
-func (o *LLM) extractInt(opts map[string]any, key string) int {
-	if val, ok := opts[key]; ok {
-		if f, ok := val.(float64); ok {
-			return int(f)
-		}
-	}
-	return 0
-}
-
-func (o *LLM) extractIntPtr(opts map[string]any, key string) *int {
-	if val, ok := opts[key]; ok {
-		if f, ok := val.(float64); ok {
-			i := int(f)
-			return &i
-		}
-	}
-	return nil
-}
-
-func (o *LLM) extractStrings(opts map[string]any, key string) []string {
-	if val, ok := opts[key]; ok {
-		if slice, ok := val.([]any); ok {
-			strs := make([]string, len(slice))
-			for i, v := range slice {
-				if s, ok := v.(string); ok {
-					strs[i] = s
-				}
-			}
-			return strs
-		}
-	}
-	return nil
-}
-
-func (o *LLM) processStream(ctx context.Context, span trace.Span, stream *openrouter.ChatCompletionStream, fn conversation.ChatResponseListener) (usage, openrouter.FinishReason, []string, error) {
+func (o *LLM) processStream(ctx context.Context, span trace.Span, stream *openrouter.ChatCompletionStream, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) (usage, openrouter.FinishReason, []string, error) {
 	finalUsage := usage{}
 	var finishReason openrouter.FinishReason
 	var responseToolCalls []string
@@ -212,7 +169,7 @@ func (o *LLM) processStream(ctx context.Context, span trace.Span, stream *openro
 			finishReason = resp.Choices[0].FinishReason
 		}
 
-		if err := o.processChunk(ctx, span, resp, &finalUsage, fn, &responseToolCalls); err != nil {
+		if err := o.processChunk(ctx, span, resp, &finalUsage, onResponse, &responseToolCalls); err != nil {
 			return finalUsage, finishReason, responseToolCalls, err
 		}
 
@@ -224,16 +181,16 @@ func (o *LLM) processStream(ctx context.Context, span trace.Span, stream *openro
 	return finalUsage, finishReason, responseToolCalls, nil
 }
 
-func (o *LLM) processChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn conversation.ChatResponseListener, responseToolCalls *[]string) error {
+func (o *LLM) processChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, onResponse func(ctx context.Context, resp *llm.ChatResponse) error, responseToolCalls *[]string) error {
 	o.updateUsage(resp, finalUsage)
 
 	isUsageOnly := o.isUsageOnlyChunk(resp)
 
 	if isUsageOnly {
-		return o.sendUsageOnlyChunk(ctx, resp, finalUsage, fn)
+		return o.sendUsageOnlyChunk(ctx, resp, finalUsage, onResponse)
 	}
 
-	return o.sendContentChunk(ctx, span, resp, finalUsage, fn, responseToolCalls)
+	return o.sendContentChunk(ctx, span, resp, finalUsage, onResponse, responseToolCalls)
 }
 
 func (o *LLM) updateUsage(resp openrouter.ChatCompletionStreamResponse, finalUsage *usage) {
@@ -260,27 +217,27 @@ func (o *LLM) isUsageOnlyChunk(resp openrouter.ChatCompletionStreamResponse) boo
 	return !hasContent && !hasToolCalls && !hasReasoning && !hasFinishReason
 }
 
-func (o *LLM) sendUsageOnlyChunk(ctx context.Context, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, onEvent conversation.ChatResponseListener) error {
+func (o *LLM) sendUsageOnlyChunk(ctx context.Context, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, onResponse func(ctx context.Context, resp *llm.ChatResponse) error) error {
 	if resp.Usage != nil && (resp.Usage.PromptTokens > 0 || resp.Usage.CompletionTokens > 0) {
 		*finalUsage = usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		}
-		apiResp := &api.ChatResponse{
-			Model: resp.Model,
-			Done:  true,
-			Metrics: api.Metrics{
-				EvalCount:       finalUsage.CompletionTokens,
-				PromptEvalCount: finalUsage.PromptTokens,
+		llmResp := llm.ChatResponse{
+			Done: true,
+			Stats: llm.Stats{
+				PromptTokens:   finalUsage.PromptTokens,
+				ResponseTokens: finalUsage.CompletionTokens,
+				TotalTokens:    finalUsage.TotalTokens,
 			},
 		}
-		return onEvent.OnChatResponse(ctx, apiResp)
+		return onResponse(ctx, &llmResp)
 	}
 	return nil
 }
 
-func (o *LLM) sendContentChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, fn conversation.ChatResponseListener, responseToolCalls *[]string) error {
+func (o *LLM) sendContentChunk(ctx context.Context, span trace.Span, resp openrouter.ChatCompletionStreamResponse, finalUsage *usage, onResponse func(ctx context.Context, resp *llm.ChatResponse) error, responseToolCalls *[]string) error {
 	choice := resp.Choices[0]
 	delta := choice.Delta
 	span.AddEvent("content-chunk")
@@ -299,28 +256,25 @@ func (o *LLM) sendContentChunk(ctx context.Context, span trace.Span, resp openro
 	if delta.Reasoning != nil {
 		reasoning = *delta.Reasoning
 	}
-	apiResp := &api.ChatResponse{
-		Model: resp.Model,
-		Message: api.Message{
-			Role:     delta.Role,
-			Content:  delta.Content,
-			Thinking: reasoning,
-		},
-		Done: isDone,
-		Metrics: api.Metrics{
-			EvalCount:       finalUsage.CompletionTokens,
-			PromptEvalCount: finalUsage.PromptTokens,
+	llmResp := llm.ChatResponse{
+		Content:  delta.Content,
+		Thinking: reasoning,
+		Done:     isDone,
+		Stats: llm.Stats{
+			PromptTokens:   finalUsage.PromptTokens,
+			ResponseTokens: finalUsage.CompletionTokens,
+			TotalTokens:    finalUsage.TotalTokens,
 		},
 	}
 
 	if delta.ToolCalls != nil {
-		apiResp.Message.ToolCalls = o.convertToolCallsFromOpenRouter(ctx, delta.ToolCalls)
+		llmResp.ToolCalls = o.convertToolCallsFromOpenRouter(ctx, delta.ToolCalls)
 		for _, tc := range delta.ToolCalls {
 			*responseToolCalls = append(*responseToolCalls, tc.Function.Name)
 		}
 	}
 
-	return fn.OnChatResponse(ctx, apiResp)
+	return onResponse(ctx, &llmResp)
 }
 
 func (o *LLM) isDone(finishReason openrouter.FinishReason, finalUsage usage) bool {

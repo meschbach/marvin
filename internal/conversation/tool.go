@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/meschbach/marvin/internal/junk"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 // ToolTypeFunction represents a function-based tool.
@@ -16,9 +16,9 @@ var ToolPropTypeString = []string{"string"}
 
 // ToolDefinition defines the structure and instructions for a tool.
 type ToolDefinition struct {
-	Instructions []api.Message
+	Instructions []llm.Message
 	//todo: rename to `tools`
-	Tool api.Tools
+	Tool []llm.ToolDefinition
 	// URIHandler handles MCP resource reading.
 	URIHandler McpResource
 }
@@ -30,21 +30,21 @@ func NewToolDefinition() *ToolDefinition {
 
 // AppendInstruction adds a new system instruction to the tool definition.
 func (t *ToolDefinition) AppendInstruction(message string) {
-	t.Instructions = append(t.Instructions, api.Message{Role: RoleAssistant, Content: message})
+	t.Instructions = append(t.Instructions, llm.Message{Role: RoleAssistant, Content: message})
 }
 
 // Tool defines the interface for an executable tool.
 type Tool interface {
 	DefineAPI(ctx context.Context) (definition *ToolDefinition, problem error)
-	Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error)
+	Invoke(ctx context.Context, call llm.ToolCall) (out []llm.Message, problem error)
 }
 
 // ToolSet manages a collection of tools and provides helpers for chat integration.
 // todo: revisit design so we are not exporting every field.
 type ToolSet struct {
-	Instructions []api.Message
+	Instructions []llm.Message
 	ByName       map[string]Tool // maps namespaced op name -> base Tool
-	Defs         api.Tools
+	Defs         []llm.ToolDefinition
 	Container    *junk.Container
 	gateway      *McpResourceGateway
 }
@@ -88,8 +88,8 @@ func (ts *ToolSet) RegisterTool(ctx context.Context, t Tool) error {
 	return nil
 }
 
-// APITools returns the list of api.Tool definitions to send with chat requests.
-func (ts *ToolSet) APITools() api.Tools { return ts.Defs }
+// APITools returns the list of tool definitions to send with chat requests.
+func (ts *ToolSet) APITools() []llm.ToolDefinition { return ts.Defs }
 
 // Shutdown stops all tools in the tool set.
 func (ts *ToolSet) Shutdown(ctx context.Context) error {
@@ -97,12 +97,12 @@ func (ts *ToolSet) Shutdown(ctx context.Context) error {
 }
 
 // HandleCall invokes the named Tool if available, otherwise returns an error Tool message.
-func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Message, error) {
+func (ts *ToolSet) HandleCall(ctx context.Context, call llm.ToolCall) ([]llm.Message, error) {
 	t, ok := ts.ByName[call.Function.Name]
 	if !ok {
 		// Return an error message so the model can recover gracefully
 		errMsg := fmt.Sprintf("Tool not found {name: %q}", call.Function.Name)
-		return []api.Message{ToolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", errMsg))}, nil
+		return []llm.Message{ToolResponseMessage(call, fmt.Sprintf("{\"error\":%q}", errMsg))}, nil
 	}
 	msgs, err := t.Invoke(ctx, call)
 	if err != nil {
@@ -112,11 +112,11 @@ func (ts *ToolSet) HandleCall(ctx context.Context, call api.ToolCall) ([]api.Mes
 }
 
 // ToolResponseMessage is a utility to respond to a Tool invocation with some content
-func ToolResponseMessage(call api.ToolCall, content string) api.Message {
-	return api.Message{
+func ToolResponseMessage(call llm.ToolCall, content string) llm.Message {
+	return llm.Message{
 		Role:       RoleToolResult,
-		ToolName:   call.Function.Name,
 		ToolCallID: call.ID,
+		ToolName:   call.Function.Name,
 		Content:    content,
 	}
 }

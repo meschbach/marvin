@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/meschbach/go-junk-bucket/pkg/fx"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 type TrackerEventType int
@@ -42,12 +42,12 @@ func (t *TrackingUpdater) AddThought(_ context.Context, thought string) error {
 	return nil
 }
 
-func (t *TrackingUpdater) AddToolCall(_ context.Context, toolCall api.ToolCall) error {
+func (t *TrackingUpdater) AddToolCall(_ context.Context, toolCall llm.ToolCall) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventToolCall, Value: toolCall.Function.Name})
 	return nil
 }
 
-func (t *TrackingUpdater) AddToolResult(_ context.Context, toolCall api.ToolCall, _ []api.Message, err error) error {
+func (t *TrackingUpdater) AddToolResult(_ context.Context, toolCall llm.ToolCall, _ []llm.Message, err error) error {
 	t.events = append(t.events, TrackerEvent{Kind: TrackerEventToolResults, Value: toolCall.Function.Name, Err: err})
 	return nil
 }

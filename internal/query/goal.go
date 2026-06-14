@@ -9,7 +9,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
-	"github.com/ollama/ollama/api"
+	"github.com/meschbach/marvin/internal/llm"
 )
 
 const mcpParameterTypeObject = "object"
@@ -77,7 +77,7 @@ func createReasoningToolSet(ctx context.Context, cfg *config.File) (*conversatio
 	return ts, nil
 }
 
-func formatAvailableTools(tools api.Tools) string {
+func formatAvailableTools(tools []llm.ToolDefinition) string {
 	availableTools := "These are tools available for the instructed AI:\n"
 	for _, tool := range tools {
 		availableTools += fmt.Sprintf("\t%s: %s\n", tool.Function.Name, tool.Function.Description)
@@ -85,8 +85,8 @@ func formatAvailableTools(tools api.Tools) string {
 	return availableTools
 }
 
-func buildGoalMessages(availableTools string, goal string) []api.Message {
-	return []api.Message{
+func buildGoalMessages(availableTools string, goal string) []llm.Message {
+	return []llm.Message{
 		{
 			Role:    conversation.RoleSystem,
 			Content: "You are an expert system in reasoning through problems.  You are building an instruction list for another AI and may only call steps starting with 'reasoning' .  Enumerate each step to be achieved via reasoning_step tool.  When you need further clarification or more information request this via reasoning_clairifying_question tool.  If instructions are clear then do not ask any clairifying questions.",
@@ -99,9 +99,12 @@ func buildGoalMessages(availableTools string, goal string) []api.Message {
 type questionForUser struct {
 }
 
-func (q questionForUser) Invoke(ctx context.Context, call api.ToolCall) (out []api.Message, problem error) {
-	args := call.Function.Arguments
-	prompt, hasPrompt := args.Get("prompt")
+func (q questionForUser) Invoke(ctx context.Context, call llm.ToolCall) (out []llm.Message, problem error) {
+	args, ok := call.Function.Arguments.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("missing required argument 'prompt'")
+	}
+	prompt, hasPrompt := args["prompt"]
 	if !hasPrompt {
 		return nil, fmt.Errorf("missing required argument 'prompt'")
 	}
@@ -113,12 +116,12 @@ func (q questionForUser) Invoke(ctx context.Context, call api.ToolCall) (out []a
 		return nil, err
 	}
 	trimmedInput := strings.TrimSpace(input)
-	return []api.Message{
+	return []llm.Message{
 		{
 			Role:       conversation.RoleToolResult,
 			Content:    "",
-			ToolName:   call.Function.Name,
 			ToolCallID: call.ID,
+			ToolName:   call.Function.Name,
 		},
 		{
 			Role:    conversation.RoleUser,
@@ -128,19 +131,20 @@ func (q questionForUser) Invoke(ctx context.Context, call api.ToolCall) (out []a
 }
 
 func (q questionForUser) DefineAPI(ctx context.Context) (definition *conversation.ToolDefinition, problem error) {
-	props := api.NewToolPropertiesMap()
-	props.Set("prompt", api.ToolProperty{
-		Type:        []string{mcpParameterTypeString},
-		Description: "The prompt to ask the user",
-	})
+	props := map[string]llm.ToolProperty{
+		"prompt": {
+			Type:        []string{mcpParameterTypeString},
+			Description: "The prompt to ask the user",
+		},
+	}
 	definitions := conversation.NewToolDefinition()
-	definitions.Tool = api.Tools{
+	definitions.Tool = []llm.ToolDefinition{
 		{
 			Type: "function",
-			Function: api.ToolFunction{
+			Function: llm.ToolFunction{
 				Name:        "reasoning_clairifying_question",
 				Description: "Request clarification from the user or to better understand what the instructions are",
-				Parameters: api.ToolFunctionParameters{
+				Parameters: &llm.ToolFunctionParameters{
 					Type:       mcpParameterTypeObject,
 					Required:   []string{"prompt"},
 					Properties: props,

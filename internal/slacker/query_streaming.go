@@ -7,16 +7,12 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
-	"github.com/ollama/ollama/api"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
-
-type llm interface {
-	Chat(ctx context.Context, req *api.ChatRequest, fn api.ChatResponseFunc) error
-}
 
 // QueryStreamer handles LLM integration and streaming responses
 type QueryStreamer struct {
@@ -71,17 +67,17 @@ func (qs *QueryStreamer) ProcessQueryWithUpdater(ctx context.Context, slackCtx *
 	}
 
 	// Build conversation history from session
-	messages := []api.Message{
+	messages := []llm.Message{
 		{Role: "system", Content: systemMessageContent},
 	}
 	messages = append(messages, session.Messages...)
-	messages = append(messages, api.Message{Role: "user", Content: message})
+	messages = append(messages, llm.Message{Role: "user", Content: message})
 
 	// Create LLM adapter and logger adapter
 	loggerAdapter := NewSlackLoggerAdapter(qs.securityLogger, slackCtx.UserID)
 
 	// Create message callback for session management
-	messageCallback := func(ctx context.Context, msg api.Message) error {
+	messageCallback := func(ctx context.Context, msg llm.Message) error {
 		return qs.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, msg)
 	}
 

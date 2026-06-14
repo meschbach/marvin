@@ -7,9 +7,9 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
+	"github.com/meschbach/marvin/internal/llm"
 	"github.com/meschbach/marvin/internal/query"
 	sec "github.com/meschbach/marvin/internal/slacker/security"
-	"github.com/ollama/ollama/api"
 	"github.com/slack-go/slack"
 )
 
@@ -57,7 +57,7 @@ func NewQueryProcessor(
 // HandleQueryWithUpdater processes queries with a specific Slack updater
 func (qp *QueryProcessor) HandleQueryWithUpdater(ctx context.Context, slackCtx *SlackContext, session *UserSession, message string, updater *SlackUpdater) error {
 	// Add user message to session
-	userMsg := api.Message{Role: "user", Content: message}
+	userMsg := llm.Message{Role: "user", Content: message}
 	if err := qp.sessionManager.AddMessage(slackCtx.UserID, slackCtx.ChannelID, userMsg); err != nil {
 		qp.securityLogger.LogError(slackCtx.UserID, "SessionManager", err.Error())
 		return err
