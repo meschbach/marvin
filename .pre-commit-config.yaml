@@ -36,9 +36,19 @@ repos:
         entry: golangci-lint
         language: system
         args: ["run", "--timeout=5m"]
-        files: '\.go$'
         pass_filenames: false
+        files: '\.go$'
         description: Comprehensive Go linting with default settings
+
+      - id: golangci-lint-full
+        name: golangci-lint (full, with cache clean)
+        entry: bash
+        language: system
+        args: ["-c", "golangci-lint cache clean && golangci-lint run --timeout=5m"]
+        pass_filenames: false
+        files: '\.go$'
+        stages: [pre-push]
+        description: Full golangci-lint run with cache clean (pre-push only)
 
       # Phase 2: Unit Tests (Fast - matches CI unit tests)
       - id: go-test-unit
