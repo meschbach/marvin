@@ -55,10 +55,8 @@ func NewOrderedChain(ctx context.Context, models []ModelEntry, accessCheck func(
 
 	for i := range models {
 		models[i].Breaker.SetCircuitEventCallback(func(modelName string, from, to gobreaker.State) {
-			if metrics != nil {
-				metrics.recordCircuitEvent(chain.ctx, modelName,
-					spanStateToString(int(from)), spanStateToString(int(to)))
-			}
+			metrics.recordCircuitEvent(chain.ctx, modelName,
+				spanStateToString(int(from)), spanStateToString(int(to)))
 		})
 	}
 
@@ -100,116 +98,121 @@ func (c *OrderedChain) Chat(ctx context.Context, req *ChatRequest, onResponse fu
 		}
 
 		attempted++
-		remaining := len(c.models) - i
 
-		modelCtx, cancel := c.withPerModelTimeout(ctx, remaining)
-
-		tryCtx, trySpan := tracer.Start(modelCtx, "OrderedChain.tryModel",
-			trace.WithAttributes(
-				attribute.String("model.label", entry.Label),
-				attribute.String("model.provider", entry.Provider),
-				attribute.Int("attempt.index", i),
-			),
-		)
-
-		resp, err := entry.Breaker.Execute(tryCtx, func(innerCtx context.Context) (*ChatResponse, error) {
-			var finalResp *ChatResponse
-			callErr := entry.LLM.Chat(innerCtx, req, func(ctx context.Context, resp *ChatResponse) error {
-				finalResp = resp
-				return onResponse(ctx, resp)
-			})
-			return finalResp, callErr
-		})
-		trySpan.End()
-		cancel()
-
+		_, err := c.tryModel(ctx, entry, req, onResponse, i)
 		if err == nil {
-			if c.metrics != nil {
-				c.metrics.recordTryCount(ctx, int64(attempted))
-				c.metrics.recordLatency(ctx, "success", time.Since(startTime).Seconds())
-				if attempted == 1 {
-					c.metrics.recordResult(ctx, "success")
-				} else {
-					c.metrics.recordResult(ctx, "recovered")
-				}
-			}
-			span.SetAttributes(
-				attribute.String("chain.result", c.chainResult(attempted)),
-				attribute.Int("models.attempted", attempted),
-				attribute.String("chain.final_model", entry.Label),
-			)
-			span.SetStatus(codes.Ok, "")
-			_ = resp
+			c.recordSuccess(ctx, span, entry, attempted, startTime)
 			return nil
 		}
 
-		if c.metrics != nil && errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-			c.metrics.recordTimeout(ctx, entry.Label, defaultPerModelTimeout.Seconds())
-		}
-
 		lastAttemptedModel = entry.Label
-
-		if errors.Is(err, ErrRateLimited) || errors.Is(err, ErrNoToken) {
-			lastErr = err
-			continue
-		}
-
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			if ctx.Err() != nil {
-				span.RecordError(ctx.Err())
-				span.SetStatus(codes.Error, "context canceled")
-				return err
-			}
-			lastErr = err
-			continue
-		}
-
 		lastErr = err
 
-		if i+1 < len(c.models) && c.accessCheck != nil {
-			for j := i + 1; j < len(c.models); j++ {
-				nextEntry := &c.models[j]
-				if c.accessCheck == nil || c.accessCheck(nextEntry.Label) {
-					if c.metrics != nil {
-						c.metrics.recordSwitch(ctx, entry.Label, nextEntry.Label)
-					}
-					break
-				}
-			}
-		} else if i+1 < len(c.models) {
-			nextEntry := &c.models[i+1]
-			if c.metrics != nil {
-				c.metrics.recordSwitch(ctx, entry.Label, nextEntry.Label)
-			}
+		if !c.handleModelError(ctx, span, entry, i, err) {
+			return err
 		}
 	}
 
-	if attempted == 0 {
-		span.SetAttributes(
-			attribute.String("chain.result", "exhausted"),
-			attribute.Int("models.attempted", 0),
-		)
-		span.SetStatus(codes.Error, "no models available")
-		if c.metrics != nil {
-			c.metrics.recordResult(ctx, "exhausted")
-			c.metrics.recordLatency(ctx, "exhausted", time.Since(startTime).Seconds())
+	return c.recordExhausted(ctx, span, attempted, startTime, lastErr, lastAttemptedModel)
+}
+
+func (c *OrderedChain) tryModel(ctx context.Context, entry *ModelEntry, req *ChatRequest, onResponse func(context.Context, *ChatResponse) error, index int) (*ChatResponse, error) {
+	modelCtx, cancel := c.withPerModelTimeout(ctx, len(c.models)-index)
+	defer cancel()
+
+	tryCtx, trySpan := tracer.Start(modelCtx, "OrderedChain.tryModel",
+		trace.WithAttributes(
+			attribute.String("model.label", entry.Label),
+			attribute.String("model.provider", entry.Provider),
+			attribute.Int("attempt.index", index),
+		),
+	)
+	defer trySpan.End()
+
+	return entry.Breaker.Execute(tryCtx, func(innerCtx context.Context) (*ChatResponse, error) {
+		var finalResp *ChatResponse
+		callErr := entry.LLM.Chat(innerCtx, req, func(ctx context.Context, resp *ChatResponse) error {
+			finalResp = resp
+			return onResponse(ctx, resp)
+		})
+		return finalResp, callErr
+	})
+}
+
+func (c *OrderedChain) recordSuccess(ctx context.Context, span trace.Span, entry *ModelEntry, attempted int, startTime time.Time) {
+	c.metrics.recordTryCount(ctx, int64(attempted))
+	c.metrics.recordLatency(ctx, "success", time.Since(startTime).Seconds())
+	if attempted == 1 {
+		c.metrics.recordResult(ctx, "success")
+	} else {
+		c.metrics.recordResult(ctx, "recovered")
+	}
+	span.SetAttributes(
+		attribute.String("chain.result", c.chainResult(attempted)),
+		attribute.Int("models.attempted", attempted),
+		attribute.String("chain.final_model", entry.Label),
+	)
+	span.SetStatus(codes.Ok, "")
+}
+
+func (c *OrderedChain) handleModelError(ctx context.Context, span trace.Span, entry *ModelEntry, index int, err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		c.metrics.recordTimeout(ctx, entry.Label, defaultPerModelTimeout.Seconds())
+	}
+
+	if errors.Is(err, ErrRateLimited) || errors.Is(err, ErrNoToken) {
+		return true
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if ctx.Err() != nil {
+			span.RecordError(ctx.Err())
+			span.SetStatus(codes.Error, "context canceled")
+			return false
 		}
+		return true
+	}
+
+	c.recordModelSwitch(ctx, entry, index)
+	return true
+}
+
+func (c *OrderedChain) recordModelSwitch(ctx context.Context, entry *ModelEntry, index int) {
+	if index+1 >= len(c.models) {
+		return
+	}
+	if c.accessCheck != nil {
+		for j := index + 1; j < len(c.models); j++ {
+			if c.accessCheck(c.models[j].Label) {
+				c.metrics.recordSwitch(ctx, entry.Label, c.models[j].Label)
+				return
+			}
+		}
+		return
+	}
+	c.metrics.recordSwitch(ctx, entry.Label, c.models[index+1].Label)
+}
+
+func (c *OrderedChain) recordExhausted(ctx context.Context, span trace.Span, attempted int, startTime time.Time, lastErr error, lastAttemptedModel string) error {
+	span.SetAttributes(
+		attribute.String("chain.result", "exhausted"),
+		attribute.Int("models.attempted", attempted),
+	)
+	if attempted == 0 {
+		span.SetStatus(codes.Error, "no models available")
+		c.metrics.recordResult(ctx, "exhausted")
+		c.metrics.recordLatency(ctx, "exhausted", time.Since(startTime).Seconds())
 		return fmt.Errorf("%w: no models available (all denied by access check)", ErrAllModelsExhausted)
 	}
 
 	span.SetAttributes(
-		attribute.String("chain.result", "exhausted"),
-		attribute.Int("models.attempted", attempted),
 		attribute.String("chain.final_model", lastAttemptedModel),
 	)
 	span.RecordError(lastErr)
 	span.SetStatus(codes.Error, "all models exhausted")
-
-	if c.metrics != nil {
-		c.metrics.recordTryCount(ctx, int64(attempted))
-		c.metrics.recordResult(ctx, "exhausted")
-		c.metrics.recordLatency(ctx, "exhausted", time.Since(startTime).Seconds())
-	}
+	c.metrics.recordTryCount(ctx, int64(attempted))
+	c.metrics.recordResult(ctx, "exhausted")
+	c.metrics.recordLatency(ctx, "exhausted", time.Since(startTime).Seconds())
 
 	if lastErr == nil {
 		return ErrAllModelsExhausted

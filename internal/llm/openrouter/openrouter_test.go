@@ -103,38 +103,42 @@ func chatAndCollect(t *testing.T, testLLM *LLM, content string) (*responseCollec
 	return collector, err
 }
 
-func TestOpenRouterLLM_Chat_StreamsContentAndMetrics_WithChunkedContent(t *testing.T) {
+func TestOpenRouterLLM_Chat_UsageMetrics(t *testing.T) {
 	t.Parallel()
-	respBody := `data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":null}
 
-data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+	tests := []struct {
+		name     string
+		respBody string
+		doneMsg  string
+	}{
+		{
+			name: "usage in separate chunk",
+			respBody: "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":\"stop\"}],\"usage\":null}\n\n" +
+				"data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n" +
+				"data: [DONE]\n",
+			doneMsg: "last response should be done",
+		},
+		{
+			name: "usage in same chunk as finish reason",
+			respBody: "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}\n\n" +
+				"data: [DONE]\n",
+			doneMsg: "response should be done",
+		},
+	}
 
-data: [DONE]
-`
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			testLLM := newTestLLM(t, tt.respBody, "openai/gpt-4o-mini")
+			collector, err := chatAndCollect(t, testLLM, "Hi")
 
-	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
-	collector, err := chatAndCollect(t, testLLM, "Hi")
-
-	require.NoError(t, err)
-	assert.True(t, collector.last.Done, "last response should be done")
-	assert.Equal(t, 5, collector.last.Stats.ResponseTokens, "completion tokens should be 5")
-	assert.Equal(t, 10, collector.last.Stats.PromptTokens, "prompt tokens should be 10")
-}
-
-func TestOpenRouterLLM_Chat_UsageInSameChunkAsFinishReason(t *testing.T) {
-	t.Parallel()
-	respBody := `data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
-
-data: [DONE]
-`
-
-	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
-	collector, err := chatAndCollect(t, testLLM, "Hi")
-
-	require.NoError(t, err)
-	assert.True(t, collector.last.Done, "response should be done")
-	assert.Equal(t, 5, collector.last.Stats.ResponseTokens, "completion tokens should be 5")
-	assert.Equal(t, 10, collector.last.Stats.PromptTokens, "prompt tokens should be 10")
+			require.NoError(t, err)
+			assert.True(t, collector.last.Done, tt.doneMsg)
+			assert.Equal(t, 5, collector.last.Stats.ResponseTokens, "completion tokens should be 5")
+			assert.Equal(t, 10, collector.last.Stats.PromptTokens, "prompt tokens should be 10")
+		})
+	}
 }
 
 func TestOpenRouterLLM_Chat_NemotronRealResponseFormat(t *testing.T) {
@@ -196,38 +200,50 @@ func chatForToolCalls(t *testing.T, testLLM *LLM, content string) (*responseColl
 	return collector, err
 }
 
-func TestOpenRouterLLM_Chat_ToolCallWithEmptyArguments(t *testing.T) {
+func TestOpenRouterLLM_Chat_ToolCallEdgeCases(t *testing.T) {
 	t.Parallel()
-	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"noop\",\"arguments\":\"\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
-		"data: [DONE]\n"
 
-	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
-	collector, err := chatForToolCalls(t, testLLM, "Do nothing")
+	tests := []struct {
+		name     string
+		respBody string
+		input    string
+		callID   string
+		toolName string
+	}{
+		{
+			name: "empty arguments",
+			respBody: "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"noop\",\"arguments\":\"\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
+				"data: [DONE]\n",
+			input:    "Do nothing",
+			callID:   "call_empty",
+			toolName: "noop",
+		},
+		{
+			name: "malformed arguments",
+			respBody: "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_bad\",\"type\":\"function\",\"function\":{\"name\":\"bad_tool\",\"arguments\":\"not valid json\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
+				"data: [DONE]\n",
+			input:    "Test",
+			callID:   "call_bad",
+			toolName: "bad_tool",
+		},
+	}
 
-	require.NoError(t, err)
-	t.Skip("restore me")
-	toolCallResp := findToolCallResponse(collector.responses)
-	require.Len(t, toolCallResp.ToolCalls, 1, "tool call should be preserved even with empty arguments")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			testLLM := newTestLLM(t, tt.respBody, "openai/gpt-4o-mini")
+			collector, err := chatForToolCalls(t, testLLM, tt.input)
 
-	assert.Equal(t, "call_empty", toolCallResp.ToolCalls[0].ID, "ID should be preserved")
-	assert.Equal(t, "noop", toolCallResp.ToolCalls[0].Function.Name, "Name should NOT be empty - this is the bug!")
-}
+			require.NoError(t, err)
+			t.Skip("restore me")
+			toolCallResp := findToolCallResponse(collector.responses)
+			require.Len(t, toolCallResp.ToolCalls, 1, "tool call should be preserved")
 
-func TestOpenRouterLLM_Chat_ToolCallWithMalformedArguments(t *testing.T) {
-	t.Parallel()
-	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_bad\",\"type\":\"function\",\"function\":{\"name\":\"bad_tool\",\"arguments\":\"not valid json\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
-		"data: [DONE]\n"
-
-	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
-	collector, err := chatForToolCalls(t, testLLM, "Test")
-
-	require.NoError(t, err)
-	t.Skip("restore me")
-	toolCallResp := findToolCallResponse(collector.responses)
-	require.Len(t, toolCallResp.ToolCalls, 1, "tool call should be preserved")
-
-	assert.Equal(t, "call_bad", toolCallResp.ToolCalls[0].ID, "ID should be preserved")
-	assert.Equal(t, "bad_tool", toolCallResp.ToolCalls[0].Function.Name, "Name should be preserved even if args are bad")
+			assert.Equal(t, tt.callID, toolCallResp.ToolCalls[0].ID, "ID should be preserved")
+			assert.Equal(t, tt.toolName, toolCallResp.ToolCalls[0].Function.Name, "Name should be preserved")
+		})
+	}
 }
 
 type headerCapturingTransport struct {
@@ -299,7 +315,7 @@ func TestOpenRouterLLM_ConvertMessage_EmptyAssistantMessageBecomesThinking(t *te
 		Content: "",
 	}
 
-	converted := testLLM.convertMessage(t.Context(), emptyAssistantMsg)
+	converted := testLLM.convertMessage(t.Context(), &emptyAssistantMsg)
 
 	assert.Equal(t, "Thinking...", converted.Content.Text, "empty assistant message should be converted to 'Thinking...'")
 	assert.Equal(t, llm.RoleAssistant, converted.Role)
@@ -318,7 +334,7 @@ func TestOpenRouterLLM_ConvertMessage_NonEmptyAssistantMessageUnchanged(t *testi
 		Content: "Hello, world!",
 	}
 
-	converted := testLLM.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), &msg)
 
 	assert.Equal(t, "Hello, world!", converted.Content.Text)
 }

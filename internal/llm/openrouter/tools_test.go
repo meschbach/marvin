@@ -28,7 +28,7 @@ func TestOpenRouterLLM_ConvertMessage_EmptyUserMessageUnchanged(t *testing.T) {
 		Content: "",
 	}
 
-	converted := testLLM.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), &msg)
 
 	assert.Empty(t, converted.Content.Text, "empty user message should remain empty")
 }
@@ -53,7 +53,7 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_PreservesID(t *testing.T) {
 		},
 	}
 
-	converted := testLLM.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), &msg)
 
 	require.Len(t, converted.ToolCalls, 1)
 	assert.Equal(t, "call_123", converted.ToolCalls[0].ID)
@@ -80,7 +80,7 @@ func TestOpenRouterLLM_ConvertMessage_WithToolCalls_GeneratesMissingID(t *testin
 		},
 	}
 
-	converted := testLLM.convertMessage(t.Context(), msg)
+	converted := testLLM.convertMessage(t.Context(), &msg)
 
 	require.Len(t, converted.ToolCalls, 1)
 	assert.NotEmpty(t, converted.ToolCalls[0].ID, "generated ID should not be empty")

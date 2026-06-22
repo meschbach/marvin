@@ -414,3 +414,23 @@ func TestOrderedChain_PermanentErrorDoesNotTripBreaker(t *testing.T) {
 
 	assert.Equal(t, gobreaker.StateClosed, entry.Breaker.State())
 }
+
+func TestOrderedChain_PerModelTimeoutFallsThrough(t *testing.T) {
+	t.Parallel()
+	entry1 := newEntry("slow", newFailLLM(context.DeadlineExceeded))
+
+	var called int
+	entry2 := newEntry("fast", &mockLLM{fn: func(ctx context.Context, req *ChatRequest, onResponse func(ctx context.Context, resp *ChatResponse) error) error {
+		called++
+		return onResponse(ctx, &ChatResponse{Content: "ok", Done: true})
+	}})
+
+	chain, err := NewOrderedChain(t.Context(), []ModelEntry{entry1, entry2}, nil)
+	require.NoError(t, err)
+
+	err = chain.Chat(t.Context(), &ChatRequest{}, func(ctx context.Context, resp *ChatResponse) error {
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, called)
+}
