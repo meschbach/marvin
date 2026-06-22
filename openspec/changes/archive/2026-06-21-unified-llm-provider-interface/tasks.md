@@ -62,28 +62,28 @@
 ### 3e: Update Ollama Provider to Produce llm Types
 
 - [x] 3.5.1 Update Ollama provider to accept `*llm.ChatRequest` and return `*llm.ChatResponse`
-- [x] 3.5.2 Remove dependency on `github.com/ollama/ollama/api` from the provider
+- [x] 3.5.2 Confine `github.com/ollama/ollama/api` imports to `internal/llm/ollama/` — no shared/consumer package outside the provider imports Ollama SDK types; CLI commands in `cmd/` are a known exception
 - [x] 3.5.3 Run full conversation test suite
 
 ## Phase 4: Refactor OpenRouter and Gemini Providers
 
-- [ ] 4.1 Move `internal/openrouter/openrouter.go` → `internal/llm/openrouter/client.go`
-- [ ] 4.2 Move `internal/openrouter/chat.go` → `internal/llm/openrouter/chat.go`
-- [ ] 4.3 Move `internal/openrouter/retry.go` → `internal/llm/openrouter/retry.go`
-- [ ] 4.4 Move `internal/openrouter/otel.go` → `internal/llm/openrouter/otel.go`
-- [ ] 4.5 Move `internal/openrouter/tools.go` → `internal/llm/openrouter/`
-- [ ] 4.6 Update OpenRouter to implement new LLM interface (decoupled from Ollama types)
-- [ ] 4.7 Move `internal/gemini/gemini.go` → `internal/llm/gemini/client.go`
-- [ ] 4.8 Move `internal/gemini/chat.go` → `internal/llm/gemini/chat.go`
-- [ ] 4.9 Update Gemini to implement new LLM interface
-- [ ] 4.10 Run tests for both providers
+- [x] 4.1 Move `internal/openrouter/openrouter.go` → `internal/llm/openrouter/client.go`
+- [x] 4.2 Move `internal/openrouter/chat.go` → `internal/llm/openrouter/chat.go`
+- [x] 4.3 Move `internal/openrouter/retry.go` → `internal/llm/openrouter/retry.go`
+- [x] 4.4 Move `internal/openrouter/otel.go` → `internal/llm/openrouter/otel.go`
+- [x] 4.5 Move `internal/openrouter/tools.go` → `internal/llm/openrouter/`
+- [x] 4.6 Update OpenRouter to implement new LLM interface (decoupled from Ollama types)
+- [x] 4.7 Move `internal/gemini/gemini.go` → `internal/llm/gemini/client.go`
+- [x] 4.8 Move `internal/gemini/chat.go` → `internal/llm/gemini/chat.go`
+- [x] 4.9 Update Gemini to implement new LLM interface
+- [x] 4.10 Run tests for both providers
 
 ## Phase 5: Circuit Breaker + OrderedChain
 
-- [ ] 5.1 Add `sony/gobreaker/v2` dependency to go.mod
-- [ ] 5.2 Create `internal/llm/breaker.go` — per-model circuit breaker factory with
+- [x] 5.1 Add `sony/gobreaker/v2` dependency to go.mod
+- [x] 5.2 Create `internal/llm/breaker.go` — per-model circuit breaker factory with
       ReadyToTrip=5, Timeout=60s, OnStateChange wiring (429s do NOT trip breaker)
-- [ ] 5.3 Create `internal/llm/ramping_breaker.go` — `RampingBreaker` wrapping gobreaker
+- [x] 5.3 Create `internal/llm/ramping_breaker.go` — `RampingBreaker` wrapping gobreaker
       with:
       - Token-bucket slow-start: tokens=1 on recovery, doubles per round capped at 50,
         returns ErrNoToken when no token available, resets on any failure during recovery
@@ -91,16 +91,16 @@
         active; catches 429-with-timing inside gobreaker.Execute to prevent counting as
         a breaker failure; automatically clears when timestamp passes
       - Wire `OnStateChange` to seed recovery state when half-open → closed
-- [ ] 5.4 Create `internal/llm/ordered_chain.go` — OrderedChain iterating model list,
+- [x] 5.4 Create `internal/llm/ordered_chain.go` — OrderedChain iterating model list,
       skipping open breakers, falling through on ErrNoToken, calling Execute on each,
       with per-model timeout allocation (min 30s or remainingTime/remainingModels)
-- [ ] 5.5 `OrderedChain` returns `ErrAllModelsExhausted` when all models tried and failed
-- [ ] 5.6 Add error type propagation — `ErrRateLimited` (active gate, immediately fall through),
+- [x] 5.5 `OrderedChain` returns `ErrAllModelsExhausted` when all models tried and failed
+- [x] 5.6 Add error type propagation — `ErrRateLimited` (active gate, immediately fall through),
       `ErrNoToken` (recovery ramp full), health errors (counted toward breaker threshold),
       permanent errors (401, 404 — fail fast, don't count toward breaker)
-- [ ] 5.7 Add `AccessCheck func(label string) bool` field to OrderedChain
+- [x] 5.7 Add `AccessCheck func(label string) bool` field to OrderedChain
       (runtime model access filtering via closure)
-- [ ] 5.8 Add unit tests:
+- [x] 5.8 Add unit tests:
       - First model succeeds (single attempt)
       - First fails, second succeeds (recovery)
       - All models fail (exhaustion)
@@ -120,39 +120,41 @@
 
 ## Phase 6: Wire Factory and Consumers
 
-- [ ] 6.1 Create `internal/llm/factory.go` with `NewFromConfig(ctx, Config) (LLM, error)`;
+- [x] 6.1 Create `internal/llm/factory.go` with `NewFromConfig(ctx, Config) (LLM, error)`;
       Config includes File and AccessCheck func
-- [ ] 6.2 Add `NewEmbeddingProvider(ctx, *config.File) (EmbeddingProvider, error)` to factory.go
-- [ ] 6.3 Update `internal/query/query.go` — use new factory
-- [ ] 6.4 Update `internal/query/goal.go` — use new factory (remove hardcoded Ollama)
-- [ ] 6.5 Update `internal/slacker/query_streaming.go` — pass chain, wire AccessCheck closure
+- [x] 6.2 Add `NewEmbeddingProvider(ctx, *config.File) (EmbeddingProvider, error)` to factory.go
+- [x] 6.3 Update `internal/query/query.go` — use new factory
+- [x] 6.4 Update `internal/query/goal.go` — use new factory (remove hardcoded Ollama)
+- [x] 6.5 Update `internal/slacker/query_streaming.go` — pass chain, wire AccessCheck closure
       with model validation at request time
-- [ ] 6.6 Update `internal/slacker/query_handler.go` — pass config to QueryStreamer
-- [ ] 6.7 Update `internal/rag/` — use `NewEmbeddingProvider` instead of direct
-      `ollamaEncoder` construction (no type casting)
-- [ ] 6.8 Update `cmd/marvin/llm.go` — no change needed (delegates to query package)
-- [ ] 6.9 Remove old `internal/openrouter/` package directory
-- [ ] 6.10 Remove old `internal/gemini/` package directory
-- [ ] 6.11 Remove `internal/config/ollama.go` (moved to `internal/llm/ollama/embeddings.go`)
+- [x] 6.6 Update `internal/slacker/query_handler.go` — pass config to QueryStreamer
+- [x] 6.7 Update `internal/rag/` — use `NewEmbeddingProvider` instead of direct
+      `ollamaEncoder` construction (no type casting) — Created `internal/rag/` package
+      with `Collection` wrapper that uses `llm.EmbeddingProvider`
+- [x] 6.8 Update `cmd/marvin/llm.go` — no change needed (delegates to query package)
+- [x] 6.9 Remove old `internal/openrouter/` package directory
+- [x] 6.10 Remove old `internal/gemini/` package directory
+- [x] 6.11 Remove `internal/config/ollama.go` (moved to `internal/llm/ollama/embeddings.go`)
+      — Completed: RAG functionality moved to `internal/rag/` package using `llm.EmbeddingProvider`
 
 ## Phase 7: Observability
 
-- [ ] 7.1 Create `internal/llm/telemetry.go` — OTel tracer + meter + chain metric instruments
-- [ ] 7.3 Add `OrderedChain.Chat` span with chain result, models total/attempted, model names
-- [ ] 7.4 Add `OrderedChain.tryModel` child span per attempt with model, provider, result
-- [ ] 7.5 Wire `llm.chain.result` counter, `llm.chain.latency` histogram,
+- [x] 7.1 Create `internal/llm/telemetry.go` — OTel tracer + meter + chain metric instruments
+- [x] 7.3 Add `OrderedChain.Chat` span with chain result, models total/attempted, model names
+- [x] 7.4 Add `OrderedChain.tryModel` child span per attempt with model, provider, result
+- [x] 7.5 Wire `llm.chain.result` counter, `llm.chain.latency` histogram,
       `llm.chain.try_count` histogram
-- [ ] 7.6 Wire `llm.chain.switch` counter on model switch
-- [ ] 7.7 Wire `llm.chain.circuit_event` counter from gobreaker OnStateChange
-- [ ] 7.8 Wire `llm.chain.per_model_timeout` histogram tracking per-model timeout durations
-- [ ] 7.9 Create `docs/agentic-systems/chain-observability-dashboard.json`
+- [x] 7.6 Wire `llm.chain.switch` counter on model switch
+- [x] 7.7 Wire `llm.chain.circuit_event` counter from gobreaker OnStateChange
+- [x] 7.8 Wire `llm.chain.per_model_timeout` histogram tracking per-model timeout durations
+- [x] 7.9 Create `deploy/k8s/base/grafana-dashboard.yaml`
 
 ## Phase 8: Cleanup and Verification
 
-- [ ] 8.1 Remove old `internal/query/llm.go` (functionality moved to `internal/llm/`)
-- [ ] 8.2 Update `openspec/specs/llm-providers/spec.md` with new config format and health model
-- [ ] 8.3 Run full test suite, fix regressions
-- [ ] 8.4 Run pre-commit hooks: go fmt, go vet, golangci-lint, go build
+- [x] 8.1 Remove old `internal/query/llm.go` (functionality moved to `internal/llm/factory/`)
+- [x] 8.2 Update `openspec/specs/llm-providers/spec.md` with new config format and health model
+- [x] 8.3 Run full test suite, fix regressions
+- [x] 8.4 Run pre-commit hooks: go fmt, go vet, golangci-lint, go build
 
 ## Test Cases Reference
 

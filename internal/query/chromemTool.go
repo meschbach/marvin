@@ -9,17 +9,20 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/llm"
+	"github.com/meschbach/marvin/internal/rag"
 )
 
 // ChromemTool provides RAG functionality for searching and reading documents.
 type ChromemTool struct {
+	collection      *rag.Collection
 	config          *config.DocumentsBlock
 	showInvocations bool
 }
 
-// NewChromemTool creates a new ChromemTool for the given documents config.
-func NewChromemTool(cfg *config.DocumentsBlock, showInvocations bool) *ChromemTool {
+// NewChromemTool creates a new ChromemTool for the given documents config and embedding provider.
+func NewChromemTool(cfg *config.DocumentsBlock, embedder llm.EmbeddingProvider, showInvocations bool) *ChromemTool {
 	return &ChromemTool{
+		collection:      rag.NewCollection(cfg, embedder),
 		config:          cfg,
 		showInvocations: showInvocations,
 	}
@@ -130,7 +133,7 @@ func (c *ChromemTool) search(ctx context.Context, call llm.ToolCall) (out []llm.
 		}, nil
 	}
 
-	matches, err := c.config.Query(ctx, unwrappedQuery)
+	matches, err := c.collection.Query(ctx, unwrappedQuery)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
+	llmfactory "github.com/meschbach/marvin/internal/llm/factory"
 )
 
 // LoadToolsByNames loads only the specified tools from the configuration.
@@ -62,8 +63,12 @@ func LoadToolsByNames(ctx context.Context, cfg *config.File, toolNames []string)
 
 	// Handle "rag" - load all documents if requested
 	if requested["rag"] && len(cfg.Documents) > 0 {
+		embedder, err := llmfactory.NewEmbeddingProvider(ctx, cfg)
+		if err != nil {
+			return ts, fmt.Errorf("creating embedding provider for RAG: %w", err)
+		}
 		for _, rag := range cfg.Documents {
-			tool := NewChromemTool(rag, false)
+			tool := NewChromemTool(rag, embedder, false)
 			if err := ts.RegisterTool(ctx, tool); err != nil {
 				errs = append(errs, fmt.Errorf("rag tool %q: %w", rag.Name, err))
 			}

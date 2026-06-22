@@ -8,6 +8,7 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/llm"
+	llmfactory "github.com/meschbach/marvin/internal/llm/factory"
 )
 
 type ChatOptions struct {
@@ -50,7 +51,7 @@ func PerformWithConfig(ctx context.Context, cfg *config.File, actualQuery string
 	}
 
 	// Create LLM client based on configuration (supports Ollama and OpenRouter)
-	llmClient, err := NewLLM(ctx, cfg)
+	llmClient, err := llmfactory.NewFromConfig(ctx, cfg, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating LLM client: %v\n", err)
 		return

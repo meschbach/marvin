@@ -36,13 +36,7 @@ func NewQueryProcessor(
 	securityLogger *sec.SecurityLogger,
 	formatter *SlackFormatter,
 ) (*QueryProcessor, error) {
-	// need for context pushes we need a better design :-)
-	// nolint
-	llm, err := query.NewLLM(context.Background(), config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize LLM: %w", err)
-	}
-	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter, llm)
+	streamer := NewQueryStreamer(tenantToolSet, sessionManager, config, securityLogger, formatter)
 	return &QueryProcessor{
 		tenantToolSet:  tenantToolSet,
 		sessionManager: sessionManager,

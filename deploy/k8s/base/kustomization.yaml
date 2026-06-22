@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - slacker-statefulset.yaml
   - slacker-configmap.yaml
+  - grafana-dashboard.yaml
 
 commonLabels:
   app.kubernetes.io/name: slacker

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,7 +12,6 @@ import (
 )
 
 const DefaultLanguageModel = "ministral-3:3b"
-const DefaultEmbeddingModel = "mxbai-embed-large:latest"
 
 // ProviderType defines the type of LLM provider
 type ProviderType string
@@ -228,18 +226,14 @@ func (f *File) Provider() ProviderType {
 	return ProviderType(f.ProviderName)
 }
 
-func (f *File) QueryRAGDocuments(ctx context.Context, storeName, query string) ([]QueryResult, error) {
-	var documentBlock *DocumentsBlock
+// FindDocumentsBlock returns the documents block with the given name, or nil if not found.
+func (f *File) FindDocumentsBlock(name string) *DocumentsBlock {
 	for _, doc := range f.Documents {
-		if doc.Name == storeName {
-			documentBlock = doc
+		if doc.Name == name {
+			return doc
 		}
 	}
-	if documentBlock == nil {
-		return nil, fmt.Errorf("no documents block with name %q", storeName)
-	}
-	result, err := documentBlock.Query(ctx, query)
-	return result, err
+	return nil
 }
 
 type SystemPromptBlock struct {

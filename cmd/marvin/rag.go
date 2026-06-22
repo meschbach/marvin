@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/signal"
 
+	llmfactory "github.com/meschbach/marvin/internal/llm/factory"
+	"github.com/meschbach/marvin/internal/rag"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )
@@ -23,9 +25,16 @@ func ragCommand(global *globalOptions) *cobra.Command {
 				return
 			}
 
+			embedder, err := llmfactory.NewEmbeddingProvider(procContext, file)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %s\n", err.Error())
+				return
+			}
+
 			fmt.Printf("Indexing %d repositories\n", len(file.Documents))
-			for _, group := range file.Documents {
-				if err := group.Index(procContext); err != nil {
+			for _, docCfg := range file.Documents {
+				collection := rag.NewCollection(docCfg, embedder)
+				if err := collection.Index(procContext); err != nil {
 					fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 				}
 			}
@@ -46,7 +55,20 @@ func ragCommand(global *globalOptions) *cobra.Command {
 				return
 			}
 
-			result, err := file.QueryRAGDocuments(procContext, args[0], args[1])
+			embedder, err := llmfactory.NewEmbeddingProvider(procContext, file)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to create embedding provider: %s\n", err.Error())
+				return
+			}
+
+			var docCfg = file.FindDocumentsBlock(args[0])
+			if docCfg == nil {
+				fmt.Fprintf(os.Stderr, "no documents block with name %q\n", args[0])
+				return
+			}
+
+			collection := rag.NewCollection(docCfg, embedder)
+			result, err := collection.Query(procContext, args[1])
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 				return

@@ -37,8 +37,8 @@ When `provider` is not specified, Marvin defaults to **Ollama**.
 
 ### Structured Mode
 
-Uses `provider_model` blocks to define `(model, provider)` pairs, with an optional
-`fallback` list for ordered chain behavior:
+Uses `provider_model` blocks to define named `(provider, model)` pairs, with an optional
+`models` list in the `llm` block for ordering:
 
 ```hcl
 provider_model "primary" {
@@ -52,13 +52,14 @@ provider_model "backup" {
 }
 
 llm {
-    fallback           = ["primary", "backup"]
+    models = ["primary", "backup"]
 }
 ```
 
 **Detection:** The factory checks `len(cfg.ProviderModels) > 0`. If present, structured
-mode is used and `fallback` controls the ordered chain. If absent, legacy mode applies
-with a single implicit entry.
+mode is used. If `llm { models }` is present, it controls the ordered chain. If absent,
+`provider_model` blocks are used in declaration order. If neither is present, legacy mode
+applies with a single implicit entry.
 
 *Note: `notify_model_switch` was considered but deferred — this change does not include
 LLM-aware model switch notifications. The chain silently falls back to the next model.*
@@ -67,8 +68,8 @@ LLM-aware model switch notifications. The chain silently falls back to the next 
 
 ## Ordered Chain (Fallback)
 
-When multiple `provider_model` entries are configured with a `fallback` list, Marvin
-uses an **OrderedChain** to try models in declaration order, skipping unhealthy ones.
+When multiple `provider_model` entries are configured, Marvin uses an **OrderedChain** to
+try models in declaration order, skipping unhealthy ones.
 
 ### Selection Logic
 
@@ -356,30 +357,31 @@ and enable chain orchestration:
 
 ```
 internal/llm/
-├── interface.go         # LLM interface, ChatRequest, ChatResponse
-├── types.go             # Shared types: Message, ToolCall, ToolDefinition
-├── options.go           # Common options struct for ChatRequest
-├── embedding.go         # EmbeddingProvider interface + EmbeddingRequest (separate from LLM)
-├── embedding_factory.go # NewEmbeddingProvider — separate factory for embeddings
+├── chat.go              # LLM interface, ChatRequest, ChatResponse
+├── errors.go            # Structured error types with IsRetryable/IsPermanent
+├── embedding.go         # EmbeddingProvider interface + EmbeddingRequest
+├── telemetry.go         # OTel tracer + meter + chain metric instruments
 ├── ordered_chain.go     # OrderedChain — ordered fallback with circuit breaker health
-├── breaker.go           # Circuit breaker setup per model (sony/gobreaker)
-├── factory.go           # NewFromConfig — builds LLM from config
-├── errors.go            # Structured error types
-├── tracer.go            # OTel tracer for chain-level spans
-├── metrics.go           # OTel meter for chain-level metrics
+├── ramping_breaker.go   # Token-bucket readmission wrapping gobreaker
+├── breaker.go           # Circuit breaker factory (sony/gobreaker)
+├── factory.go           # NewChain, Config, ProviderFactory
+├── factory/
+│   └── factory.go       # NewFromConfig — builds LLM from config with provider creation
 ├── ollama/
-│   ├── client.go        # Ollama provider implementing LLM interface
-│   └── embeddings.go    # Embeddings (implements EmbeddingProvider)
+│   └── client.go        # Ollama provider (LLM + EmbeddingProvider)
 ├── openrouter/
-│   ├── client.go
-│   ├── chat.go
-│   ├── retry.go
-│   ├── tools.go
-│   └── otel.go
+│   ├── client.go        # OpenRouter provider
+│   ├── chat.go          # Chat method with streaming
+│   ├── retry.go         # Per-request retry with backoff
+│   ├── tools.go         # Tool call conversion
+│   └── otel.go          # Provider-level OTel metrics
 └── gemini/
-    ├── client.go
-    └── chat.go
+    ├── client.go        # Gemini provider
+    └── chat.go          # Chat method with Google GenAI streaming
 ```
+
+The factory package (`internal/llm/factory/`) is separate to avoid import cycles — it
+imports both `internal/llm` (for interfaces) and the provider packages (for implementations).
 
 ## Observability
 
@@ -390,27 +392,41 @@ The OrderedChain emits OTel spans for chain-level orchestration:
 ```
 OrderedChain.Chat  ← root span
   chain.strategy="ordered"
-  chain.outcome="success" | "exhausted"
+  chain.result="success" | "recovered" | "exhausted"
   models.total=3
   models.attempted=2
+  chain.first_model="primary"
+  chain.final_model="backup"
   └─ OrderedChain.tryModel  ← per actual attempt
-       model.label="claude-sonnet"
+       model.label="primary"
        model.provider="openrouter"
-       outcome="success" | "error"
+       result="success" | "error"
+       attempt.index=0
 ```
+
+`chain.result` values:
+- `success` — the first (preferred) model in the chain succeeded
+- `recovered` — the first model failed, but an alternative model recovered
+- `exhausted` — all models failed, no alternative succeeded
 
 ### Metrics
 
 | Metric | Type | Attributes | Purpose |
 |--------|------|------------|---------|
-| `llm.chain.outcome` | counter | `outcome` | Chain success rate |
-| `llm.chain.latency` | histogram | `outcome` | Total time with fallbacks |
-| `llm.chain.models_attempted` | histogram | — | Fallback depth |
-| `llm.chain.model_switch` | counter | `from_model`, `to_model` | Fallback trigger frequency |
-| `llm.chain.circuit_event` | counter | `model`, `from`, `to` | Breaker trip/recover events |
+| `llm.chain.result` | counter | `result` | Chain success rate (success/recovered/exhausted) |
+| `llm.chain.latency` | histogram | `result` | Total time with fallbacks |
+| `llm.chain.try_count` | histogram | — | Fallback depth (models attempted) |
+| `llm.chain.switch` | counter | `from_model`, `to_model` | Fallback trigger frequency |
+| `llm.chain.circuit_event` | counter | `model`, `from`, `to` | Breaker state transitions |
+| `llm.chain.per_model_timeout` | histogram | `model` | Per-model timeout durations |
 
 Provider-level metrics (per-request latency, errors, rate limit waits) live in each
 provider package. Chain metrics are additive — they track orchestration only.
+
+### Grafana Dashboard
+
+A pre-built dashboard is available at `deploy/k8s/base/grafana-dashboard.yaml` for
+visualizing chain observability metrics in Grafana.
 
 ## Configuration File Reference
 
@@ -452,9 +468,10 @@ func (f *File) IsStructuredMode() bool {
 2. **API keys required** - OpenRouter and Gemini require API keys via `api_key` block or environment variables
 3. **Model selection** - Each provider accepts different model names; refer to provider documentation
 4. **Options are provider-specific** - Not all options work with all providers; Ollama-specific options may be ignored by others
-5. **Embeddings are a separate concern** - The `EmbeddingProvider` interface is distinct from `LLM` with its own factory. Existing RAG pipeline is not migrated in this change.
-6. **Fallback requires structured mode** - Use `provider_model` blocks + `fallback` list to enable automatic fallback between models/providers
+5. **Embeddings are a separate concern** - The `EmbeddingProvider` interface is distinct from `LLM` with its own implementation in `internal/llm/ollama/client.go`
+6. **Fallback requires structured mode** - Use `provider_model` blocks + optional `llm { models }` list to enable automatic fallback between models/providers
 7. **Health state is in-memory** - Circuit breaker cooldowns reset on process restart; no persistence
-8. **Single model in chain** - A `fallback` list with one entry is equivalent to legacy mode, still gains circuit breaker protection
+8. **Single model in chain** - A chain with one entry still gains circuit breaker protection
 9. **Per-model timeouts** - The chain allocates `min(30s, remainingTime/remainingModels)` per attempt to prevent a hanging model from starving fallbacks
 10. **Model access is runtime-checked** - The chain carries an `AccessCheck` function that filters models per-request; denied models are skipped silently
+11. **Factory package** - Provider creation lives in `internal/llm/factory/` to avoid import cycles between `internal/llm` and provider packages

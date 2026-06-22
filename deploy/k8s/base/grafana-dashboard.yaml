@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slacker-grafana-dashboard
+  labels:
+    app.kubernetes.io/name: slacker
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/part-of: marvin
+    grafana_dashboard: "1"
+data:
+  chain-observability.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "title": "Chain Results",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_result_total[5m])) by (result)",
+              "legendFormat": "{{result}}"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+        },
+        {
+          "title": "Chain Latency (p50, p95, p99)",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum(rate(llm_chain_latency_bucket[5m])) by (le))",
+              "legendFormat": "p50"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(llm_chain_latency_bucket[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum(rate(llm_chain_latency_bucket[5m])) by (le))",
+              "legendFormat": "p99"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+        },
+        {
+          "title": "Model Switch Rate",
+          "type": "stat",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_switch_total[5m]))",
+              "legendFormat": "switches/s"
+            }
+          ],
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8}
+        },
+        {
+          "title": "Circuit Breaker Events",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_circuit_event_total[5m])) by (model, from, to)",
+              "legendFormat": "{{model}}: {{from}} -> {{to}}"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 6, "y": 8}
+        },
+        {
+          "title": "Try Count Distribution",
+          "type": "histogram",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(increase(llm_chain_try_count_bucket[5m])) by (le)",
+              "legendFormat": "{{le}} attempts"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+        },
+        {
+          "title": "Per-Model Timeouts",
+          "type": "timeseries",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_per_model_timeout_total[5m])) by (model)",
+              "legendFormat": "{{model}}"
+            }
+          ],
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+        },
+        {
+          "title": "Recovery Rate",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_result_total{result=\"recovered\"}[5m])) / sum(rate(llm_chain_result_total[5m])) * 100",
+              "legendFormat": "recovery %"
+            }
+          ],
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "steps": [
+                  {"color": "red", "value": 0},
+                  {"color": "yellow", "value": 50},
+                  {"color": "green", "value": 80}
+                ]
+              },
+              "unit": "percent"
+            }
+          }
+        },
+        {
+          "title": "Exhaustion Rate",
+          "type": "gauge",
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(rate(llm_chain_result_total{result=\"exhausted\"}[5m])) / sum(rate(llm_chain_result_total[5m])) * 100",
+              "legendFormat": "exhaustion %"
+            }
+          ],
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "steps": [
+                  {"color": "green", "value": 0},
+                  {"color": "yellow", "value": 10},
+                  {"color": "red", "value": 25}
+                ]
+              },
+              "unit": "percent"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["llm", "marvin", "chain"],
+      "templating": {"list": []},
+      "time": {"from": "now-1h", "to": "now"},
+      "timepicker": {},
+      "timezone": "",
+      "title": "Marvin LLM Chain Observability",
+      "uid": "marvin-llm-chain",
+      "version": 1
+    }

@@ -10,6 +10,7 @@ import (
 	"github.com/meschbach/marvin/internal/config"
 	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/llm"
+	llmfactory "github.com/meschbach/marvin/internal/llm/factory"
 )
 
 const mcpParameterTypeObject = "object"
@@ -34,16 +35,16 @@ func PerformGoalWithConfig(cfg *config.File, goal string) {
 
 	fmt.Printf("Goal: %s\n", goal)
 
-	ollama, err := newOllamaLLMFromEnv()
+	llmClient, err := llmfactory.NewFromConfig(ctx, cfg, nil)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating Ollama client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error creating LLM client: %v\n", err)
 		return
 	}
 
 	availableTools := formatAvailableTools(realToolSet.Defs)
 	messages := buildGoalMessages(availableTools, goal)
 
-	engine := conversation.NewEngine(ollama, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
+	engine := conversation.NewEngine(llmClient, cfg, &conversation.NullLogger{}, reasoningToolset, messages)
 
 	model := "ministral-3:3b"
 	if cfg != nil && cfg.Model != "" {

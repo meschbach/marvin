@@ -149,10 +149,12 @@ internal/llm/
 ├── chat.go              # LLM interface, ChatRequest, ChatResponse, Message, ToolCall, ToolDefinition
 ├── ordered_chain.go     # OrderedChain — tries models in order, skips unhealthy
 ├── ramping_breaker.go   # Token-bucket readmission wrapping gobreaker[*ChatResponse]
-├── factory.go           # NewFromConfig + NewEmbeddingProvider
+├── factory.go           # NewChain, Config, ProviderFactory (chain building)
 ├── embedding.go         # EmbeddingProvider interface + EmbeddingRequest
 ├── errors.go            # Structured error types with their methods
 ├── telemetry.go         # OTel tracer + metrics for llm package
+├── factory/
+│   └── factory.go       # NewFromConfig, NewEmbeddingProvider (provider creation)
 ├── ollama/
 │   └── client.go        # Ollama provider (LLM + EmbeddingProvider)
 ├── openrouter/
@@ -162,6 +164,12 @@ internal/llm/
 └── gemini/
     └── client.go        # Gemini provider (LLM)
 ```
+
+The factory is split into two parts: `internal/llm/factory.go` contains chain-building logic
+(`NewChain`, `Config`, `ProviderFactory`), while `internal/llm/factory/factory.go` contains
+provider creation (`NewFromConfig`, `NewEmbeddingProvider`). This separation exists because
+provider subpackages (`ollama`, `openrouter`, `gemini`) import `internal/llm` for interface
+types — merging provider creation into `internal/llm/` would create circular dependencies.
 
 ### 3. Circuit Breaker Selection
 

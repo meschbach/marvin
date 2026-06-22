@@ -215,15 +215,15 @@ data: [DONE]
 
 	mockHTTPClient := &http.Client{Transport: transport}
 
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
+	orConfig := openrouter.DefaultConfig("test-key")
+	orConfig.BaseURL = "https://openrouter.ai/api/v1"
+	orConfig.HTTPClient = mockHTTPClient
 
 	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
-		httpClient: openrouter.NewClientWithConfig(*config),
+		httpClient: openrouter.NewClientWithConfig(*orConfig),
 	}
 
 	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
@@ -253,15 +253,15 @@ func TestExecuteWithRetry_ExhaustsRetries(t *testing.T) {
 
 	mockHTTPClient := &http.Client{Transport: transport}
 
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
+	orConfig := openrouter.DefaultConfig("test-key")
+	orConfig.BaseURL = "https://openrouter.ai/api/v1"
+	orConfig.HTTPClient = mockHTTPClient
 
 	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
-		httpClient: openrouter.NewClientWithConfig(*config),
+		httpClient: openrouter.NewClientWithConfig(*orConfig),
 	}
 
 	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
@@ -274,7 +274,7 @@ func TestExecuteWithRetry_ExhaustsRetries(t *testing.T) {
 		})
 	})
 
-	assert.Error(t, err, "should return error after retries exhausted")
+	require.Error(t, err, "should return error after retries exhausted")
 	assert.Nil(t, stream)
 	assert.Equal(t, 3, transport.attempts, "should have attempted 3 times")
 }
@@ -291,15 +291,15 @@ func TestExecuteWithRetry_NonRetryableError(t *testing.T) {
 
 	mockHTTPClient := &http.Client{Transport: transport}
 
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
+	orConfig := openrouter.DefaultConfig("test-key")
+	orConfig.BaseURL = "https://openrouter.ai/api/v1"
+	orConfig.HTTPClient = mockHTTPClient
 
 	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "test-model",
-		httpClient: openrouter.NewClientWithConfig(*config),
+		httpClient: openrouter.NewClientWithConfig(*orConfig),
 	}
 
 	stream, err := testLLM.executeWithRetry(t.Context(), func(ctx context.Context) (*openrouter.ChatCompletionStream, error) {
@@ -312,7 +312,7 @@ func TestExecuteWithRetry_NonRetryableError(t *testing.T) {
 		})
 	})
 
-	assert.Error(t, err, "non-retryable error should not be retried")
+	require.Error(t, err, "non-retryable error should not be retried")
 	assert.Nil(t, stream)
 }
 

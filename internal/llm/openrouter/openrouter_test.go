@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/llm"
 	"github.com/revrost/go-openrouter"
 	"github.com/stretchr/testify/assert"
@@ -18,18 +17,18 @@ type responseCollector struct {
 	responses []llm.ChatResponse
 	last      llm.ChatResponse
 	err       error
-	stopAfter int // optional: stop collecting after N responses
+	stopAfter int
 	count     int
 }
 
 func (rc *responseCollector) OnChatResponse(ctx context.Context, resp *llm.ChatResponse) error {
 	if rc.stopAfter > 0 && rc.count >= rc.stopAfter {
-		return nil // effectively stops receiving more
+		return nil
 	}
 	rc.count++
 	rc.responses = append(rc.responses, *resp)
 	rc.last = *resp
-	return rc.err // can be set to non-nil to signal stopping
+	return rc.err
 }
 
 type mockTransport struct {
@@ -44,6 +43,20 @@ func (m *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}, nil
 }
 
+func newTestLLM(t *testing.T, respBody, model string) *LLM {
+	t.Helper()
+	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
+	cfg := openrouter.DefaultConfig("test-key")
+	cfg.BaseURL = "https://openrouter.ai/api/v1"
+	cfg.HTTPClient = mockHTTPClient
+	return &LLM{
+		apiKey:     "test-key",
+		baseURL:    "https://openrouter.ai/api/v1",
+		model:      model,
+		httpClient: openrouter.NewClientWithConfig(*cfg),
+	}
+}
+
 func TestOpenRouterLLM_Chat_StreamsContentAndMetrics(t *testing.T) {
 	t.Parallel()
 	respBody := `data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":null}
@@ -53,18 +66,7 @@ data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt
 data: [DONE]
 `
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
+	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
 
 	req := &llm.ChatRequest{
 		Messages: []llm.Message{
@@ -89,6 +91,18 @@ data: [DONE]
 	assert.Equal(t, 10, second.Stats.PromptTokens, "prompt tokens should be 10")
 }
 
+func chatAndCollect(t *testing.T, testLLM *LLM, content string) (*responseCollector, error) {
+	t.Helper()
+	req := &llm.ChatRequest{
+		Messages: []llm.Message{
+			{Role: "user", Content: content},
+		},
+	}
+	collector := &responseCollector{}
+	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	return collector, err
+}
+
 func TestOpenRouterLLM_Chat_StreamsContentAndMetrics_WithChunkedContent(t *testing.T) {
 	t.Parallel()
 	respBody := `data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],"usage":null}
@@ -98,27 +112,8 @@ data: {"id":"gen-123","model":"openai/gpt-4o-mini","choices":[],"usage":{"prompt
 data: [DONE]
 `
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
-
-	req := &llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: "Hi"},
-		},
-	}
-
-	collector := &responseCollector{}
-	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
+	collector, err := chatAndCollect(t, testLLM, "Hi")
 
 	require.NoError(t, err)
 	assert.True(t, collector.last.Done, "last response should be done")
@@ -133,27 +128,8 @@ func TestOpenRouterLLM_Chat_UsageInSameChunkAsFinishReason(t *testing.T) {
 data: [DONE]
 `
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
-
-	req := &llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: "Hi"},
-		},
-	}
-
-	collector := &responseCollector{}
-	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
+	collector, err := chatAndCollect(t, testLLM, "Hi")
 
 	require.NoError(t, err)
 	assert.True(t, collector.last.Done, "response should be done")
@@ -178,18 +154,7 @@ data: {"id":"gen-1770951369-sKYcTnzlyj6HvxZfXXkd","provider":"Nvidia","model":"n
 data: [DONE]
 `
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "nvidia/nemotron-3-nano-30b-a3b:free",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
+	testLLM := newTestLLM(t, respBody, "nvidia/nemotron-3-nano-30b-a3b:free")
 
 	req := &llm.ChatRequest{
 		Messages: []llm.Message{
@@ -207,7 +172,28 @@ data: [DONE]
 	assert.True(t, lastResponse.Done, "last response should be done")
 	assert.Equal(t, 47, lastResponse.Stats.ResponseTokens, "completion tokens should be 47")
 	assert.Equal(t, 18, lastResponse.Stats.PromptTokens, "prompt tokens should be 18")
-	assert.Equal(t, "", lastResponse.Content, "last chunk should have empty content (engine accumulates)")
+	assert.Empty(t, lastResponse.Content, "last chunk should have empty content (engine accumulates)")
+}
+
+func findToolCallResponse(responses []llm.ChatResponse) *llm.ChatResponse {
+	for i := range responses {
+		if len(responses[i].ToolCalls) > 0 {
+			return &responses[i]
+		}
+	}
+	return nil
+}
+
+func chatForToolCalls(t *testing.T, testLLM *LLM, content string) (*responseCollector, error) {
+	t.Helper()
+	req := &llm.ChatRequest{
+		Messages: []llm.Message{
+			{Role: "user", Content: content},
+		},
+	}
+	collector := &responseCollector{}
+	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	return collector, err
 }
 
 func TestOpenRouterLLM_Chat_ToolCallWithEmptyArguments(t *testing.T) {
@@ -215,39 +201,12 @@ func TestOpenRouterLLM_Chat_ToolCallWithEmptyArguments(t *testing.T) {
 	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_empty\",\"type\":\"function\",\"function\":{\"name\":\"noop\",\"arguments\":\"\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
 		"data: [DONE]\n"
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
-
-	req := &llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: "Do nothing"},
-		},
-	}
-
-	collector := &responseCollector{}
-	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
+	collector, err := chatForToolCalls(t, testLLM, "Do nothing")
 
 	require.NoError(t, err)
 	t.Skip("restore me")
-	// Find the response with tool calls
-	var toolCallResp *llm.ChatResponse
-	for i := range collector.responses {
-		if len(collector.responses[i].ToolCalls) > 0 {
-			toolCallResp = &collector.responses[i]
-			break
-		}
-	}
-	//require.NotNil(t, toolCallResp, "should receive a response with tool calls")
+	toolCallResp := findToolCallResponse(collector.responses)
 	require.Len(t, toolCallResp.ToolCalls, 1, "tool call should be preserved even with empty arguments")
 
 	assert.Equal(t, "call_empty", toolCallResp.ToolCalls[0].ID, "ID should be preserved")
@@ -259,39 +218,12 @@ func TestOpenRouterLLM_Chat_ToolCallWithMalformedArguments(t *testing.T) {
 	respBody := "data: {\"id\":\"gen-123\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_bad\",\"type\":\"function\",\"function\":{\"name\":\"bad_tool\",\"arguments\":\"not valid json\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":5,\"total_tokens\":10}}\n\n" +
 		"data: [DONE]\n"
 
-	mockHTTPClient := &http.Client{Transport: &mockTransport{respBody: respBody}}
-
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = mockHTTPClient
-
-	testLLM := &LLM{
-		apiKey:     "test-key",
-		baseURL:    "https://openrouter.ai/api/v1",
-		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
-	}
-
-	req := &llm.ChatRequest{
-		Messages: []llm.Message{
-			{Role: "user", Content: "Test"},
-		},
-	}
-
-	collector := &responseCollector{}
-	err := testLLM.Chat(t.Context(), req, collector.OnChatResponse)
+	testLLM := newTestLLM(t, respBody, "openai/gpt-4o-mini")
+	collector, err := chatForToolCalls(t, testLLM, "Test")
 
 	require.NoError(t, err)
 	t.Skip("restore me")
-	// Find the response with tool calls
-	var toolCallResp *llm.ChatResponse
-	for i := range collector.responses {
-		if len(collector.responses[i].ToolCalls) > 0 {
-			toolCallResp = &collector.responses[i]
-			break
-		}
-	}
-	//require.NotNil(t, toolCallResp, "should receive a response with tool calls even if args are malformed")
+	toolCallResp := findToolCallResponse(collector.responses)
 	require.Len(t, toolCallResp.ToolCalls, 1, "tool call should be preserved")
 
 	assert.Equal(t, "call_bad", toolCallResp.ToolCalls[0].ID, "ID should be preserved")
@@ -324,15 +256,15 @@ data: [DONE]
 
 	transport := &headerCapturingTransport{respBody: respBody, ctx: t.Context()}
 
-	config := openrouter.DefaultConfig("test-key")
-	config.BaseURL = "https://openrouter.ai/api/v1"
-	config.HTTPClient = &http.Client{Transport: transport}
+	cfg := openrouter.DefaultConfig("test-key")
+	cfg.BaseURL = "https://openrouter.ai/api/v1"
+	cfg.HTTPClient = &http.Client{Transport: transport}
 
 	testLLM := &LLM{
 		apiKey:     "test-key",
 		baseURL:    "https://openrouter.ai/api/v1",
 		model:      "openai/gpt-4o-mini",
-		httpClient: openrouter.NewClientWithConfig(*config),
+		httpClient: openrouter.NewClientWithConfig(*cfg),
 	}
 
 	req := &llm.ChatRequest{
@@ -363,14 +295,14 @@ func TestOpenRouterLLM_ConvertMessage_EmptyAssistantMessageBecomesThinking(t *te
 	}
 
 	emptyAssistantMsg := llm.Message{
-		Role:    conversation.RoleAssistant,
+		Role:    llm.RoleAssistant,
 		Content: "",
 	}
 
 	converted := testLLM.convertMessage(t.Context(), emptyAssistantMsg)
 
 	assert.Equal(t, "Thinking...", converted.Content.Text, "empty assistant message should be converted to 'Thinking...'")
-	assert.Equal(t, string(conversation.RoleAssistant), converted.Role)
+	assert.Equal(t, llm.RoleAssistant, converted.Role)
 }
 
 func TestOpenRouterLLM_ConvertMessage_NonEmptyAssistantMessageUnchanged(t *testing.T) {
@@ -382,7 +314,7 @@ func TestOpenRouterLLM_ConvertMessage_NonEmptyAssistantMessageUnchanged(t *testi
 	}
 
 	msg := llm.Message{
-		Role:    conversation.RoleAssistant,
+		Role:    llm.RoleAssistant,
 		Content: "Hello, world!",
 	}
 

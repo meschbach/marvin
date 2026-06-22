@@ -84,8 +84,7 @@ func NewTestEnvironment(t *testing.T) *TestEnvironment {
 		cfg,
 		securityLogger,
 		formatter,
-		mockLLM,
-	)
+	).WithTestLLM(mockLLM)
 
 	// Create SlackUpdater
 	preferences := DefaultUserPreferences()

@@ -16,6 +16,7 @@ require (
 	github.com/revrost/go-openrouter v1.1.5
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/slack-go/slack v0.17.3
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	github.com/yosida95/uritemplate/v3 v3.0.2

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/meschbach/marvin/internal/conversation"
 	"github.com/meschbach/marvin/internal/llm"
 
 	"google.golang.org/genai"
@@ -79,7 +78,7 @@ func convertSingleMessage(msg *llm.Message, index int) (*genai.Content, error) {
 	switch role {
 	case "tool":
 		return convertToolResult(msg), nil
-	case conversation.RoleAssistant:
+	case llm.RoleAssistant:
 		return convertAssistantMessage(msg, index)
 	default:
 		return convertUserMessage(msg, role, index)
